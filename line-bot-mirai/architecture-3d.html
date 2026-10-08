@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>line-bot-mirai | 仕組み図解</title>
+<link rel="stylesheet" href="lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // =========================================================================
+  // 2つのシーンを1つの3D空間に並べて置き、ステップごとにカメラで見せ分けている。
+  //   ランタイム編（動いているときの構成）  : x = 0 付近
+  //   セットアップ編（どのサイトで何を設定するか）: x = SU(=30) 付近
+  // =========================================================================
+  var SU = 30;
+
+  // ランタイム編の主要な座標（[x, y, z] / 奥が -z、手前が +z）
+  var P_USER   = [-10, 1.2, 8.6];
+  var P_LINE   = [-10, 1.6, 0.5];
+  var P_VERCEL = [-2, 1.9, 0.5];
+  var P_REDIS  = [8, 1.2, -6];
+  var P_CRON   = [3, 1.0, 6.5];
+
+  // セットアップ編：Vercelの環境変数ボードに並べる行 [変数名, 取得元の番号, 色]
+  var ENV_ROWS = [
+    ['LINE_CHANNEL_ACCESS_TOKEN', '①', '#06c755'],
+    ['LINE_CHANNEL_SECRET', '①', '#06c755'],
+    ['LIFF_ID', '⑤', '#9b84ff'],
+    ['LINE_CHANNEL_ID', '⑤', '#9b84ff'],
+    ['GOOGLE_SERVICE_ACCOUNT_EMAIL', '⑥', '#ea4335'],
+    ['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', '⑥', '#ea4335'],
+    ['ADMIN_USER_ID', '⑦', '#7ef0ff'],
+    ['CRON_SECRET', '④', '#ffd166'],
+    ['UPSTASH_REDIS_REST_KV_REST_API_URL', '③', '#00e9a3'],
+    ['UPSTASH_REDIS_REST_KV_REST_API_TOKEN', '③', '#00e9a3']
+  ];
+  var ROW0 = -2.45, ROWD = 0.55;             // 1行目のz座標と行間
+  function rowZ(i) { return ROW0 + i * ROWD; }
+  function envIds(from, to) {               // 行の id をまとめて作る（focus指定用）
+    var a = [];
+    for (var i = from; i <= to; i++) { a.push('env-' + i, 'env-l-' + i); }
+    return a;
+  }
+
+  // 1件のデータが pts を順番に旅していく様子。1区間 segDur 秒、loop 秒で先頭に戻る
+  function travel(g, t, pts, segDur, loop) {
+    g.get('pkt').visible = true;
+    var k = (t % loop) / segDur;
+    var i = Math.floor(k);
+    if (i > pts.length - 2) { i = pts.length - 2; k = pts.length - 1; }
+    g.arcPos('pkt', pts[i], pts[i + 1], k - i, 0.5);
+    return i;
+  }
+
+  GameGuide.start({
+    title: 'line-bot-mirai',
+    back: 'index.html',
+    subtitle: 'LINEボット「ミライ」の構成と、立ち上げるときに触るサイト（Node.js + Express / Vercel / Upstash Redis）',
+    camera: { pos: [-3, 20, 24], target: [-3, 0, -0.5] },
+
+    build: function (g) {
+
+      // ===================================================================
+      // シーンA：ランタイム編
+      // ===================================================================
+      g.group('rt', { pos: [0, 0, 0] });
+
+      // ---- ユーザー（人の形） ----
+      g.group('user', { parent: 'rt', pos: [-10, 0, 8.6] });
+      g.cylinder({ id: 'user-body', parent: 'user', radius: 0.5, height: 1.1, pos: [0, 0.55, 0], color: C.me });
+      g.sphere({ id: 'user-head', parent: 'user', radius: 0.36, pos: [0, 1.5, 0], color: C.me });
+      g.label('ユーザー\n(LINEアプリ)', [0, 2.5, 0], { id: 'user-label', parent: 'user', size: 0.32, bg: '#00000088' });
+
+      // ---- ユーザーの画面（リッチメニューとLIFFフォーム） ----
+      g.box({
+        id: 'richmenu', parent: 'rt', size: [2.6, 1.8, 0.12], pos: [-13.4, 1.0, 6.2], rot: [-0.18, 0.4, 0],
+        color: '#2d2944', emissive: '#06c755', emissiveIntensity: 0.22,
+        label: 'リッチメニュー\n(タップで定型文を送る)', labelSize: 0.27
+      });
+      g.box({
+        id: 'liff', parent: 'rt', size: [2.6, 2.2, 0.12], pos: [-6.6, 1.2, 6.2], rot: [-0.18, -0.4, 0],
+        color: '#2d2944', emissive: '#9b84ff', emissiveIntensity: 0.18,
+        label: 'LIFFフォーム\napi/liff-reminder.html', labelSize: 0.27
+      });
+
+      // ---- LINE Platform ----
+      g.box({
+        id: 'line', parent: 'rt', size: [3.4, 1.5, 2.3], pos: [-10, 0.75, 0.5], radius: 0.2,
+        color: '#06c755', label: 'LINE Platform\nMessaging API', labelSize: 0.3
+      });
+
+      // ---- Vercel（サーバーレス関数＝Expressアプリ本体） ----
+      g.box({
+        id: 'vercel', parent: 'rt', size: [5.0, 1.7, 2.7], pos: [-2, 0.85, 0.5], radius: 0.22,
+        color: C.server, label: 'Vercel（サーバーレス関数）\napi/index.js = Express', labelSize: 0.3
+      });
+      g.label('呼ばれた時だけ起きて、\n終わると全部忘れる', [-2, 4.1, 1.6],
+        { id: 'vercel-note', parent: 'rt', size: 0.27, color: '#ffd9a8', bg: '#00000088' });
+
+      // ---- lib/ の機能モジュール ----
+      g.group('libs', { parent: 'rt', pos: [-2.5, 0, -6] });
+      [
+        ['lib-weather', '天気\nweather.js', '#4dd0e1'],
+        ['lib-calendar', '予定\ncalendar.js', '#ea4335'],
+        ['lib-reminder', 'リマインド\nreminder.js', '#ffd166'],
+        ['lib-todo', 'メモ\ntodo.js', '#5ee6a8'],
+        ['lib-announce', 'アナウンス\nannouncement.js', '#c77dff'],
+        ['lib-fun', 'ゴミ / おみくじ\n/ ミニゲーム', '#b8b2d6']
+      ].forEach(function (e, i) {
+        g.box({
+          id: e[0], parent: 'libs', size: [1.9, 0.6, 1.5], pos: [-5.75 + i * 2.3, 0.3, 0], radius: 0.1,
+          color: e[2], label: e[1], labelSize: 0.25
+        });
+      });
+      g.label('lib/ … 機能ごとに1ファイル', [-2.5, 2.0, -8.1], { id: 'libs-label', parent: 'rt', size: 0.3, bg: '#00000088' });
+
+      // ---- Upstash Redis ----
+      g.cylinder({
+        id: 'redis', parent: 'rt', radius: 1.2, height: 1.6, pos: [8, 0.8, -6],
+        color: '#00e9a3', emissive: '#00e9a3', emissiveIntensity: 0.15,
+        label: 'Upstash Redis\n唯一の保存場所', labelSize: 0.3
+      });
+
+      // ---- 外部API ----
+      g.group('ext', { parent: 'rt', pos: [8, 0, 1.5] });
+      g.box({ id: 'ext-nominatim', parent: 'ext', size: [3.0, 1.0, 1.5], pos: [0, 0.5, -1.7], radius: 0.12, color: '#7f9cf5', label: 'Nominatim\n住所→緯度経度', labelSize: 0.26 });
+      g.box({ id: 'ext-openmeteo', parent: 'ext', size: [3.0, 1.0, 1.5], pos: [0, 0.5, 1.0], radius: 0.12, color: '#4dd0e1', label: 'Open-Meteo\n天気予報', labelSize: 0.26 });
+      g.box({ id: 'ext-gcal', parent: 'ext', size: [3.0, 1.0, 1.5], pos: [0, 0.5, 3.7], radius: 0.12, color: '#ea4335', label: 'Google Calendar API\n予定', labelSize: 0.26 });
+      g.label('外部API（キー不要のものと、要るもの）', [8, 1.6, 8.8], { id: 'ext-label', parent: 'rt', size: 0.28, bg: '#00000088' });
+
+      // ---- 外部cronサービス ----
+      g.box({
+        id: 'cron', parent: 'rt', size: [3.2, 1.0, 1.7], pos: [3, 0.5, 6.5], radius: 0.12,
+        color: C.gold, label: 'cron-job.org\n1分おきにGET', labelSize: 0.28
+      });
+
+      // ---- GitHub ----
+      g.box({
+        id: 'github', parent: 'rt', size: [3.2, 1.0, 1.9], pos: [-10, 0.5, -7.0], radius: 0.12,
+        color: '#8b8b9e', label: 'GitHub\npushすると自動デプロイ', labelSize: 0.27
+      });
+
+      // ---- 矢印・データの流れ ----
+      g.arrow(P_USER, [-10, 1.6, 2.0], { id: 'a-send', parent: 'rt', color: C.me, lift: 1.4, label: 'メッセージ送信', labelSize: 0.28 });
+      g.arrow([-8.1, 1.6, 0.0], [-4.7, 1.6, 0.0], { id: 'a-webhook', parent: 'rt', color: C.data, lift: 0.7, label: 'POST /webhook\n+ 署名ヘッダ', labelSize: 0.26 });
+      g.arrow([-4.7, 0.7, 1.2], [-8.1, 0.7, 1.2], { id: 'a-reply', parent: 'rt', color: C.good, lift: 0.7, label: 'replyMessage', labelSize: 0.26 });
+      g.arrow([-10, 1.6, 2.4], P_USER, { id: 'a-deliver', parent: 'rt', color: C.good, lift: 1.4, head: 0.3 });
+
+      g.flow([-2.5, 1.4, -0.9], [-2.5, 1.0, -4.9], { id: 'f-libs', parent: 'rt', color: C.data, lift: 0.8, count: 5 });
+      g.flow([3.6, 0.9, -6.0], [6.6, 1.0, -6.0], { id: 'f-redis', parent: 'rt', color: '#00e9a3', lift: 0.6, count: 5 });
+      g.arrow([3.6, 0.9, -7.0], [6.6, 0.9, -7.0], { id: 'a-redis', parent: 'rt', color: '#00e9a3', lift: 0.5, label: 'hset / hget', labelSize: 0.26 });
+
+      g.flow([0.6, 1.4, 0.5], [6.4, 1.1, 0.0], { id: 'f-ext1', parent: 'rt', color: '#7f9cf5', lift: 1.0, count: 4 });
+      g.flow([0.6, 1.4, 1.3], [6.4, 1.1, 2.5], { id: 'f-ext2', parent: 'rt', color: '#4dd0e1', lift: 1.0, count: 4 });
+      g.flow([0.6, 1.4, 2.1], [6.4, 1.1, 5.2], { id: 'f-ext3', parent: 'rt', color: '#ea4335', lift: 1.2, count: 4 });
+
+      g.arrow([1.3, 1.0, 6.2], [-0.2, 1.3, 2.0], { id: 'a-cron', parent: 'rt', color: C.gold, lift: 1.0, label: 'GET /cron/reminder?secret=…', labelSize: 0.26 });
+      g.arrow([-7.0, 1.6, 5.7], [-3.6, 1.8, 1.9], { id: 'a-liff', parent: 'rt', color: '#9b84ff', lift: 1.2, label: 'POST /liff/…\n+ IDトークン', labelSize: 0.26 });
+      g.arrow([-10, 1.0, -6.0], [-4.3, 1.3, -0.3], { id: 'a-deploy', parent: 'rt', color: '#b8b2d6', lift: 1.6, label: 'git push →\nビルド & デプロイ', labelSize: 0.26 });
+      g.arrow([-2, 2.2, -0.9], [-9.0, 2.2, 0.2], { id: 'a-push', parent: 'rt', color: '#ff5f6d', lift: 2.6, label: 'pushMessage（月200通の無料枠）', labelSize: 0.26 });
+
+      // 旅する1件のデータ。build時は非表示にしておき、使うステップだけ表示する
+      g.sphere({ id: 'pkt', parent: 'rt', radius: 0.24, pos: P_USER, color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6 }).visible = false;
+
+      // ---- 管理者だけの経路 ----
+      g.group('admin', { parent: 'rt', pos: [-15.5, 0, 3.0] });
+      g.cylinder({ id: 'admin-body', parent: 'admin', radius: 0.5, height: 1.1, pos: [0, 0.55, 0], color: '#ff5f6d' });
+      g.sphere({ id: 'admin-head', parent: 'admin', radius: 0.36, pos: [0, 1.5, 0], color: '#ff5f6d' });
+      g.label('管理者\nADMIN_USER_IDと\n一致する人だけ', [0, 2.8, 0], { id: 'admin-label', parent: 'admin', size: 0.29, bg: '#00000088' });
+      g.arrow([-15.0, 1.4, 2.0], [-11.4, 1.6, 0.8], { id: 'a-admin', parent: 'rt', color: '#ff5f6d', lift: 0.9, label: 'main-admin\nリッチメニュー', labelSize: 0.25 });
+
+      // ===================================================================
+      // シーンB：セットアップ編
+      // ===================================================================
+      g.group('su', { pos: [SU, 0, 0] });
+
+      // ---- 真ん中：Vercelの環境変数ボード ----
+      g.plate({ id: 'env-board', parent: 'su', size: [8.8, 6.6], pos: [0, 0.02, 0.1], color: '#1f1b31', opacity: 0.96, radius: 0.2 });
+      g.label('Vercel の環境変数（Environment Variables）\n＝ 各サイトで取った値の集約先', [0, 0.9, 4.1],
+        { id: 'env-title', parent: 'su', size: 0.34, bg: '#00000088' });
+      ENV_ROWS.forEach(function (e, i) {
+        var z = rowZ(i);
+        g.plate({ id: 'env-' + i, parent: 'su', size: [8.0, 0.42], pos: [0, 0.07, z], color: e[2], opacity: 0.3, radius: 0.08 });
+        g.label(e[1] + '  ' + e[0], [0, 0.4, z], { id: 'env-l-' + i, parent: 'su', size: 0.3, color: e[2] });
+      });
+
+      // ---- まわりのサイト ----
+      var SITES = [
+        ['site-line', [-10.2, 0.65, -3.2], [4.0, 1.3, 2.4], '#06c755', '① LINE Developers\nMessaging APIチャネル'],
+        ['site-login', [-10.2, 0.65, 0.4], [4.0, 1.3, 2.4], '#9b84ff', '⑤ LINE Developers\nLINEログインチャネル + LIFF'],
+        ['site-gcloud', [-10.2, 0.65, 4.0], [4.0, 1.3, 2.4], '#ea4335', '⑥ Google Cloud\nサービスアカウント'],
+        ['site-vercel', [0, 0.7, -6.6], [5.4, 1.4, 2.4], '#ff9f43', '② Vercel\nImport してデプロイ'],
+        ['site-github', [-7.6, 0.6, -9.2], [3.8, 1.2, 2.2], '#8b8b9e', '② GitHub\nリポジトリを push'],
+        ['site-upstash', [10.2, 0.65, -1.0], [4.0, 1.3, 2.4], '#00e9a3', '③ Upstash\nRedis（無料枠）'],
+        ['site-cron', [10.2, 0.65, 3.4], [4.0, 1.3, 2.4], '#ffd166', '④ cron-job.org\n1分おきのcron'],
+        ['site-myid', [2.4, 0.6, 8.4], [4.4, 1.2, 2.2], '#7ef0ff', '⑦ LINEのトーク\n「マイID」で userId を確認']
+      ];
+      SITES.forEach(function (s) {
+        g.box({ id: s[0], parent: 'su', pos: s[1], size: s[2], radius: 0.16, color: s[3], label: s[4], labelSize: 0.28 });
+      });
+
+      // ---- サイト → 環境変数行 への矢印 ----
+      g.arrow([-8.2, 1.2, -3.2], [-4.6, 0.5, rowZ(0) + ROWD / 2], { id: 'a-env-line', parent: 'su', color: '#06c755', lift: 1.1 });
+      g.arrow([-8.2, 1.2, 0.4], [-4.6, 0.5, rowZ(2) + ROWD / 2], { id: 'a-env-login', parent: 'su', color: '#9b84ff', lift: 1.1 });
+      g.arrow([-8.2, 1.2, 4.0], [-4.6, 0.5, rowZ(4) + ROWD / 2], { id: 'a-env-gcloud', parent: 'su', color: '#ea4335', lift: 1.1 });
+      g.arrow([2.4, 1.1, 7.3], [1.6, 0.5, rowZ(6)], { id: 'a-env-myid', parent: 'su', color: '#7ef0ff', lift: 1.8 });
+      g.arrow([8.2, 1.2, 3.4], [4.6, 0.5, rowZ(7)], { id: 'a-env-cron', parent: 'su', color: '#ffd166', lift: 1.1 });
+      g.arrow([8.2, 1.2, -1.0], [4.6, 0.5, rowZ(8) + ROWD / 2], { id: 'a-env-upstash', parent: 'su', color: '#00e9a3', lift: 1.1 });
+
+      // ---- GitHub → Vercel → 環境変数ボード / Webhook URLの貼り直し ----
+      g.arrow([-5.8, 1.1, -9.0], [-2.6, 1.2, -7.0], { id: 'a-su-deploy', parent: 'su', color: '#b8b2d6', lift: 0.9, label: 'Import / 自動デプロイ', labelSize: 0.26 });
+      g.arrow([0, 1.3, -5.4], [0, 0.6, -3.4], { id: 'a-su-env', parent: 'su', color: '#ff9f43', lift: 0.5 });
+      g.arrow([-2.8, 1.5, -6.2], [-8.4, 1.5, -3.6], { id: 'a-su-webhook', parent: 'su', color: '#ff5f6d', lift: 2.2, label: '発行されたURLを\nWebhook URL に貼り直す', labelSize: 0.26 });
+      g.arrow([10.2, 1.3, 2.2], [10.2, 1.3, 0.3], { id: 'a-su-upstash-link', parent: 'su', color: '#ffd166', lift: 0.6 });
+
+      // ---- ローカルから叩くスクリプト ----
+      g.box({
+        id: 'site-scripts', parent: 'su', pos: [-4.6, 0.55, 8.6], size: [5.6, 1.1, 2.2], radius: 0.14, color: '#4a4466',
+        label: '⑧ 手元のPC\nnode scripts/setup-rich-menu.js', labelSize: 0.27
+      });
+      g.arrow([-6.0, 1.1, 7.5], [-9.6, 1.2, 1.7], { id: 'a-su-scripts', parent: 'su', color: '#b8b2d6', lift: 1.6, label: 'リッチメニューを\nLINEへ直接登録', labelSize: 0.26 });
+    },
+
+    steps: [
+      // =================================================================
+      // ランタイム編
+      // =================================================================
+      {
+        title: 'まずは全体像（動いているときの構成）',
+        show: ['rt'],
+        camera: { pos: [-3, 20, 24], target: [-3, 0, -0.5] },
+        html:
+          '<p>登場人物はこれだけ。<b>サーバーを自分で持っていない</b>のがポイントで、全部よそのサービスの無料枠を組み合わせて動いてる。</p>' +
+          '<table><tr><th>役</th><th>やってること</th></tr>' +
+          '<tr><td>ユーザー</td><td>LINEアプリから話しかける</td></tr>' +
+          '<tr><td>LINE Platform</td><td>メッセージを中継する。Botの代わりに吹き出しを出す</td></tr>' +
+          '<tr><td>Vercel</td><td><code>api/index.js</code>（Express）が全リクエストを受ける本体</td></tr>' +
+          '<tr><td>lib/*.js</td><td>機能ごとの処理。天気・予定・リマインド・メモ・アナウンス…</td></tr>' +
+          '<tr><td>Upstash Redis</td><td>覚えておきたいものを置く唯一の場所</td></tr>' +
+          '<tr><td>外部API</td><td>住所→座標、天気予報、Googleカレンダー</td></tr>' +
+          '<tr><td>cron-job.org</td><td>1分おきに叩いてくれる外部の時計</td></tr>' +
+          '<tr><td>GitHub</td><td>pushするとVercelが勝手に作り直す</td></tr></table>' +
+          '<div class="gg-note">Vercelのサーバーレス関数は<b>リクエストが来た時だけ起きて、返したら全部忘れる</b>。なので「さっきの続き」はコードの中に持てない。この制約がこの後の設計ぜんぶに効いてくる。</div>' +
+          '<p class="gg-files">📄 <code>api/index.js</code>（約1,060行）、<code>lib/</code> に13ファイル</p>'
+      },
+      {
+        title: 'ひとこと送って返ってくるまで',
+        show: ['rt'],
+        focus: ['user', 'richmenu', 'line', 'vercel', 'a-send', 'a-webhook', 'a-reply', 'a-deliver', 'pkt'],
+        camera: { pos: [-16, 10, 15], target: [-6, 1.0, 3.5] },
+        html:
+          '<p>白い玉が1件のメッセージ。<b>行きは水色（Webhook）、帰りは緑（返信）</b>で、必ずこの往復で1回分が完結する。</p>' +
+          '<ol>' +
+          '<li>ユーザーが「天気 〇〇市」と送る</li>' +
+          '<li>LINE Platform が <code>POST /webhook</code> でVercelに投げる</li>' +
+          '<li><code>@line/bot-sdk</code> の <code>middleware()</code> が <code>X-Line-Signature</code> をチャネルシークレットで検証する。<b>ここだけ <code>express.json()</code> を通していない</b>（署名の計算に生のリクエストボディが必要だから）</li>' +
+          '<li><code>handleEvent()</code> がコマンドを判定して処理</li>' +
+          '<li><code>replyMessage</code> で返事。LINEがユーザーに表示する</li>' +
+          '</ol>' +
+          '<div class="gg-note"><code>replyToken</code> は<b>そのイベント1回だけ・短時間だけ</b>有効。だから「あとで送る」ものは返信では作れず、別途 <code>pushMessage</code> が必要になる（STEP 7）。</div>' +
+          '<p class="gg-files">📄 <code>api/index.js</code> の <code>app.post(\'/webhook\', middleware(config), …)</code></p>',
+        update: function (g, t) {
+          travel(g, t, [P_USER, P_LINE, P_VERCEL, P_LINE, P_USER], 1.1, 5.4);
+          g.setColor('pkt', (t % 5.4) < 2.2 ? '#7ef0ff' : '#5ee6a8');
+        }
+      },
+      {
+        title: 'コマンドの振り分けは「上から順の1本道」',
+        show: ['rt'],
+        focus: ['vercel', 'libs', 'lib-weather', 'lib-calendar', 'lib-reminder', 'lib-todo', 'lib-announce', 'lib-fun', 'f-libs', 'libs-label'],
+        camera: { pos: [-2, 12, 10], target: [-2, 0.8, -3] },
+        html:
+          '<p>ルーティングはフレームワーク任せではなく、<code>COMMANDS</code> という<b>[判定, ハンドラ] の配列</b>を上から試して、最初に当たった1つだけを実行する形。</p>' +
+          '<pre><code>const COMMANDS = [\n  [/^おみくじ$/,        …],\n  [/^マイID$/i,         handleMyId],\n  [/^アナウンス/,       handleAnnouncementCommand],\n  [/^リマインド/,       handleReminderCommand],\n  [/^メモ/,             handleTodoCommand],\n  [/アルカナ/,          …],   // ← 部分一致なので後ろ\n  [/^天気\\s*(.*)$/,     …],\n];</code></pre>' +
+          '<div class="gg-note"><b>並び順に意味がある。</b><code>/アルカナ/</code> は文中のどこにあっても反応する部分一致なので、<code>/^リマインド/</code> のような先頭一致より<b>必ず後ろ</b>に置く。上に来ると他のコマンドを食ってしまう。</div>' +
+          '<ul>' +
+          '<li>グループ・複数人トークでは<b>@メンションされた時だけ</b>見る。さらに通すのは「このグループに登録」だけで、天気やヘルプはグループでは反応しない</li>' +
+          '<li>どれにも当たらなかったら、オウム返しはせず「分からなかったよ〜」と返す</li>' +
+          '<li>当たったハンドラが <code>lib/</code> の関数を呼び、戻ってきた文字列を返信する</li>' +
+          '</ul>' +
+          '<p class="gg-files">📄 <code>api/index.js</code> の <code>COMMANDS</code> / <code>handleEvent()</code></p>'
+      },
+      {
+        title: '覚えておきたいものは全部 Upstash Redis へ',
+        show: ['rt'],
+        focus: ['libs', 'lib-weather', 'lib-calendar', 'lib-reminder', 'lib-todo', 'lib-announce', 'lib-fun', 'redis', 'f-redis', 'a-redis'],
+        camera: { pos: [1, 15, 7], target: [1, 0.5, -6.5] },
+        html:
+          '<p>サーバーレス関数は毎回使い捨てなので、ユーザーごとの設定も予約も<b>外のデータベースに置くしかない</b>。全部 Upstash Redis の無料枠1つで賄っている。</p>' +
+          '<table><tr><th>キー</th><th>型</th><th>中身</th></tr>' +
+          '<tr><td><code>reminder:schedule</code></td><td>Hash</td><td>userId → <code>[{time, text, once}]</code></td></tr>' +
+          '<tr><td><code>reminder:allowedUsers</code></td><td>Hash</td><td>userId → 表示名（利用を許可した人）</td></tr>' +
+          '<tr><td><code>todo:list</code></td><td>Hash</td><td>userId → メモの配列</td></tr>' +
+          '<tr><td><code>calendar:mapping</code></td><td>Hash</td><td>userId → カレンダーID</td></tr>' +
+          '<tr><td><code>weather:address</code></td><td>Hash</td><td>userId → 既定の住所</td></tr>' +
+          '<tr><td><code>announcement:groups</code></td><td>Hash</td><td>groupId → グループ名</td></tr>' +
+          '<tr><td><code>announcement:list</code></td><td>String</td><td>予約中アナウンスの配列（JSON）</td></tr></table>' +
+          '<p>接続は <code>lib/store.js</code> が1つ作って使い回す。<code>Redis.fromEnv()</code> は使えない —— Vercelの連携が作る変数名が <code>UPSTASH_REDIS_REST_KV_REST_API_URL</code> という独自の形で、SDKが期待する名前と一致しないため、URLとトークンを直接渡している。</p>' +
+          '<div class="gg-note">更新はどれも「読み出す → 1件いじる → 丸ごと書き戻す」。<b>同じキーへの更新を並列で走らせると、片方の削除がもう片方に上書きされて消える。</b>cronの一括処理でも <code>for</code> で1件ずつ <code>await</code> している。</div>' +
+          '<p class="gg-files">📄 <code>lib/store.js</code>、<code>lib/reminder.js</code>、<code>lib/announcement.js</code></p>'
+      },
+      {
+        title: '外に取りに行く機能（天気・予定）',
+        show: ['rt'],
+        focus: ['vercel', 'ext', 'ext-nominatim', 'ext-openmeteo', 'ext-gcal', 'f-ext1', 'f-ext2', 'f-ext3', 'ext-label'],
+        camera: { pos: [14, 11, 14], target: [6, 0.8, 2] },
+        html:
+          '<p><b>天気</b>は2段ロケット。住所の文字列はそのままでは予報APIに渡せないので、先に座標へ変換する。</p>' +
+          '<ol>' +
+          '<li>Nominatim（OpenStreetMap）に住所を投げて <code>lat / lon</code> をもらう</li>' +
+          '<li>その座標で Open-Meteo の予報を取る</li>' +
+          '</ol>' +
+          '<p>どちらも<b>APIキー不要・無料</b>。だから天気機能は環境変数が1つも増えない。</p>' +
+          '<p><b>予定</b>は Google Calendar API。サービスアカウントの秘密鍵でJWTを作ってアクセストークンに交換し、<code>/calendar/v3/calendars/{id}/events</code> を読む。スコープは <code>calendar.readonly</code> だけ。</p>' +
+          '<div class="gg-note">カレンダーは<b>ユーザーごとに別</b>。<code>calendar:mapping</code> に入っている「送信者自身のカレンダーID」しか見に行かないので、他人の予定が出てくることはない。サービスアカウントは全員で1つを共有し、各自が自分のカレンダーをその address に「予定の表示」権限で共有する。</div>' +
+          '<p>秘密鍵は改行を含む長い文字列で、Vercelの環境変数に貼ると改行が <code>\\n</code> の2文字に化ける。<code>lib/calendar.js</code> 側で元の改行に戻してから使っている。</p>' +
+          '<p class="gg-files">📄 <code>lib/weather.js</code>、<code>lib/calendar.js</code>、<code>lib/user-weather.js</code>、<code>lib/user-calendar.js</code></p>'
+      },
+      {
+        title: 'リッチメニューと LIFF フォーム',
+        show: ['rt'],
+        focus: ['richmenu', 'liff', 'user', 'line', 'vercel', 'a-liff'],
+        camera: { pos: [-8, 10, 18], target: [-7, 1.2, 4] },
+        html:
+          '<p>チャットに文字を打たなくても使えるように、入口を2つ用意してある。</p>' +
+          '<p><b>リッチメニュー</b>はトーク画面の下に出るタイル。タップすると<b>決まった文言をユーザーとして送る</b>だけなので、サーバー側はチャット入力とまったく同じ扱いでいい。</p>' +
+          '<pre><code>scripts/rich-menu-config.js     ← タイルの定義（座標とaction）\n  ↓ node scripts/generate-rich-menu-image.js\nscripts/rich-menu-*.png         ← メニュー画像を生成\n  ↓ node scripts/setup-rich-menu.js\nLINE に登録（画像アップロード + エイリアス）</code></pre>' +
+          '<div class="gg-note"><b>画像生成とアップロードは別の2段階。</b>ラベルを変えたら <code>generate-rich-menu-image.js</code> →  <code>setup-rich-menu.js</code> の<b>両方</b>を走らせないと見た目が変わらない。</div>' +
+          '<p><b>LIFF フォーム</b>はLINEの中で開くWebページ。<code>api/liff-reminder.html</code> の<b>1枚だけ</b>を <code>?view=</code> で出し分けている（<code>todo</code> / <code>calendar</code> / <code>address</code> / <code>announcement</code> / <code>reminder-access</code> …とその <code>-delete</code>）。</p>' +
+          '<p>フォームの送信先は <code>POST /liff/…</code>。本人確認は<b>サーバー側</b>でやる：受け取ったIDトークンをLINEの検証エンドポイントへ投げ、返ってきた <code>sub</code> をuserIdとして採用する。クライアントが名乗ったIDは信用しない。</p>' +
+          '<pre><code>liffPost(\'/liff/reminder\', { access: \'reminder\' }, handler)\n//  access: \'user\'     ログインしていれば誰でも\n//          \'reminder\' リマインダーの利用許可が必要\n//          \'admin\'    管理者のみ</code></pre>' +
+          '<p class="gg-files">📄 <code>api/liff-reminder.html</code>、<code>api/index.js</code> の <code>liffPost()</code> / <code>verifyLiffIdToken()</code></p>'
+      },
+      {
+        title: '時間になったら届く仕組み（ここだけ別系統）',
+        show: ['rt'],
+        focus: ['cron', 'vercel', 'lib-reminder', 'lib-announce', 'redis', 'line', 'user', 'a-cron', 'a-push', 'pkt'],
+        camera: { pos: [-1, 15, 19], target: [-2.5, 0.8, 1] },
+        html:
+          '<p>玉の旅を見てて。<b>外の時計 → Vercel → Redisを検索 → LINE → ユーザー</b>。返信ではなく <code>pushMessage</code> なので、ユーザーが何も送っていなくても届く。</p>' +
+          '<ol>' +
+          '<li>cron-job.org が1分おきに <code>GET /cron/reminder?secret=…</code> を叩く</li>' +
+          '<li>JSTの「今の日付と時刻」を<b>1回だけ</b>取る（日付と時刻を別々に取ると分の境目でズレるため）</li>' +
+          '<li><code>reminder:schedule</code> を全件見て、時刻が一致する人を集めて <code>pushMessage</code></li>' +
+          '<li><code>announcement:list</code> も日付＋時刻の一致で該当グループへ送る</li>' +
+          '<li><b>送信が成功した分だけ</b>消す。失敗した分は残して次の分でまた挑戦する</li>' +
+          '</ol>' +
+          '<div class="gg-note"><b>なぜ外部のcron？</b> Vercel Hobbyプランの自前Cron Jobsは<b>1日1回まで</b>で、毎分実行ができない。だから「1分おきに叩いてくれる人」だけを外に借りている。叩かれる側が丸ごと公開APIになってしまうので、<code>CRON_SECRET</code> を合言葉にしてクエリかヘッダで照合する。</div>' +
+          '<div class="gg-note"><b>pushは月200通の無料枠を食う</b>（返信は無料）。だからリマインダーは誰でも使えるようにせず、管理者が許可した人だけに絞ってある → STEP 8。</div>' +
+          '<p class="gg-files">📄 <code>api/index.js</code> の <code>app.get(\'/cron/reminder\')</code> / <code>sendDueReminders()</code> / <code>sendDueAnnouncements()</code>、<code>lib/jst.js</code></p>',
+        update: function (g, t) {
+          travel(g, t, [P_CRON, P_VERCEL, P_REDIS, P_VERCEL, P_LINE, P_USER], 1.0, 6.0);
+          g.setColor('pkt', (t % 6.0) < 3.0 ? '#ffd166' : '#ff5f6d');
+          g.pulse('cron', t, 0.05);
+        }
+      },
+      {
+        title: '管理者だけの経路',
+        show: ['rt', 'admin', 'a-admin'],
+        focus: ['admin', 'user', 'richmenu', 'line', 'vercel', 'lib-announce', 'a-admin'],
+        camera: { pos: [-9, 13, 17], target: [-7, 1.0, 2.5] },
+        html:
+          '<p>権限は<b>環境変数 <code>ADMIN_USER_ID</code> とログイン中のuserIdを突き合わせるだけ</b>のシンプルな作り。ログイン機構も権限テーブルも持たない。</p>' +
+          '<ul>' +
+          '<li>自分のuserIdは、Botに<b>「マイID」</b>と送れば分かる</li>' +
+          '<li>その値を <code>ADMIN_USER_ID</code> に入れると、アナウンス系とリマインダー許可系が使えるようになる</li>' +
+          '<li>未設定のうちは<b>誰が送っても拒否</b>される（安全側に倒れた初期状態）</li>' +
+          '</ul>' +
+          '<p><b>リッチメニューの出し分け</b>も同じ値でやっている。<code>main</code>（全員共通）と <code>main-admin</code>（🔧管理者用の行つき）の2つを作り、<code>linkRichMenuIdToUser</code> で<b>管理者のuserIdにだけ</b> <code>main-admin</code> を貼る。他の人にはボタンの存在すら見えない。</p>' +
+          '<div class="gg-note"><b>削除系コマンドは1:1トーク限定。</b>「アナウンス削除」「全削除」「グループ削除」は、管理者がグループ内で送っても実行されない。グループでの誤爆を物理的に防ぐため。</div>' +
+          '<p>リマインダーの利用許可は2段構え：<code>reminder:allowedUsers</code> に入っている人＋管理者自身だけが、チャットコマンドでもLIFFフォームでもリマインダーを使える。</p>' +
+          '<p class="gg-files">📄 <code>lib/reminder-access.js</code>、<code>scripts/setup-rich-menu.js</code>、<code>api/index.js</code> の <code>isAdmin()</code></p>'
+      },
+
+      // =================================================================
+      // セットアップ編
+      // =================================================================
+      {
+        title: 'ここからセットアップ編：触るサイトは7つ',
+        show: ['su'],
+        camera: { pos: [SU, 20, 21], target: [SU, 0, 0.5] },
+        html:
+          '<p>真ん中のボードが <b>Vercelの環境変数</b>。<b>各サイトで値を取ってここに集める</b>のがセットアップのゴール、と思っておくと迷わない。行の色＝取得元のサイトの色。</p>' +
+          '<table><tr><th>#</th><th>サイト</th><th>何のため</th><th>必須?</th></tr>' +
+          '<tr><td>①</td><td>LINE Developers（Messaging API）</td><td>Botの本体。トークン2つ</td><td><b>必須</b></td></tr>' +
+          '<tr><td>②</td><td>GitHub → Vercel</td><td>コードの置き場と実行場所</td><td><b>必須</b></td></tr>' +
+          '<tr><td>③</td><td>Upstash（Redis）</td><td>保存。設定・リマインド・メモ全部</td><td><b>ほぼ必須</b></td></tr>' +
+          '<tr><td>④</td><td>cron-job.org</td><td>時間になったら送る引き金</td><td>通知を使うなら</td></tr>' +
+          '<tr><td>⑤</td><td>LINE Developers（LINEログイン）</td><td>LIFFフォーム（GUI操作）</td><td>GUIを使うなら</td></tr>' +
+          '<tr><td>⑥</td><td>Google Cloud</td><td>カレンダー読み取り</td><td>予定機能を使うなら</td></tr>' +
+          '<tr><td>⑦</td><td>LINEのトーク（「マイID」）</td><td>管理者のuserIdを調べる</td><td>管理機能を使うなら</td></tr></table>' +
+          '<div class="gg-note">①②③だけなら<b>オウム返し＋天気＋メモまで</b>動く。④以降は機能を足すときに追加でやればよく、最初から全部やる必要はない。<b>どのサイトもクレジットカード登録は不要</b>（Vercel Hobby / Upstash Free / cron-job.org 無料 / LIFF 無料）。</div>' +
+          '<p>以下、値はすべて<b>ダミー</b>。形だけ真似して、実物は各コンソールで発行したものを入れること。</p>'
+      },
+      {
+        title: '① LINE Developers：Messaging APIチャネルを作る',
+        show: ['su'],
+        focus: ['site-line', 'env-board', 'env-title', 'a-env-line'].concat(envIds(0, 1)),
+        camera: { pos: [SU - 9, 11, 9], target: [SU - 5, 0.6, -2] },
+        html:
+          '<p><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">developers.line.biz/console</a> にLINEアカウントでログイン。</p>' +
+          '<ol>' +
+          '<li>「新規プロバイダー作成」→ 適当な名前（例: 個人開発）</li>' +
+          '<li>プロバイダー内で「新規チャネル作成」→ <b>Messaging API</b> を選ぶ</li>' +
+          '<li>チャネル名・説明・カテゴリを入れて作成</li>' +
+          '<li>「<b>Messaging API設定</b>」タブ → 一番下の<b>チャネルアクセストークン（長期）</b>を発行してコピー</li>' +
+          '<li>同じタブの上の方にある<b>チャネルシークレット</b>もコピー</li>' +
+          '<li>「<b>応答設定</b>」タブで<br>・応答メッセージ: <b>オフ</b>（公式アカウントの定型返信を止める）<br>・Webhook: <b>オン</b></li>' +
+          '</ol>' +
+          '<pre><code># .env / Vercelの環境変数（値はダミー）\nLINE_CHANNEL_ACCESS_TOKEN=AbCd1234EfGh5678IjKl…（200文字くらいの長い文字列）\nLINE_CHANNEL_SECRET=0123456789abcdef0123456789abcdef</code></pre>' +
+          '<div class="gg-note">「応答メッセージ: オフ」を忘れると、<b>Botの返事とLINE公式の定型文が2つ並んで届く</b>。最初に必ず切っておく。</div>' +
+          '<p>Webhook URLはまだ空のままでいい。②でVercelのURLが決まってから貼る。先にローカルで試すなら <code>ngrok http 3000</code> で出た <code>https://xxxx.ngrok-free.app/webhook</code> を入れて「検証」を押す。</p>'
+      },
+      {
+        title: '② GitHub → Vercel：置いて、つないでデプロイ',
+        show: ['su'],
+        focus: ['site-github', 'site-vercel', 'env-board', 'env-title', 'a-su-deploy', 'a-su-env', 'a-su-webhook', 'site-line'],
+        camera: { pos: [SU - 3, 16, 11], target: [SU - 3, 0.4, -2] },
+        html:
+          '<ol>' +
+          '<li>リポジトリをGitHubにpush</li>' +
+          '<li><a href="https://vercel.com" target="_blank" rel="noopener">vercel.com</a> にサインアップ（GitHub連携でOK・<b>カード登録不要</b>）</li>' +
+          '<li>「Add New…」→「Project」→ このリポジトリをImport</li>' +
+          '<li>Framework Preset は<b>自動検出のまま</b>でよい（設定変更なし）</li>' +
+          '<li>Environment Variables に ① の2つを登録</li>' +
+          '<li>「Deploy」</li>' +
+          '<li>発行されたURLを、①の<b>Webhook URL</b>に <code>https://&lt;発行されたドメイン&gt;/webhook</code> として貼って「検証」</li>' +
+          '</ol>' +
+          '<p>なぜ設定がほぼ要らないかというと、<code>vercel.json</code> が<b>全リクエストを <code>api/index.js</code> に流す</b>だけの構成にしてあるから。Expressアプリ1本がそのままサーバーレス関数になる。</p>' +
+          '<pre><code>// vercel.json\n{\n  "rewrites": [\n    { "source": "/(.*)", "destination": "/api" }\n  ]\n}</code></pre>' +
+          '<div class="gg-note">⚠️ <b>Hobbyプランは1デプロイあたりサーバーレス関数12個まで。</b>Vercelは <code>api/</code> 直下の対象ファイルを<b>1ファイル＝1関数</b>として数える。実質1関数しか使っていなくても、共通処理のファイルを <code>api/</code> に置くと数に入って<b>ビルド自体が失敗する</b>。共通処理は必ず <code>lib/</code> 側へ。</div>' +
+          '<p>以降は <code>git push</code> するだけで自動ビルド・自動反映。手動デプロイの手順は用意していない（＝「反映されない」時はまずpushされたかを疑う）。</p>' +
+          '<p class="gg-files">📄 <code>vercel.json</code>、<code>api/index.js</code>（ローカルは <code>local-dev-server.js</code> が同じappをlistenする）</p>'
+      },
+      {
+        title: '③ Upstash Redis：保存場所をつなぐ',
+        show: ['su'],
+        focus: ['site-upstash', 'site-vercel', 'env-board', 'env-title', 'a-env-upstash'].concat(envIds(8, 9)),
+        camera: { pos: [SU + 11, 10, 9], target: [SU + 5, 0.6, 0] },
+        html:
+          '<p>Upstashのサイトではなく、<b>Vercelのダッシュボードから作るのが楽</b>。環境変数が自動で入る。</p>' +
+          '<ol>' +
+          '<li>Vercelのプロジェクト → 「<b>Storage</b>」タブ</li>' +
+          '<li>Marketplace Database Providers の「<b>Upstash for Redis</b>」→「Create」（<b>Free</b>プランを選べばカード不要）</li>' +
+          '<li>「Connect a Project」で対象プロジェクトを選ぶ</li>' +
+          '<li><b>Custom Environment Variable Prefix を <code>UPSTASH_REDIS_REST</code> にする</b></li>' +
+          '</ol>' +
+          '<p>これで下の2つがプロジェクトの環境変数に自動追加される。</p>' +
+          '<pre><code># 値はダミー\nUPSTASH_REDIS_REST_KV_REST_API_URL=https://example-redis-12345.upstash.io\nUPSTASH_REDIS_REST_KV_REST_API_TOKEN=AaBbCc0011223344556677889900…</code></pre>' +
+          '<div class="gg-note">⚠️ <b>prefixを変えると動かなくなる。</b><code>lib/store.js</code> がこの変数名を直接参照しているため。手順4を別の文字にした場合は、コード側も合わせて直すこと。</div>' +
+          '<p>ローカルでも試すなら、この2つを <code>.env</code> に手でコピーしておく。</p>' +
+          '<p class="gg-files">📄 <code>lib/store.js</code> の <code>getRedis()</code></p>'
+      },
+      {
+        title: '④ cron-job.org：1分おきの引き金',
+        show: ['su'],
+        focus: ['site-cron', 'env-board', 'env-title', 'a-env-cron', 'site-vercel'].concat(envIds(7, 7)),
+        camera: { pos: [SU + 11, 10, 13], target: [SU + 5, 0.6, 3] },
+        html:
+          '<p>リマインダーとアナウンスの<b>送信タイミングだけ</b>、外から叩いてもらう。</p>' +
+          '<ol>' +
+          '<li>まずVercelの環境変数に <code>CRON_SECRET</code> を<b>好きな文字列</b>で追加（このURLを他人に勝手に叩かれないための合言葉）</li>' +
+          '<li><a href="https://cron-job.org/" target="_blank" rel="noopener">cron-job.org</a> などの無料cronサービスにサインアップ</li>' +
+          '<li>新しいジョブを作り、URLと間隔を設定</li>' +
+          '<li>保存して有効化</li>' +
+          '</ol>' +
+          '<pre><code># 値はダミー\nCRON_SECRET=my-secret-phrase-1234\n\n# cronサービスに登録するURL\nhttps://line-bot-example.vercel.app/cron/reminder?secret=my-secret-phrase-1234\n\n# 実行間隔: 1分おき（* * * * *）</code></pre>' +
+          '<p>カスタムヘッダが使えるcronサービスなら、クエリ文字列の代わりに <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> でもよい。サーバー側は<b>どちらか一致すれば通す</b>。</p>' +
+          '<div class="gg-note">間隔はできるだけ短く（1分）。<b>5分おきにすると、ユーザーが 13:02 に設定したリマインドが飛ぶ</b>。コードは「今の分」と完全一致で探すため、叩かれなかった分の通知は取りこぼしになる。</div>' +
+          '<p>手元で送信テストしたいときは <code>curl "http://localhost:3000/cron/reminder?secret=my-secret-phrase-1234"</code>。</p>'
+      },
+      {
+        title: '⑤ LINEログインチャネル + LIFF：GUIフォームを使うなら',
+        show: ['su'],
+        focus: ['site-login', 'env-board', 'env-title', 'a-env-login', 'site-scripts', 'a-su-scripts'].concat(envIds(2, 3)),
+        camera: { pos: [SU - 10, 11, 11], target: [SU - 6, 0.6, 1.5] },
+        html:
+          '<div class="gg-note">⚠️ <b>LIFFアプリは Messaging API チャネルには追加できない</b>（2019年以降の仕様）。同じプロバイダー配下に<b>別途「LINEログイン」チャネルを作る</b>。同じプロバイダー内ならuserIdは共通なので、Messaging API側のpush送信にそのまま使える。</div>' +
+          '<ol>' +
+          '<li>LINE Developersコンソールで同じプロバイダーを開き、「新規チャネル作成」→ <b>LINEログイン</b>（アプリタイプ: ウェブアプリ / 友だち追加オプション: Off）</li>' +
+          '<li>そのチャネルの「<b>LIFF</b>」タブ →「追加」</li>' +
+          '<li>設定して保存<ul>' +
+          '<li>LIFF app name: 任意（例: リマインド登録）</li>' +
+          '<li>Size: <code>Compact</code></li>' +
+          '<li>Endpoint URL: <code>https://&lt;Vercelのドメイン&gt;/liff/reminder</code></li>' +
+          '<li>Scope: <b><code>openid</code> にチェック</b></li>' +
+          '<li>Bot link feature: <code>On (Aggressive)</code> のままでOK</li>' +
+          '</ul></li>' +
+          '<li>発行された<b>LIFF ID</b>をコピー</li>' +
+          '<li>同じチャネルの「チャネル基本設定」タブの<b>チャネルID</b>（数字のみ）もコピー</li>' +
+          '<li>Vercelの環境変数に入れて<b>Redeploy</b></li>' +
+          '<li>ローカルの <code>.env</code> にも同じ2つを入れてから <code>node scripts/setup-rich-menu.js</code> を<b>再実行</b></li>' +
+          '</ol>' +
+          '<pre><code># 値はダミー\nLIFF_ID=1234567890-AbCdEfGh\nLINE_CHANNEL_ID=2001234567</code></pre>' +
+          '<div class="gg-note"><b><code>openid</code> を忘れるとIDトークンが取れず、サーバー側の本人確認が必ず失敗する</b>（フォームを開けても送信で弾かれる）。LIFF関連で一番ハマりやすい箇所。</div>' +
+          '<p>手順7が必要なのは、リッチメニューの「追加」「削除」ボタンのリンク先を<b>このLIFF IDから組み立てている</b>から。LIFF IDを入れ替えたらメニューも作り直す。</p>'
+      },
+      {
+        title: '⑥ Google Cloud：カレンダーを読む準備',
+        show: ['su'],
+        focus: ['site-gcloud', 'env-board', 'env-title', 'a-env-gcloud'].concat(envIds(4, 5)),
+        camera: { pos: [SU - 10, 11, 15], target: [SU - 6, 0.6, 4.5] },
+        html:
+          '<p><b>管理者が1回だけやる作業</b>（サービスアカウントは全員で1つを共有する）。</p>' +
+          '<ol>' +
+          '<li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> で新規プロジェクトを作成（既存でも可）</li>' +
+          '<li>「APIとサービス」→「ライブラリ」→ <b>Google Calendar API</b> を有効化</li>' +
+          '<li>「認証情報」→「認証情報を作成」→ <b>サービスアカウント</b>（<b>ロールの付与は不要</b>、スキップでOK）</li>' +
+          '<li>作ったサービスアカウントの「キー」タブ →「鍵を追加」→「新しい鍵を作成」→ <b>JSON</b>でダウンロード</li>' +
+          '<li>JSONの中から2つをVercelの環境変数に入れて<b>Redeploy</b></li>' +
+          '</ol>' +
+          '<pre><code># 値はダミー（JSONの client_email と private_key）\nGOOGLE_SERVICE_ACCOUNT_EMAIL=mirai-bot@example-project-123456.iam.gserviceaccount.com\nGOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg…（省略）…\\n-----END PRIVATE KEY-----\\n"</code></pre>' +
+          '<div class="gg-note">⚠️ <b>ダウンロードしたJSONはリポジトリにコミットしない。</b>秘密鍵そのものが入っている。改行は <code>\\n</code> のままでも実際の改行でも動くように <code>lib/calendar.js</code> 側で吸収している。</div>' +
+          '<p><b>ここから先は使う人ごとの作業</b>（管理者がやるのではない）：</p>' +
+          '<ol>' +
+          '<li>Googleカレンダーの設定 →「特定のユーザーとの共有」に上の <code>client_email</code> を追加。権限は「<b>予定の表示（閲覧のみ）</b>」</li>' +
+          '<li>同じ画面の「カレンダーの統合」から<b>カレンダーID</b>をコピー</li>' +
+          '<li>LINEでBotに「<b>カレンダー登録 &lt;カレンダーID&gt;</b>」と送る（例: <code>カレンダー登録 example.user@gmail.com</code>）</li>' +
+          '<li>「予定」「次の予定」で確認</li>' +
+          '</ol>' +
+          '<p>登録先はRedisの <code>calendar:mapping</code> なので、<b>人が増えてもVercelの環境変数をいじる必要はない</b>。</p>'
+      },
+      {
+        title: '⑦⑧ 仕上げ：管理者IDとリッチメニュー',
+        show: ['su'],
+        focus: ['site-myid', 'site-scripts', 'env-board', 'env-title', 'a-env-myid', 'a-su-scripts', 'site-line'].concat(envIds(6, 6)),
+        camera: { pos: [SU, 14, 15], target: [SU, 0, 2] },
+        html:
+          '<p><b>⑦ 管理者のuserIdを入れる</b></p>' +
+          '<ol>' +
+          '<li>Botに1:1トークで「<b>マイID</b>」と送る → <code>U</code> で始まる文字列が返ってくる</li>' +
+          '<li>その値をVercelの環境変数 <code>ADMIN_USER_ID</code> に入れて<b>Redeploy</b></li>' +
+          '<li>ローカルの <code>.env</code> にも同じ値を入れる（次のスクリプトが使う）</li>' +
+          '</ol>' +
+          '<pre><code># 値はダミー\nADMIN_USER_ID=U0123456789abcdef0123456789abcdef</code></pre>' +
+          '<p><b>⑧ リッチメニューを反映する（手元のPCから）</b></p>' +
+          '<pre><code>npm install\nnode scripts/generate-rich-menu-image.js   # 画像を作る\nnode scripts/setup-rich-menu.js            # LINEに登録する</code></pre>' +
+          '<p><code>setup-rich-menu.js</code> がやっていること：</p>' +
+          '<ol>' +
+          '<li>既存のエイリアスとリッチメニューを<b>全部削除</b>（作り直すたびに増殖しないように。エイリアスを先に消さないと名前が衝突する）</li>' +
+          '<li>定義ぶんのメニューを作成 → 画像アップロード → エイリアス登録</li>' +
+          '<li><code>main</code> を全ユーザー共通のデフォルトに設定</li>' +
+          '<li><code>ADMIN_USER_ID</code> があれば、その人にだけ <code>main-admin</code> を <code>linkRichMenuIdToUser</code> でリンク</li>' +
+          '</ol>' +
+          '<div class="gg-note">⚠️ これは<b>実行した瞬間に本番のBotへ反映される</b>操作（デプロイとは無関係）。<code>ADMIN_USER_ID</code> 未設定だと手順4がスキップされ、管理者にも通常メニューが出るだけで、エラーにはならない。</div>' +
+          '<p class="gg-files">📄 <code>scripts/setup-rich-menu.js</code>、<code>scripts/rich-menu-config.js</code>、<code>scripts/generate-rich-menu-image.js</code></p>'
+      },
+      {
+        title: '環境変数まとめ／つまずきポイント',
+        show: ['su'],
+        focus: ['env-board', 'env-title'].concat(envIds(0, 9)),
+        camera: { pos: [SU, 9, 8.5], target: [SU, 0, 0.2] },
+        html:
+          '<p>最終形。<b>無くても落ちない</b>ものが多く、「その機能だけ使えない」状態になる作りにしてある。</p>' +
+          '<table><tr><th>変数</th><th>取得元</th><th>無いとどうなる</th></tr>' +
+          '<tr><td><code>LINE_CHANNEL_ACCESS_TOKEN</code></td><td>①</td><td>返信も送信もできない（必須）</td></tr>' +
+          '<tr><td><code>LINE_CHANNEL_SECRET</code></td><td>①</td><td>署名検証に失敗して全部401（必須）</td></tr>' +
+          '<tr><td><code>LIFF_ID</code></td><td>⑤</td><td>LIFFフォームが開けない</td></tr>' +
+          '<tr><td><code>LINE_CHANNEL_ID</code></td><td>⑤</td><td>IDトークン検証が通らずフォーム送信が失敗</td></tr>' +
+          '<tr><td><code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code></td><td>⑥</td><td>「予定」系が取得失敗</td></tr>' +
+          '<tr><td><code>GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY</code></td><td>⑥</td><td>同上</td></tr>' +
+          '<tr><td><code>ADMIN_USER_ID</code></td><td>⑦</td><td>管理者機能が全員拒否・管理者メニューも出ない</td></tr>' +
+          '<tr><td><code>CRON_SECRET</code></td><td>④</td><td>（任意）未設定だとcronURLが誰でも叩ける</td></tr>' +
+          '<tr><td><code>UPSTASH_REDIS_REST_KV_REST_API_URL</code></td><td>③</td><td>保存が要る機能が全滅</td></tr>' +
+          '<tr><td><code>UPSTASH_REDIS_REST_KV_REST_API_TOKEN</code></td><td>③</td><td>同上</td></tr></table>' +
+          '<p><b>ハマりがちなところ</b></p>' +
+          '<ul>' +
+          '<li>返事が二重に来る → ①の「応答メッセージ」がオフになっていない</li>' +
+          '<li>Webhookの検証が通らない → URLの末尾 <code>/webhook</code> 忘れ、またはシークレットの貼り間違い</li>' +
+          '<li>LIFFフォームの送信だけ失敗 → ⑤のScopeで <code>openid</code> 未チェック</li>' +
+          '<li>Redisだけ動かない → ③のprefixが <code>UPSTASH_REDIS_REST</code> になっていない</li>' +
+          '<li>ビルドがいきなり失敗 → <code>api/</code> 直下にファイルを足して12関数制限超え</li>' +
+          '<li>リマインドが時々飛ぶ → cronの間隔が1分より長い</li>' +
+          '<li>通知が止まった → pushの無料枠（月200通）を使い切った</li>' +
+          '<li>メニューの文字が変わらない → 画像生成とアップロードの<b>片方だけ</b>実行した</li>' +
+          '</ul>' +
+          '<div class="gg-note">このページの URL・ID・キーは<b>すべてダミー</b>。実物はリポジトリにも、このドキュメントにも置かず、各サービスのコンソールと <code>.env</code>（gitignore済み）だけに置く。</div>' +
+          '<p class="gg-files">📄 <code>.env.example</code> に全変数のコメント付き雛形、<code>README.md</code> に文章版の手順</p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
