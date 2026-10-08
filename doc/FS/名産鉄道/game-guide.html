@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>名産鉄道 | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // src/data/prefectures.json の id・名前・座標(x,y)・隣接県 をそのまま写したもの
+  var PREFS = [
+    [1,'北海道',700,80,[2]],
+    [2,'青森県',650,150,[1,3,5]],
+    [3,'岩手県',680,190,[2,4,5]],
+    [4,'宮城県',670,230,[3,5,6,7]],
+    [5,'秋田県',620,180,[2,3,4,6]],
+    [6,'山形県',630,230,[4,5,7,15]],
+    [7,'福島県',650,270,[4,6,9,10,15]],
+    [8,'茨城県',680,320,[7,9,11,12]],
+    [9,'栃木県',650,300,[7,8,10,11]],
+    [10,'群馬県',610,300,[7,9,11,15,20]],
+    [11,'埼玉県',630,330,[8,9,10,12,13,19,20]],
+    [12,'千葉県',690,350,[8,11,13]],
+    [13,'東京都',650,350,[11,12,14,19]],
+    [14,'神奈川県',630,370,[13,19,22]],
+    [15,'新潟県',570,260,[6,7,10,16,20]],
+    [16,'富山県',540,300,[15,17,20,21]],
+    [17,'石川県',510,290,[16,18,21]],
+    [18,'福井県',500,330,[17,21,25,26]],
+    [19,'山梨県',600,340,[11,13,14,20,22]],
+    [20,'長野県',570,310,[10,11,15,16,19,21,22,23]],
+    [21,'岐阜県',520,350,[16,17,18,20,23,24,25]],
+    [22,'静岡県',600,380,[14,19,20,23]],
+    [23,'愛知県',540,380,[20,21,22,24]],
+    [24,'三重県',510,400,[21,23,25,26,29,30]],
+    [25,'滋賀県',490,370,[18,21,24,26]],
+    [26,'京都府',470,360,[18,24,25,27,28,29]],
+    [27,'大阪府',460,390,[26,28,29,30]],
+    [28,'兵庫県',420,380,[26,27,31,33]],
+    [29,'奈良県',480,400,[24,26,27,30]],
+    [30,'和歌山県',460,430,[24,27,29]],
+    [31,'鳥取県',390,380,[28,32,33]],
+    [32,'島根県',350,390,[31,33,34]],
+    [33,'岡山県',410,410,[28,31,32,34,37]],
+    [34,'広島県',350,420,[32,33,35]],
+    [35,'山口県',300,430,[34,40]],
+    [36,'徳島県',440,450,[37,38,39]],
+    [37,'香川県',420,440,[33,36,38]],
+    [38,'愛媛県',370,450,[36,37,39]],
+    [39,'高知県',410,470,[36,38]],
+    [40,'福岡県',260,470,[35,41,42,43]],
+    [41,'佐賀県',230,480,[40,42]],
+    [42,'長崎県',200,490,[40,41]],
+    [43,'熊本県',250,510,[40,44,45,46]],
+    [44,'大分県',290,500,[40,43,45]],
+    [45,'宮崎県',280,540,[43,44,46]],
+    [46,'鹿児島県',240,560,[43,45,47]],
+    [47,'沖縄県',150,650,[46]],
+  ];
+  // GameEngine.ts の MAJOR_CITY_IDS（武器屋・防具屋がある大都市）
+  var MAJOR = [1, 2, 4, 6, 8, 11, 13, 15, 17, 20, 22, 23, 24, 26, 27, 28, 30, 33, 34, 37, 39, 40, 43, 45, 47];
+  var TOKEN = ['#ff5555', '#5599ff', '#55dd55', '#ffcc33']; // GameScene.ts の TOKEN_COLORS
+  var ARCH = 30;   // プログラム構成の図
+  var PH = -30;    // フェーズ図
+
+  var byId = {};
+  PREFS.forEach(function (p) { byId[p[0]] = p; });
+  function P(id, y) { var p = byId[id]; return [(p[2] - 430) / 25, y || 0, (p[3] - 370) / 25]; }
+  function add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+  function shortName(n) { return n === '北海道' ? n : n.replace(/[県府都]$/, ''); }
+  function isMajor(id) { return MAJOR.indexOf(id) >= 0; }
+  // 同じマスに複数のコマがいるときのずらし方（GameScene.renderAll と同じ考え方）
+  function tokOff(i, n) { var a = i / n * Math.PI * 2; return [Math.cos(a) * 0.32, 0.42, Math.sin(a) * 0.32]; }
+
+  var cache = {};
+  function setText(g, id, text, o) { if (cache[id] !== text) { g.setLabel(id, text, o); cache[id] = text; } }
+  function bar(g, id, h) { var b = g.get(id); var s = Math.max(0.02, h); b.scale.y = s; b.position.y = s / 2; }
+
+  GameGuide.start({
+    title: '名産鉄道',
+    back: '../index.html',
+    subtitle: '47都道府県をサイコロで旅して名産品を集めるすごろく＋兵隊バトル（TypeScript＋Phaser3＋Vite、LAN対戦はNode＋ws）',
+    camera: { pos: [0, 18.5, 14], target: [0, 0, -0.4] },
+
+    build: function (g) {
+      // ---------- 日本地図（ノードとつながり） ----------
+      g.group('map', {});
+      g.group('edges', { parent: 'map' });
+      var seen = {};
+      PREFS.forEach(function (p) {
+        p[4].forEach(function (n) {
+          var k = Math.min(p[0], n) + '-' + Math.max(p[0], n);
+          if (seen[k]) return;
+          seen[k] = true;
+          var both = byId[n][4].indexOf(p[0]) >= 0;
+          g.line([P(p[0], 0.12), P(n, 0.12)], { parent: 'edges', color: both ? '#6f8fb8' : C.gold, opacity: both ? 0.75 : 0.9, dashed: !both });
+        });
+      });
+      PREFS.forEach(function (p) {
+        var m = isMajor(p[0]);
+        g.cylinder({ id: 'n' + p[0], parent: 'map', radius: 0.24, height: 0.22, pos: P(p[0], 0.11),
+          color: m ? '#ffd166' : '#e8e6f5', emissive: m ? '#ffd166' : '#000000', emissiveIntensity: m ? 0.25 : 0,
+          label: shortName(p[1]), labelOffset: [0, 0.5, 0.05], labelSize: 0.26, labelColor: m ? '#ffe08a' : '#d8d8e8' });
+      });
+      g.label('スタート：東京', add(P(13), [1.6, 1.4, -0.9]), { id: 'lbl-start', size: 0.3, bg: '#000000aa', color: '#ffffff' });
+
+      // コマ（4人分）
+      for (var i = 0; i < 4; i++) {
+        g.sphere({ id: 'tok' + i, radius: 0.2, pos: add(P(13), tokOff(i, 4)), color: TOKEN[i], emissive: TOKEN[i], emissiveIntensity: 0.3 });
+      }
+
+      // 一方通行のつながり（データの書き忘れ）
+      g.arrow(P(8, 0.3), P(7, 0.3), { id: 'oneway1', color: C.gold, lift: 0.9, label: '茨城→福島 は一方通行', labelSize: 0.34 });
+      g.arrow(P(44, 0.3), P(40, 0.3), { id: 'oneway2', color: C.gold, lift: 0.9, label: '大分→福岡 は一方通行', labelSize: 0.34 });
+      g.label('行き止まり\n（隣が1つだけ）', add(P(1), [-1.8, 0.8, 0]), { id: 'lbl-dead1', size: 0.32, bg: '#000000aa' });
+      g.label('行き止まり', add(P(47), [1.6, 0.8, 0]), { id: 'lbl-dead2', size: 0.32, bg: '#000000aa' });
+
+      // ---------- サイコロと分岐 ----------
+      g.box({ id: 'dice', size: [0.8, 0.8, 0.8], pos: [3.2, 2.2, -1.2], color: '#ffffff', radius: 0 });
+      g.label('3', [0, 0.85, 0], { id: 'dice-num', parent: 'dice', size: 0.55, color: '#ff5555', bg: '#ffffffee' });
+      g.label('のこり 3マス', [5.6, 2.9, -1.2], { id: 'lbl-left', size: 0.3, bg: '#000000aa', color: '#ffd166' });
+      [[13, [11, 12, 14, 19]], [14, [13, 19, 22]], [22, [14, 19, 20, 23]]].forEach(function (c) {
+        g.group('ch' + c[0], {});
+        c[1].forEach(function (n) {
+          var a = P(c[0], 0.3), b = P(n, 0.3);
+          var bb = [a[0] + (b[0] - a[0]) * 0.82, 0.3, a[2] + (b[2] - a[2]) * 0.82];
+          g.arrow(a, bb, { parent: 'ch' + c[0], color: '#7ef0ff', lift: 0.35, radius: 0.035, head: 0.2 });
+        });
+      });
+      g.label('どっちに進む？', add(P(13), [0, 1.5, 0]), { id: 'lbl-which', size: 0.26, bg: '#000000aa', color: '#7ef0ff' });
+
+      // ---------- 到着イベント ----------
+      var EV = [['盗賊', '兵-20%'], ['豊作', '+800円'], ['兵士募集', '兵+20%'], ['商人', '+500円'], ['疫病', '兵-15%'], ['戦利品', '+1000円']];
+      g.group('events', { pos: add(P(23), [0, 2.1, -0.8]) });
+      EV.forEach(function (e, i) {
+        g.card({ id: 'ev' + i, parent: 'events', pos: [(i - 2.5) * 0.85, 0, 0], lying: false, w: 0.72, text: e[0], sub: e[1], color: i % 2 ? '#2b9a6b' : '#c0392b' });
+      });
+      g.label('50%で「くじ」→ 6種から1つ', [0, 1.05, 0], { id: 'lbl-ev', parent: 'events', size: 0.26, bg: '#000000aa' });
+      g.group('ronin', { pos: add(P(23), [2.6, 0, 1.2]) });
+      g.cylinder({ id: 'ronin-bar', parent: 'ronin', radius: 0.22, height: 1, pos: [0, 0.5, 0], color: '#c77dff', emissive: '#c77dff', emissiveIntensity: 0.25 });
+      g.label('兵 10000', [0, 2.9, 0], { id: 'lbl-ronin', parent: 'ronin', size: 0.26, bg: '#000000aa' });
+
+      // ---------- 名産品ショップ（愛知） ----------
+      g.group('shop', { pos: add(P(23), [0, 1.9, -0.6]) });
+      g.card({ id: 'pc0', parent: 'shop', pos: [-0.6, 0, 0], lying: false, w: 0.85, text: '愛知', sub: 'ひつまぶし\n800円', color: '#d4a017', face: '#fff8e1' });
+      g.card({ id: 'pc1', parent: 'shop', pos: [0.6, 0, 0], lying: false, w: 0.85, text: '愛知', sub: 'きしめん\n400円', color: '#d4a017', face: '#fff8e1' });
+      g.label('所持金 3000円', [0, 1.15, 0], { id: 'lbl-money', parent: 'shop', size: 0.28, bg: '#000000aa', color: '#ffd166' });
+      g.box({ id: 'bag', size: [0.7, 0.36, 0.5], pos: add(P(23), [1.3, 0.18, 1.3]), color: TOKEN[0], label: 'もちもの', labelSize: 0.22 });
+
+      // ---------- 大都市ラベル ----------
+      g.label('金色＝大都市 25か所（武器屋・防具屋あり）', [-3, 2.5, -5], { id: 'lbl-major', size: 0.5, bg: '#000000aa', color: '#ffd166' });
+
+      // ---------- バトル ----------
+      g.group('bt-a', {});
+      g.cylinder({ id: 'bt-a-bar', parent: 'bt-a', radius: 0.16, height: 1, pos: [0, 0.5, 0], color: TOKEN[0], opacity: 0.85 });
+      g.label('兵 20000', [0.8, 2.3, 0], { id: 'bt-a-lbl', parent: 'bt-a', size: 0.24, bg: '#000000aa' });
+      g.group('bt-b', {});
+      g.cylinder({ id: 'bt-b-bar', parent: 'bt-b', radius: 0.16, height: 1, pos: [0, 0.5, 0], color: TOKEN[1], opacity: 0.85 });
+      g.label('兵 14000', [-0.9, 1.9, 0], { id: 'bt-b-lbl', parent: 'bt-b', size: 0.24, bg: '#000000aa' });
+      g.label('⚔ バトル！', add(P(23), [0, 3.6, 0]), { id: 'bt-msg', size: 0.3, bg: '#000000cc', color: '#ffd166' });
+      g.card({ id: 'bt-loot', pos: P(23), lying: false, w: 0.6, text: '名産', sub: '奪われた', color: '#d4a017', face: '#fff8e1' });
+
+      // ---------- 領土 ----------
+      g.group('flag', { pos: add(P(26), [0, 0.2, 0]) });
+      g.cylinder({ parent: 'flag', radius: 0.04, height: 1.8, pos: [0, 0.9, 0], color: '#dddddd' });
+      g.box({ id: 'flag-cloth', parent: 'flag', size: [0.8, 0.5, 0.04], pos: [0.42, 1.5, 0], color: TOKEN[0], edges: false });
+      g.label('帝国主義', [0, 2.35, 0], { id: 'lbl-policy', parent: 'flag', size: 0.28, bg: '#000000cc', color: '#ffffff' });
+
+      // ---------- フェーズ図（x = PH 付近） ----------
+      var PN = {
+        rolling: [PH - 6, 0.5, 0], moving: [PH - 2, 0.5, 0], choosing: [PH - 2, 0.5, -3.6],
+        shop: [PH + 2, 0.5, 0], 'turn-end': [PH + 6, 0.5, 0], 'game-over': [PH + 6, 0.5, -3.6],
+      };
+      var PL = { rolling: 'rolling\nサイコロ待ち', moving: 'moving\n1マスずつ進む', choosing: 'choosing\n分岐を選ぶ', shop: 'shop\nお店', 'turn-end': 'turn-end\n「つぎへ」待ち', 'game-over': 'game-over\n結果画面へ' };
+      var PC = { rolling: '#4fa3ff', moving: '#7b5cff', choosing: '#7ef0ff', shop: '#d4a017', 'turn-end': '#2b9a6b', 'game-over': '#ff5f6d' };
+      Object.keys(PN).forEach(function (k) {
+        g.box({ id: 'ph-' + k, size: [2.6, 1, 1.4], pos: PN[k], color: PC[k], label: PL[k], labelSize: 0.28 });
+      });
+      g.arrow([PH - 4.6, 0.7, 0], [PH - 3.4, 0.7, 0], { id: 'pa1', lift: 0.4 });
+      g.arrow([PH - 2.4, 1.0, -0.8], [PH - 2.4, 1.0, -2.8], { id: 'pa2', lift: 0.4, color: '#7ef0ff' });
+      g.arrow([PH - 1.6, 1.0, -2.8], [PH - 1.6, 1.0, -0.8], { id: 'pa3', lift: 0.4, color: '#7ef0ff' });
+      g.arrow([PH - 0.6, 0.7, 0], [PH + 0.6, 0.7, 0], { id: 'pa4', lift: 0.4, label: 'のこり0', labelSize: 0.22 });
+      g.arrow([PH + 3.4, 0.7, 0], [PH + 4.6, 0.7, 0], { id: 'pa5', lift: 0.4, label: 'おわる', labelSize: 0.22 });
+      g.arrow([PH + 6, 1.0, -0.8], [PH + 6, 1.0, -2.8], { id: 'pa6', lift: 0.4, color: C.enemy, label: '全員8回やった', labelSize: 0.22 });
+      g.line([[PH + 6, 0.15, 0.75], [PH + 6, 0.15, 1.8], [PH - 6, 0.15, 1.8]], { id: 'pa7a', color: C.good, opacity: 0.9 });
+      g.arrow([PH - 6, 0.15, 1.8], [PH - 6, 0.15, 0.75], { id: 'pa7', lift: 0, color: C.good, head: 0.3 });
+      g.label('endTurn()：次の人へ（収入・維持費）', [PH, 0.4, 2.3], { id: 'pa7l', size: 0.28, color: C.good });
+      g.sphere({ id: 'ph-marker', radius: 0.25, pos: [PH - 6, 1.5, 0], color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6 });
+      // 結果画面の表彰台
+      g.group('podium', { pos: [PH, 0, 9] });
+      [['あなた', 7, TOKEN[0]], ['CPU1', 9, TOKEN[1]], ['CPU2', 5, TOKEN[2]]].forEach(function (r, i) {
+        g.cylinder({ id: 'pod' + i, parent: 'podium', radius: 0.5, height: 1, pos: [(i - 1) * 2.2, 0.5, 0], color: r[2], opacity: 0.9 });
+        g.label(r[0] + '\n名産品 ' + r[1] + 'こ', [(i - 1) * 2.2, 3.2, 0], { id: 'pod-l' + i, parent: 'podium', size: 0.26, bg: '#000000aa' });
+      });
+      g.label('ResultScene：名産品の「数」で順位', [0, 0.3, 1.6], { parent: 'podium', id: 'pod-title', size: 0.28, color: '#ffd166' });
+
+      // ---------- プログラム構成（x = ARCH 付近） ----------
+      g.box({ id: 'ar-main', size: [2.6, 0.8, 1.2], pos: [ARCH, 0.4, -7.5], color: '#4a4466', label: 'main.ts\nPhaser の設定', labelSize: 0.3 });
+      g.box({ id: 'ar-title', size: [2.8, 1, 1.4], pos: [ARCH - 4.6, 0.5, -4], color: C.me, label: 'TitleScene\nCPU対戦／部屋づくり', labelSize: 0.3 });
+      g.box({ id: 'ar-game', size: [3, 1.2, 1.6], pos: [ARCH, 0.6, -4], color: C.me, label: 'GameScene\n描画・ボタン・CPU進行', labelSize: 0.3 });
+      g.box({ id: 'ar-result', size: [2.8, 1, 1.4], pos: [ARCH + 4.6, 0.5, -4], color: C.me, label: 'ResultScene\nランキング', labelSize: 0.3 });
+      g.box({ id: 'ar-engine', size: [3.6, 1.3, 1.8], pos: [ARCH, 0.65, 0.4], color: '#7b5cff', label: 'GameEngine.ts\nルールだけ（画面を知らない）', labelSize: 0.3 });
+      g.box({ id: 'ar-json', size: [2.4, 0.8, 1.2], pos: [ARCH - 4.8, 0.4, 0.4], color: '#2b9a6b', label: 'prefectures.json\n47県・隣・名産品', labelSize: 0.28 });
+      g.box({ id: 'ar-net', size: [2.8, 1, 1.4], pos: [ARCH + 4.8, 0.5, 0.4], color: '#1f8a9c', label: 'NetworkManager.ts\nWebSocket の窓口', labelSize: 0.28 });
+      g.flow([ARCH, 0.9, -6.9], [ARCH, 0.9, -4.8], { id: 'af-main', color: '#b8b2d6', lift: 0.4, count: 3 });
+      g.flow([ARCH - 3.2, 1.0, -4], [ARCH - 1.5, 1.0, -4], { id: 'af-t2g', color: C.me, lift: 0.5, count: 3 });
+      g.flow([ARCH + 1.5, 1.0, -4], [ARCH + 3.2, 1.0, -4], { id: 'af-g2r', color: C.me, lift: 0.5, count: 3 });
+      g.flow([ARCH - 0.5, 1.2, -3.2], [ARCH - 0.5, 1.3, -0.5], { id: 'af-g2e', color: C.gold, lift: 0.6 });
+      g.flow([ARCH + 0.5, 1.3, -0.5], [ARCH + 0.5, 1.2, -3.2], { id: 'af-e2g', color: C.good, lift: 0.6 });
+      g.flow([ARCH - 3.6, 0.8, 0.4], [ARCH - 1.8, 0.8, 0.4], { id: 'af-json', color: '#2b9a6b', lift: 0.4, count: 3 });
+      g.flow([ARCH + 1.5, 1.1, -3.4], [ARCH + 4.4, 1.1, -0.3], { id: 'af-g2n', color: C.data, lift: 0.6, count: 4 });
+      g.label('startRoll(state) など', [ARCH - 2.4, 2.2, -1.8], { id: 'al-req', size: 0.24, color: C.gold });
+      g.label('新しい GameState', [ARCH + 2.2, 2.2, -1.8], { id: 'al-res', size: 0.24, color: C.good });
+
+      // LAN 図（z = 8 付近）
+      g.box({ id: 'lan-host', size: [3.2, 1.2, 1.6], pos: [ARCH - 5.5, 0.6, 8], color: TOKEN[0], label: 'ホスト（プレイヤー0）\nGameEngine を動かす', labelSize: 0.3 });
+      g.box({ id: 'lan-server', size: [3, 1.2, 1.6], pos: [ARCH, 0.6, 8], color: C.server, label: 'server.ts（ws :8080）\n中身を見ずに転送', labelSize: 0.3 });
+      g.box({ id: 'lan-g1', size: [2.6, 1, 1.4], pos: [ARCH + 5.5, 0.5, 6.2], color: TOKEN[1], label: 'プレイヤー1\n画面を描くだけ', labelSize: 0.28 });
+      g.box({ id: 'lan-g2', size: [2.6, 1, 1.4], pos: [ARCH + 5.5, 0.5, 9.8], color: TOKEN[2], label: 'プレイヤー2\n画面を描くだけ', labelSize: 0.28 });
+      g.flow([ARCH + 4.2, 1.1, 6.4], [ARCH + 1.5, 1.1, 7.6], { id: 'lf-req1', color: C.gold, lift: 0.6, count: 4 });
+      g.flow([ARCH - 1.5, 1.1, 7.6], [ARCH - 3.9, 1.1, 7.6], { id: 'lf-req2', color: C.gold, lift: 0.6, count: 4 });
+      g.flow([ARCH - 3.9, 1.1, 8.4], [ARCH - 1.5, 1.1, 8.4], { id: 'lf-st1', color: C.data, lift: -0.4, count: 4 });
+      g.flow([ARCH + 1.5, 1.1, 8.4], [ARCH + 4.2, 1.1, 9.6], { id: 'lf-st2', color: C.data, lift: -0.4, count: 4 });
+      g.flow([ARCH + 1.5, 1.1, 8.0], [ARCH + 4.2, 1.1, 6.6], { id: 'lf-st3', color: C.data, lift: -0.4, count: 4 });
+      g.label('{kind:"request", request:{type:"roll"}}', [ARCH + 1.2, 2.3, 6.2], { id: 'll-req', size: 0.24, color: C.gold });
+      g.label('{kind:"state", state: GameState まるごと}', [ARCH - 1, 0.3, 10.3], { id: 'll-st', size: 0.24, color: C.data });
+
+      // 状態コピー図（z = -11 付近）
+      g.box({ id: 'st-old', size: [2.2, 1.4, 1.4], pos: [ARCH - 4, 0.7, -15], color: '#4a4466', label: '今の state\n（さわらない）', labelSize: 0.28 });
+      g.box({ id: 'st-new', size: [2.2, 1.4, 1.4], pos: [ARCH, 0.7, -15], color: '#7b5cff', label: '新しい state\nコピーしてから変更', labelSize: 0.28 });
+      g.arrow([ARCH - 2.7, 0.8, -15], [ARCH - 1.3, 0.8, -15], { id: 'st-arrow', lift: 0.5, label: 'cloneState()', labelSize: 0.26 });
+      g.box({ id: 'cpu-box', size: [3.2, 1.2, 1.6], pos: [ARCH + 5, 0.6, -15], color: '#ff9f43', label: 'CPU（ホスト側だけ）\n650msごとに1手', labelSize: 0.28 });
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？',
+        html:
+          '<p>日本の47都道府県を <b>サイコロで旅して、各地の名産品を買い集める</b> すごろくゲーム。</p>' +
+          '<ul><li>人数は2〜4人。CPU対戦（CPUは1〜3人）と、同じWi-Fi内でのLAN対戦がある</li>' +
+          '<li>全員 <b>東京からスタート</b>。所持金 <b>3000円</b>、兵隊 <b>10000人</b></li>' +
+          '<li>1人8回ずつ順番が回ったらおしまい（<code>人数 × 8</code> ターン）</li>' +
+          '<li>最後に <b>名産品をいちばん多く持っている人</b> が1位</li></ul>' +
+          '<p>途中で他の人とすれ違うと <b>兵隊の数でバトル</b>。お金や名産品を奪い合う、戦国っぽい要素も入っている。</p>' +
+          '<p class="gg-files">📄 <code>TitleScene.ts</code> の <code>ROUNDS_PER_PLAYER = 8</code>、<code>GameEngine.ts</code> の <code>createInitialState()</code></p>',
+        camera: { pos: [0, 18.5, 14], target: [0, 0, -0.4] },
+        show: ['lbl-start'],
+      },
+      {
+        title: 'ボード：47都道府県のネットワーク',
+        html:
+          '<p>ボードはマス目が一列に並んだすごろくではなく、<b>都道府県同士が線でつながった「網」</b>（グラフ）になっている。</p>' +
+          '<pre><code>{ "id": 13, "name": "東京都", "x": 650, "y": 350,\n  "neighbors": [11, 12, 14, 19],\n  "products": [ {"name":"もんじゃ焼き","price":400}, ... ] }</code></pre>' +
+          '<ul><li><code>neighbors</code> がとなりの県。ここに書いてある県へだけ進める</li>' +
+          '<li>座標 <code>x, y</code> は画面上の位置（本物の緯度経度ではなく、見やすく並べたもの）</li>' +
+          '<li>隣が1つだけなのは <b>北海道と沖縄だけ</b>。それ以外は全部が分かれ道</li></ul>' +
+          '<div class="gg-note">データをよく見ると、茨城→福島、大分→福岡 は <b>片方にしか書いてない</b>（点線）。だから行けるけど戻れない一方通行になっている。画面では線が描かれない（<code>drawBoard()</code> は id が小さい側からしか線を引かないため）。</div>' +
+          '<p class="gg-files">📄 <code>src/data/prefectures.json</code>、<code>GameScene.ts</code> の <code>drawBoard()</code></p>',
+        camera: { pos: [-0.5, 18.5, 14], target: [0, 0, -0.4] },
+        show: ['oneway1', 'oneway2', 'lbl-dead1', 'lbl-dead2'],
+        focus: ['map', 'oneway1', 'oneway2', 'lbl-dead1', 'lbl-dead2'],
+        update: function (g, t) { g.pulse('n1', t, 0.4); g.pulse('n47', t, 0.4); },
+      },
+      {
+        title: '1ターンの流れ（フェーズ）',
+        html:
+          '<p>ゲームの今の状態は <code>phase</code> という1つの値で管理している。ボタンが押されるたびに次のフェーズへ進む。</p>' +
+          '<ol><li><b>rolling</b>：「サイコロをふる」待ち</li>' +
+          '<li><b>moving</b>：出た目の数だけ1マスずつ進む</li>' +
+          '<li><b>choosing</b>：分かれ道で「どっちに進む？」（選んだらまた moving へ）</li>' +
+          '<li><b>shop</b>：着いた県のお店。何回でも買えて、「おわる」で次へ</li>' +
+          '<li><b>turn-end</b>：「つぎへ」を押すと次の人の rolling へ</li></ol>' +
+          '<p>決められた回数が終わると <b>game-over</b> になり、結果画面へ切り替わる。</p>' +
+          '<div class="gg-note">間違ったタイミングのボタンは無視される。たとえば <code>buyProduct()</code> は最初に <code>phase !== \'shop\'</code> なら何もしないで返す。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>GamePhase</code> 型と <code>startRoll()</code> / <code>skipShop()</code> / <code>endTurn()</code></p>',
+        camera: { pos: [PH + 0.5, 13, 11], target: [PH, 0, -0.6] },
+        focus: ['ph-rolling', 'ph-moving', 'ph-choosing', 'ph-shop', 'ph-turn-end', 'ph-game-over', 'pa1', 'pa2', 'pa3', 'pa4', 'pa5', 'pa6', 'pa7', 'pa7a', 'pa7l', 'ph-marker'],
+        show: ['ph-marker'],
+        update: function (g, t) {
+          var R = [PH - 6, 1.5, 0], M = [PH - 2, 1.5, 0], Ch = [PH - 2, 1.5, -3.6], S = [PH + 2, 1.5, 0], E = [PH + 6, 1.5, 0];
+          var seq = [R, M, Ch, M, S, E, [PH + 6, 1.5, 1.8], [PH - 6, 1.5, 1.8], R];
+          var k = t % 11.2, i = Math.min(7, Math.floor(k / 1.4)), f = g.phase(k - i * 1.4, 0.5, 0.8);
+          g.arcPos('ph-marker', seq[i], seq[i + 1], f, i >= 5 ? 0 : 0.8);
+        },
+      },
+      {
+        title: 'サイコロと分かれ道',
+        html:
+          '<p>サイコロは <code>1 + floor(random × 6)</code> で1〜6。出た目が <code>pendingMoves</code>（のこりマス）に入る。</p>' +
+          '<p><code>advanceMovement()</code> がのこりマスが0になるまでくり返す：</p>' +
+          '<ul><li>今いる県の隣が <b>1つだけ</b> → 自動で進む</li>' +
+          '<li>隣が <b>2つ以上</b> → 止まって <code>choosing</code> にし、隣の県を全部ボタンにする</li></ul>' +
+          '<p>例：東京で3が出た → 神奈川 → 静岡 → 愛知。どの分岐でも <b>来た道（戻る方向）も選択肢に入る</b> のがポイント。</p>' +
+          '<div class="gg-note">CPU の分かれ道は <code>cpuChooseNext()</code> で <b>完全ランダム</b>。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>rollDice()</code> / <code>startRoll()</code> / <code>advanceMovement()</code> / <code>chooseNext()</code></p>',
+        camera: { pos: [6.2, 7.5, 7.5], target: [6.2, 0.6, -0.2] },
+        focus: ['map', 'tok0', 'dice', 'ch13', 'ch14', 'ch22', 'lbl-left', 'lbl-which'],
+        show: ['dice', 'ch13', 'ch14', 'ch22', 'lbl-left', 'lbl-which'],
+        enter: function (g) { for (var i = 1; i < 4; i++) g.get('tok' + i).visible = false; },
+        update: function (g, t) {
+          var k = t % 8;
+          var path = [13, 14, 22, 23];
+          var hops = [[1.8, 0.6], [3.2, 0.6], [4.6, 0.6]];
+          var at = 0, pos = add(P(13), [0, 0.42, 0]);
+          for (var h = 0; h < 3; h++) {
+            var f = g.phase(k, hops[h][0], hops[h][1]);
+            if (f > 0) { at = h + (f >= 1 ? 1 : 0); pos = null; g.arcPos('tok0', add(P(path[h]), [0, 0.42, 0]), add(P(path[h + 1]), [0, 0.42, 0]), f, 0.8); }
+          }
+          if (pos) g.setPos('tok0', pos);
+          var d = g.get('dice');
+          var spin = k < 1 ? (1 - k) : 0;
+          d.rotation.set(spin * 9, spin * 7, 0);
+          g.get('dice-num').visible = k >= 1;
+          var left = k < 1 ? '？' : String(3 - at);
+          setText(g, 'lbl-left', k < 1 ? 'サイコロ…' : (left === '0' ? '愛知に到着！→ お店へ' : 'のこり ' + left + 'マス'), { size: 0.3, bg: '#000000aa', color: '#ffd166' });
+          var cur = k < 1 ? -1 : k < 1.8 ? 0 : k < 2.4 ? -1 : k < 3.2 ? 1 : k < 3.8 ? -1 : k < 4.6 ? 2 : -1;
+          g.get('ch13').visible = cur === 0;
+          g.get('ch14').visible = cur === 1;
+          g.get('ch22').visible = cur === 2;
+          g.get('lbl-which').visible = cur >= 0;
+          if (cur >= 0) g.setPos('lbl-which', add(P(path[cur]), [0, 1.5, 0]));
+        },
+      },
+      {
+        title: '到着イベント：2つのくじ',
+        html:
+          '<p>止まった県に着くと、お店の前に <b>くじが2回</b> 引かれる。</p>' +
+          '<ol><li><b>野武士くじ</b>（50%）：当たると兵隊 <b>+10000人</b>。外れたら「今回は兵隊は増えなかった…」</li>' +
+          '<li><b>イベントくじ</b>（50%）：当たると下の6種からランダムに1つ</li></ol>' +
+          '<table><tr><th>イベント</th><th>効果</th></tr>' +
+          '<tr><td>盗賊に襲われた</td><td>兵隊 −20%</td></tr><tr><td>豊作</td><td>+800円</td></tr>' +
+          '<tr><td>兵士募集</td><td>兵隊 +20%</td></tr><tr><td>商人との出会い</td><td>+500円</td></tr>' +
+          '<tr><td>疫病</td><td>兵隊 −15%</td></tr><tr><td>戦利品</td><td>+1000円</td></tr></table>' +
+          '<p>イベントは <code>EVENTS</code> 配列に <b>名前・メッセージ・効果の関数</b> をセットで並べてある。新しいイベントは1行足すだけで増やせる。</p>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>rollSoldierEvent()</code> / <code>rollGameEvent()</code> / <code>EVENTS</code></p>',
+        camera: { pos: [5, 4.6, 7.5], target: [4.6, 1.6, 0] },
+        focus: ['events', 'ronin', 'tok0', 'n23'],
+        show: ['events', 'ronin'],
+        enter: function (g) { g.setPos('tok0', add(P(23), [0, 0.42, 0])); for (var i = 1; i < 4; i++) g.get('tok' + i).visible = false; },
+        update: function (g, t) {
+          var k = t % 7;
+          g.setPos('tok0', add(P(23), [0, 0.42, 0]));
+          // 野武士くじ：当たり
+          var up = g.phase(k, 0.5, 0.8);
+          bar(g, 'ronin-bar', 1 + up);
+          g.get('lbl-ronin').position.y = 1.4 + up * 1.0 + 0.5;
+          setText(g, 'lbl-ronin', k < 0.5 ? '野武士くじ…' : '当たり！\n兵 ' + (10000 + Math.round(up * 10000)), { size: 0.26, bg: '#000000aa' });
+          // イベントくじ：ルーレット → 豊作（index 1）で止まる
+          var sel = -1;
+          if (k > 2) {
+            var r = Math.min(1, (k - 2) / 2.4);
+            var steps = Math.floor(13 * (1 - Math.pow(1 - r, 2)));
+            sel = (steps + 1) % 6;
+            if (r >= 1) sel = 1;
+          }
+          for (var i = 0; i < 6; i++) {
+            var c = g.get('ev' + i);
+            var on = i === sel;
+            c.position.y = on ? 0.25 : 0;
+            var s = on ? (k > 4.4 ? 1.25 : 1.15) : 1;
+            c.scale.set(s, s, s);
+          }
+        },
+      },
+      {
+        title: '名産品ショップ',
+        html:
+          '<p>着いた県には名産品が <b>2つずつ</b> 並んでいる（値段は200〜2200円）。</p>' +
+          '<ul><li>お金が足りれば <b>何個でも</b> 続けて買える。「おわる」で終了</li>' +
+          '<li>同じ県の同じ名産品は <b>1人1回だけ</b>。買った物はボタンから消える</li>' +
+          '<li>他の人がもう買った物でも、自分はまだ買える（売り切れはない）</li></ul>' +
+          '<p>CPU は <b>買える中でいちばん安い物</b> から順に買っていく。1個買うたびにもう一度判断するので、お金が続く限り全部買う。</p>' +
+          '<div class="gg-note">愛知なら きしめん400円 → ひつまぶし800円 の順。3000円 → 2600円 → 1800円。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>availableProducts()</code> / <code>buyProduct()</code> / <code>cpuChooseProduct()</code></p>',
+        camera: { pos: [5.6, 4.4, 7.4], target: [5, 1.4, 0] },
+        focus: ['shop', 'bag', 'tok0', 'n23'],
+        show: ['shop', 'bag'],
+        enter: function (g) { for (var i = 1; i < 4; i++) g.get('tok' + i).visible = false; g.setPos('tok0', add(P(23), [0, 0.42, 0])); },
+        update: function (g, t) {
+          var k = t % 6.5;
+          var base = add(P(23), [0, 1.9, -0.6]);
+          var bag = add(P(23), [1.3, 0.5, 1.3]);
+          var a = g.phase(k, 1.0, 0.9), b = g.phase(k, 3.0, 0.9);
+          // shop グループ内のローカル座標で動かす
+          function loc(w) { return [w[0] - base[0], w[1] - base[1], w[2] - base[2]]; }
+          g.arcPos('pc1', [0.6, 0, 0], loc(bag), a, 0.6);
+          g.arcPos('pc0', [-0.6, 0, 0], loc(bag), b, 0.6);
+          var s1 = 1 - a * 0.7, s0 = 1 - b * 0.7;
+          g.get('pc1').scale.set(s1, s1, s1);
+          g.get('pc0').scale.set(s0, s0, s0);
+          var m = k < 1.9 ? 3000 : k < 3.9 ? 2600 : 1800;
+          setText(g, 'lbl-money', k >= 4.4 ? '所持金 1800円\n愛知の名産品はもう全部買ったよ' : '所持金 ' + m + '円', { size: 0.28, bg: '#000000aa', color: '#ffd166' });
+        },
+      },
+      {
+        title: '大都市の武器屋・防具屋',
+        html:
+          '<p>金色の県は <b>大都市</b>（25か所）。ここのお店では名産品に加えて <b>武器と防具</b> も売っている。</p>' +
+          '<table><tr><th>武器</th><th>値段</th><th>攻</th><th>防具</th><th>値段</th><th>防</th></tr>' +
+          '<tr><td>弓矢</td><td>500</td><td>3000</td><td>革鎧</td><td>500</td><td>3000</td></tr>' +
+          '<tr><td>刀</td><td>1500</td><td>8000</td><td>鉄鎧</td><td>1500</td><td>8000</td></tr>' +
+          '<tr><td>大砲</td><td>3500</td><td>20000</td><td>城壁シールド</td><td>3500</td><td>20000</td></tr></table>' +
+          '<ul><li>持てるのは武器1つ・防具1つ。買い直すと上書き</li>' +
+          '<li>同じ県で続けて同じ種類は買えない（<code>weaponLastBoughtPrefId</code>）</li>' +
+          '<li>CPU は名産品を買えないときだけ、今より強い物を買う</li></ul>' +
+          '<div class="gg-note">今のコードでは、攻・防の数字は <b>バトルの勝ち負けに使われていない</b>（勝敗は兵隊の数だけで決まる）。バトルが起きると両者の武器・防具が消えるだけなので、ここは今後の伸びしろ。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>WEAPONS</code> / <code>ARMORS</code> / <code>MAJOR_CITY_IDS</code> / <code>buyWeapon()</code></p>',
+        camera: { pos: [0, 18.5, 14], target: [0, 0, -0.4] },
+        focus: ['lbl-major'].concat(MAJOR.map(function (id) { return 'n' + id; })),
+        show: ['lbl-major'],
+        update: function (g, t) { MAJOR.forEach(function (id, i) { g.pulse('n' + id, t + i * 0.25, 0.25); }); },
+      },
+      {
+        title: 'すれ違いバトル',
+        html:
+          '<p>移動中、<b>他の人がいる県に入ると自動でバトル</b>。止まったときだけでなく、通りすぎるだけでも起きる。</p>' +
+          '<pre><code>勝ち = 兵隊が多いほう（同数なら守り側の勝ち）\n負けた側：兵隊 − 兵隊の差（0未満にはならない）\n         お金の30% を勝った側へ\n         50%の確率で名産品1つを奪われる\n         領土を持っていれば1つ奪われる</code></pre>' +
+          '<p>例：静岡の赤（兵20000）が愛知の青（兵14000）の所へ → 赤の勝ち。青は差の6000人を失って8000人。</p>' +
+          '<p>バトルのあとは <b>両方とも武器・防具がなくなる</b>。</p>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>resolveBattlesAt()</code>（<code>chooseNext()</code> と <code>advanceMovement()</code> で1マスごとに呼ばれる）</p>',
+        camera: { pos: [5.4, 5.2, 8.2], target: [5.2, 1.4, 0.2] },
+        focus: ['tok0', 'tok1', 'bt-a', 'bt-b', 'bt-msg', 'bt-loot', 'n22', 'n23', 'n24'],
+        show: ['bt-a', 'bt-b', 'bt-msg', 'bt-loot'],
+        enter: function (g) { g.get('tok2').visible = false; g.get('tok3').visible = false; },
+        update: function (g, t) {
+          var k = t % 7.5;
+          var A0 = add(P(22), [0, 0.42, 0]), A1 = add(P(23), [0.3, 0.42, 0]), Bp = add(P(23), [-0.3, 0.42, 0]);
+          var mv = g.phase(k, 0.6, 0.8);
+          g.arcPos('tok0', A0, A1, mv, 0.8);
+          g.setPos('tok1', Bp);
+          var ap = g.get('tok0').position;
+          g.setPos('bt-a', [ap.x, ap.y + 0.25, ap.z]);
+          g.setPos('bt-b', [Bp[0], Bp[1] + 0.25, Bp[2]]);
+          bar(g, 'bt-a-bar', 2.0);
+          var lose = g.phase(k, 2.4, 0.8);
+          bar(g, 'bt-b-bar', 1.4 - lose * 0.6);
+          setText(g, 'bt-b-lbl', lose > 0.5 ? '兵 8000\nお金 −30%' : '兵 14000', { size: 0.24, bg: '#000000aa' });
+          g.get('bt-msg').visible = k > 1.5;
+          setText(g, 'bt-msg', k < 2.4 ? '⚔ 20000 vs 14000' : '赤の勝ち！', { size: 0.3, bg: '#000000cc', color: '#ffd166' });
+          var steal = g.phase(k, 3.8, 0.9);
+          g.get('bt-loot').visible = k > 3.6 && k < 5.4;
+          g.arcPos('bt-loot', add(Bp, [0, 0.8, 0]), add(A1, [0, 0.8, 0]), steal, 0.8);
+          var shake = k > 2.3 && k < 2.8 ? Math.sin(t * 60) * 0.05 : 0;
+          g.get('tok1').position.x += shake;
+        },
+      },
+      {
+        title: '領土と政策',
+        html:
+          '<p>お金が <b>5000円</b> 以上あると、今いる県を <b>領土</b> にできる。そのとき3つの政策から1つ選ぶ。</p>' +
+          '<table><tr><th>政策</th><th>毎ターン収入</th><th>兵隊の維持費</th></tr>' +
+          '<tr><td>帝国主義</td><td>±0</td><td>×1.5…のはずが ×1 のまま※</td></tr>' +
+          '<tr><td>平和主義</td><td>+300円</td><td>×0.5</td></tr>' +
+          '<tr><td>商業主義</td><td>+500円</td><td>×0（タダ）</td></tr></table>' +
+          '<ul><li>収入ボーナスは <b>領土の数だけ足し算</b></li><li>維持費の倍率は <b>持っている領土の中でいちばん小さい値</b> が使われる</li></ul>' +
+          '<div class="gg-note">※ 倍率は「1より小さいときだけ更新」なので、帝国主義の ×1.5 は効かない。もう1つの <code>soldierBonus</code>（兵+30%など）や政策を変える <code>changePolicy()</code> は、作ってあるけどまだどこからも呼ばれていない。CPU は領土を買わない。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>POLICY_EFFECTS</code> / <code>buyTerritory()</code> / <code>calculateMaintenanceCost()</code> / <code>getTerritoryIncomeBonus()</code></p>',
+        camera: { pos: [2.2, 5.2, 7.6], target: [1.6, 1.0, -0.4] },
+        focus: ['flag', 'tok0', 'n26', 'n25', 'n27'],
+        show: ['flag'],
+        enter: function (g) { for (var i = 1; i < 4; i++) g.get('tok' + i).visible = false; },
+        update: function (g, t) {
+          g.setPos('tok0', add(P(26), [0.45, 0.42, 0.3]));
+          var POL = [['帝国主義', '#c0392b', '収入±0'], ['平和主義', '#2b9a6b', '収入+300 / 維持費×0.5'], ['商業主義', '#d4a017', '収入+500 / 維持費0']];
+          var rise = g.phase(t, 0, 1.2);
+          g.get('flag').position.y = 0.2 - (1 - rise) * 1.8;
+          var i = Math.floor(t / 2.2) % 3;
+          g.setColor('flag-cloth', POL[i][1]);
+          setText(g, 'lbl-policy', '京都を ' + POL[i][0] + ' で支配！\n' + POL[i][2], { size: 0.26, bg: '#000000cc', color: '#ffffff' });
+          g.get('flag-cloth').rotation.y = Math.sin(t * 3) * 0.25;
+        },
+      },
+      {
+        title: 'ターンの終わり：収入・維持費・ゴール',
+        html:
+          '<p>「つぎへ」を押すと <code>endTurn()</code>。<b>次の人</b> のお金がこう動く：</p>' +
+          '<pre><code>収入   = 1000円 + 領土の政策ボーナス\n維持費 = floor(兵隊 ÷ 1000 × 30) × 政策の倍率</code></pre>' +
+          '<p>兵隊10000人なら維持費は毎ターン300円。兵隊を増やしすぎるとお金がどんどん減る（マイナスにもなる）。</p>' +
+          '<p>ターン数が <code>totalTurns</code>（人数 × 8）に届いたら <b>game-over</b>。結果画面は <b>名産品の個数</b> で並べ替えて順位を決める。</p>' +
+          '<div class="gg-note">設計書（<code>docs/DESIGN.md</code>）には「収入300円」「資産合計（お金＋名産品の値段）で勝敗」と書いてあるけど、今のコードは <b>収入1000円</b>・<b>名産品の数で順位</b>。資産合計はゲーム中の右側の表示にだけ使われている。</div>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>endTurn()</code> / <code>totalAssetValue()</code>、<code>ResultScene.ts</code> の <code>create()</code></p>',
+        camera: { pos: [PH, 12, 19], target: [PH, 0.5, 3.5] },
+        focus: ['ph-turn-end', 'ph-rolling', 'ph-game-over', 'pa6', 'pa7', 'pa7a', 'pa7l', 'podium'],
+        show: ['podium'],
+        update: function (g, t) {
+          var H = [7, 9, 5];
+          for (var i = 0; i < 3; i++) {
+            var h = 0.3 * H[i] * g.phase(t, 0.3 + i * 0.25, 1.2);
+            var c = g.get('pod' + i);
+            var s = Math.max(0.02, h);
+            c.scale.y = s; c.position.y = s / 2;
+            g.get('pod-l' + i).position.y = s + 0.7;
+          }
+          if (t > 1.8) g.pulse('pod1', t, 0.04);
+        },
+      },
+      {
+        title: 'プログラムの全体構成',
+        html:
+          '<p>画面（Phaser のシーン）と、ルール（<code>GameEngine.ts</code>）を分けて作ってある。</p>' +
+          '<ul><li><code>TitleScene</code>：CPU人数を聞く／LANの部屋を作る・入る</li>' +
+          '<li><code>GameScene</code>：地図とコマを描き、ボタンを出し、CPUの番を進める</li>' +
+          '<li><code>GameEngine.ts</code>：サイコロ・移動・買い物・バトルなどの <b>ルールだけ</b>。Phaser を一切使っていない</li>' +
+          '<li><code>prefectures.json</code>：47県のデータ。ルールを変えずに地図や名産品を差し替えられる</li>' +
+          '<li><code>ResultScene</code>：最後のランキング</li></ul>' +
+          '<p>GameScene はボタンが押されると <code>startRoll(state)</code> のようにエンジンの関数を呼び、返ってきた <b>新しい state で画面を全部描き直す</b>（<code>renderAll()</code>）。</p>' +
+          '<p class="gg-files">📄 <code>src/main.ts</code>、<code>src/scenes/*.ts</code>、<code>src/game/GameEngine.ts</code></p>',
+        camera: { pos: [ARCH, 13, 10], target: [ARCH, 0, -2] },
+        focus: ['ar-main', 'ar-title', 'ar-game', 'ar-result', 'ar-engine', 'ar-json', 'ar-net', 'af-main', 'af-t2g', 'af-g2r', 'af-g2e', 'af-e2g', 'af-json', 'af-g2n', 'al-req', 'al-res'],
+      },
+      {
+        title: 'LAN対戦：ホストだけがルールを動かす',
+        html:
+          '<p>LAN対戦は <code>npm run server</code> で <code>server.ts</code>（ポート8080）を起動して、同じWi-Fiの全員がつなぐ。部屋番号は英数字5文字、最大4人。</p>' +
+          '<p>しくみは <b>ホスト権威モデル</b>：</p>' +
+          '<ol><li>部屋を作った <b>プレイヤー0（ホスト）だけ</b> が GameEngine を動かす</li>' +
+          '<li>他の人のボタンは <code>{kind:"request"}</code> としてホストへ送られるだけ</li>' +
+          '<li>ホストが「今その人の番か」「今そのフェーズか」を確かめてから実行</li>' +
+          '<li>結果の <b>GameState を丸ごと</b> <code>{kind:"state"}</code> で全員に配る</li></ol>' +
+          '<p>サーバーは中身を見ずに、送ってきた人 <b>以外</b> の全員に転送するだけ。差分ではなく全部送るので、みんなの画面がズレにくい。</p>' +
+          '<div class="gg-note">各自の画面では自分が「あなた」、他が「プレイヤー2」のように名付けられるけど、届く state はホストが作った物なので、ホスト以外の画面では名前がホスト目線で上書きされる。ホストが抜けると続けられない（ホスト交代は未実装）。</div>' +
+          '<p class="gg-files">📄 <code>server.ts</code>、<code>NetworkManager.ts</code>、<code>GameScene.ts</code> の <code>requestAction()</code> / <code>tryApplyRequest()</code> / <code>commitState()</code></p>',
+        camera: { pos: [ARCH, 12, 19.5], target: [ARCH, 0, 8] },
+        focus: ['lan-host', 'lan-server', 'lan-g1', 'lan-g2', 'lf-req1', 'lf-req2', 'lf-st1', 'lf-st2', 'lf-st3', 'll-req', 'll-st'],
+      },
+      {
+        title: '状態はコピーして作り直す ＆ CPUの考え方',
+        html:
+          '<p>エンジンの関数は、受け取った state を <b>直接書きかえない</b>。まず <code>cloneState()</code> でコピーしてから変更し、新しい state を返す。</p>' +
+          '<pre><code>export function skipShop(state) {\n  const s = cloneState(state);\n  if (s.phase !== \'shop\') return s;\n  s.phase = \'turn-end\';\n  return s;\n}</code></pre>' +
+          '<p>だから「state を送れば相手の画面も同じになる」LAN同期とも相性がいい。</p>' +
+          '<p><b>CPU</b> はホスト側で、650ミリ秒ごとに今のフェーズを見て1手ずつ動く：</p>' +
+          '<ul><li>rolling → サイコロ／choosing → ランダムに選ぶ</li>' +
+          '<li>shop → いちばん安い名産品 → なければ大都市で強い武器 → 防具 → それもなければ「おわる」</li>' +
+          '<li>turn-end → つぎへ</li></ul>' +
+          '<p class="gg-files">📄 <code>GameEngine.ts</code> の <code>cloneState()</code> / <code>cpuShopDecision()</code>、<code>GameScene.ts</code> の <code>maybeAutoCPU()</code></p>',
+        camera: { pos: [ARCH + 0.8, 11, -3], target: [ARCH + 0.8, 0.3, -15] },
+        focus: ['st-old', 'st-new', 'st-arrow', 'cpu-box'],
+        update: function (g, t) {
+          var k = t % 4;
+          var f = g.phase(k, 0.3, 1.2);
+          g.lerpPos('st-new', [ARCH - 4, 0.7, -15], [ARCH, 0.7, -15], f);
+          var sc = 0.6 + 0.4 * f;
+          g.get('st-new').scale.set(sc, sc, sc);
+          g.pulse('cpu-box', t, 0.05);
+        },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

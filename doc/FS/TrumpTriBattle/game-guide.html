@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トランプ三戦場バトル | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var RED = '#e0457b', BLACK = '#2b2b44';
+  // 盤面の座標（プレイヤー1＝手前 z+、プレイヤー2＝奥 z-）
+  var BF_X = [-3, 0, 3];
+  var P1_SLOT_Z = 1.2, P2_SLOT_Z = -1.2;
+  function handPos(i, z) { return [(i - 2.5) * 1.15, 0.05, z]; }
+  var P1_HAND_Z = 4.5, P2_HAND_Z = -4.5;
+  var CAP1 = [6.4, 0.05, 2.2], CAP2 = [6.4, 0.05, -2.2];
+  var DECK = [-6.4, 0.3, 0];
+  var CPU_Z = 11;   // CPU の選び方デモは手前 z=11 付近
+  var ARCH = 20;    // アーキテクチャ図は x=20 付近
+
+  // プレイヤー1の手札（サーバー版は6枚）。最初の3枚を出す
+  var P1 = [['♠K', 13], ['♥5', 5], ['♣9', 9], ['♦3', 3], ['♠7', 7], ['♥J', 11]];
+  // プレイヤー2が出す3枚＋残り
+  var P2 = [['♦Q', 12], ['♠5', 5], ['♥10', 10], ['♣2', 2], ['♦8', 8], ['♠A', 14]];
+  // 戦場ごとの結果：1=P1勝ち、2=P2勝ち、0=相打ち
+  var RESULT = [1, 0, 2];
+
+  function colorOf(t) { return /[♥♦]/.test(t) ? RED : BLACK; }
+  function rankText(r) { return '強さ ' + r; }
+
+  var shown = {};
+  function setLbl(g, id, txt, o) {
+    if (shown[id] === txt) return;
+    g.setLabel(id, txt, o);
+    shown[id] = txt;
+  }
+
+  // 結果の行き先：戦場 i の P1 カード / P2 カードが最後にどこへ行くか
+  function destOf(i, who) {
+    var r = RESULT[i];
+    var toP1 = r === 1 || (r === 0 && who === 1);
+    var base = toP1 ? CAP1 : CAP2;
+    var k = toP1 ? (i === 0 ? (who === 1 ? 0 : 1) : 2) : (i === 1 ? 0 : who === 1 ? 1 : 2);
+    return [base[0] + (k - 1) * 0.25, 0.06 + k * 0.04, base[2] + (k - 1) * 0.15];
+  }
+
+  GameGuide.start({
+    title: 'トランプ三戦場バトル',
+    back: '../index.html',
+    subtitle: '3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦（HTML/JS の1台版 ＋ Python・Flask のCPU/LAN版）',
+    camera: { pos: [0, 12, 11], target: [0, 0, 0] },
+
+    build: function (g) {
+      // ---------- 盤面 ----------
+      g.plate({ id: 'mat-p1', size: [11.6, 4.4], pos: [0, 0.01, 3.3], color: '#1d2a44', opacity: 0.85 });
+      g.plate({ id: 'mat-p2', size: [11.6, 4.4], pos: [0, 0.01, -3.3], color: '#3a1d2a', opacity: 0.85 });
+      for (var b = 0; b < 3; b++) {
+        g.plate({ id: 'bf' + b, size: [2.3, 4.4], pos: [BF_X[b], 0.04, 0], color: '#5a527a', opacity: 0.55,
+          label: '戦場 ' + (b + 1), labelOffset: [0, 0.35, 0], labelSize: 0.3 });
+        g.plate({ id: 'slot1-' + b, size: [1.15, 1.5], pos: [BF_X[b], 0.06, P1_SLOT_Z], color: C.me, opacity: 0.3 });
+        g.plate({ id: 'slot2-' + b, size: [1.15, 1.5], pos: [BF_X[b], 0.06, P2_SLOT_Z], color: C.enemy, opacity: 0.3 });
+        g.label('', [BF_X[b], 1.3, 0], { id: 'res' + b, size: 0.36, bg: '#000000aa' });
+      }
+      g.label('プレイヤー1の手札', [0, 0.35, 5.75], { id: 'lbl-h1', size: 0.26, color: '#cfd8ff' });
+      g.label('プレイヤー2の手札（相手からは見えない）', [0, 0.35, -5.75], { id: 'lbl-h2', size: 0.26, color: '#ffd0da' });
+
+      P1.forEach(function (c, i) {
+        g.card({ id: 'h1-' + i, pos: handPos(i, P1_HAND_Z), text: c[0], sub: rankText(c[1]), color: colorOf(c[0]) });
+      });
+      P2.forEach(function (c, i) {
+        g.card({ id: 'h2-' + i, pos: handPos(i, P2_HAND_Z), rot: [0, Math.PI, 0], faceDown: true, text: c[0], sub: rankText(c[1]), color: colorOf(c[0]), backColor: '#6b2340' });
+      });
+
+      // 獲得したカード置き場
+      g.plate({ id: 'cap1', size: [1.6, 2.0], pos: [CAP1[0], 0.03, CAP1[2]], color: C.me, opacity: 0.35, label: '獲得したカード（P1）', labelOffset: [0, 0.3, 1.35], labelSize: 0.24 });
+      g.plate({ id: 'cap2', size: [1.6, 2.0], pos: [CAP2[0], 0.03, CAP2[2]], color: C.enemy, opacity: 0.35, label: '獲得したカード（P2）', labelOffset: [0, 0.3, -1.35], labelSize: 0.24 });
+      g.label('P1 合計 6枚', [CAP1[0], 1.6, CAP1[2] + 0.2], { id: 'tot1', size: 0.3, color: '#cfe0ff', bg: '#000000aa' });
+      g.label('P2 合計 6枚', [CAP2[0], 1.6, CAP2[2] - 0.2], { id: 'tot2', size: 0.3, color: '#ffd0da', bg: '#000000aa' });
+
+      // 山札（サーバー版）
+      g.box({ id: 'deck', size: [0.95, 0.5, 1.3], pos: DECK, color: '#4a4466', label: '山札（サーバー版）\n46枚', labelSize: 0.24 });
+      for (var d = 0; d < 3; d++) {
+        g.card({ id: 'draw1-' + d, pos: DECK, faceDown: true, text: '?', backColor: '#2f4a8a' });
+        g.card({ id: 'draw2-' + d, pos: DECK, faceDown: true, text: '?', backColor: '#6b2340' });
+      }
+      g.label('相手の初期手札と同じ6枚が\n山札にも入っている', [DECK[0], 1.9, DECK[2]], { id: 'dup-note', size: 0.24, color: C.gold, bg: '#000000aa' });
+      g.label('1台版：最初に26枚ずつ配って補充なし', [0, 0.4, 7.0], { id: 'local-note', size: 0.26, color: C.gold });
+
+      // ---------- CPU の選び方デモ（z=11 付近） ----------
+      g.group('cpu-demo', { pos: [0, 0, CPU_Z] });
+      var SORTED = [['♦3', 3], ['♥5', 5], ['♠7', 7], ['♣9', 9], ['♥J', 11], ['♠K', 13]];
+      SORTED.forEach(function (c, i) {
+        g.card({ parent: 'cpu-demo', id: 'cpu-c' + i, pos: [(i - 2.5) * 1.15, 0.05, 0], text: c[0], sub: rankText(c[1]), color: colorOf(c[0]) });
+      });
+      g.label('CPUの手札（強さ順に並べたところ）', [0, 0.35, 1.35], { parent: 'cpu-demo', size: 0.26, color: '#cfd8ff' });
+      g.label('中級', [0, 2.4, 0], { parent: 'cpu-demo', id: 'cpu-lvl', size: 0.36, bg: '#000000aa', color: C.gold });
+
+      // ---------- アーキテクチャ図（x=20 付近） ----------
+      g.box({ id: 'arch-lobby', size: [2.8, 1.1, 1.5], pos: [ARCH - 4.2, 0.55, 5], color: C.me, label: 'web/index.html\nロビー（CPU・部屋作成・参加）', labelSize: 0.36 });
+      g.box({ id: 'arch-game', size: [2.8, 1.1, 1.5], pos: [ARCH + 2.2, 0.55, 5], color: C.me, label: 'web/game.html + game.js\n対戦画面（1秒ごとに取得）', labelSize: 0.36 });
+      g.box({ id: 'arch-run', size: [1.8, 0.8, 1.2], pos: [ARCH - 5.6, 0.4, 0.8], color: '#4a4466', label: 'run.py\nポート5000で起動', labelSize: 0.36 });
+      g.box({ id: 'arch-server', size: [3.4, 1.1, 1.6], pos: [ARCH - 1, 0.55, 0.8], color: C.server, label: 'server/app.py（Flask）\nURLの受付と token 確認', labelSize: 0.36 });
+      g.box({ id: 'arch-rooms', size: [3.4, 1.0, 1.5], pos: [ARCH - 1, 0.5, -3.2], color: '#c77dff', label: 'server/rooms.py\nRoom（部屋）と RoomRegistry', labelSize: 0.36 });
+      g.box({ id: 'arch-engine', size: [3.8, 1.2, 1.7], pos: [ARCH - 1, 0.6, -7.2], color: '#7b5cff', label: 'engine/game.py\nCard・Game（ルールの本体）', labelSize: 0.36 });
+      g.box({ id: 'arch-local', size: [3.0, 1.0, 1.6], pos: [ARCH + 4.6, 0.5, -5.2], color: '#2b9a6b', label: 'index.html + game.js\n1台版（サーバー不要）', labelSize: 0.36 });
+      g.label('同じルールを JS でも\n別に書いている', [ARCH + 4.6, 2.9, -5.2], { id: 'lbl-local', size: 0.28, color: '#bff5d9', bg: '#00000088' });
+      g.flow([ARCH - 4.2, 1.1, 4.2], [ARCH - 2, 1.1, 1.6], { id: 'flow-lobby', color: C.data, lift: 0.7 });
+      g.flow([ARCH + 1.6, 1.1, 4.2], [ARCH, 1.1, 1.6], { id: 'flow-g2s', color: C.data, lift: 0.7 });
+      g.flow([ARCH + 0.6, 1.1, 1.6], [ARCH + 2.8, 1.1, 4.2], { id: 'flow-s2g', color: C.good, lift: 0.9 });
+      g.flow([ARCH - 1.4, 1.0, 0], [ARCH - 1.4, 1.0, -2.5], { id: 'flow-s2r', color: C.gold, lift: 0.5 });
+      g.flow([ARCH - 1.4, 1.0, -3.9], [ARCH - 1.4, 1.0, -6.4], { id: 'flow-r2e', color: C.gold, lift: 0.5 });
+      g.flow([ARCH - 4.7, 0.8, 0.8], [ARCH - 2.7, 0.8, 0.8], { id: 'flow-run', color: '#b8b2d6', lift: 0.4, count: 3 });
+      g.label('POST /api/room/<code>/view\nPOST /api/room/<code>/select', [ARCH + 4.2, 2.4, 2.2], { id: 'lbl-api', size: 0.28, color: C.data, bg: '#00000088' });
+
+      // 部屋のデモ
+      g.group('room-demo', { pos: [ARCH + 11, 0, 1.5] });
+      g.box({ parent: 'room-demo', id: 'room-box', size: [3.6, 0.3, 2.6], pos: [0, 0.15, 0], color: '#3a3555', label: '部屋コード  K7QM', labelSize: 0.34, labelOffset: [0, 0.6, -1.2] });
+      g.cylinder({ parent: 'room-demo', id: 'seat0', radius: 0.5, height: 0.4, pos: [-0.9, 0.5, 0.2], color: C.me, label: '席0（作った人）\ntoken: 12バイトの乱数', labelSize: 0.2 });
+      g.cylinder({ parent: 'room-demo', id: 'seat1', radius: 0.5, height: 0.4, pos: [0.9, 0.5, 0.2], color: C.enemy, label: '席1（参加者 or CPU）\ntoken: 参加時に発行', labelSize: 0.2 });
+      g.label('待機5分・放置3時間・決着30分で自動削除', [0, 0.4, 1.8], { parent: 'room-demo', size: 0.22, color: '#e8e4ff' });
+
+      // 手札を隠すデモ
+      g.group('hide-demo', { pos: [ARCH + 11, 0, -4.6] });
+      [['♠K', 13], ['♥5', 5], ['♣9', 9]].forEach(function (c, i) {
+        g.card({ parent: 'hide-demo', id: 'hd' + i, pos: [-1.2 + i * 0.9, 0.05, -1.1], text: c[0], sub: rankText(c[1]), color: colorOf(c[0]), w: 0.7 });
+      });
+      for (var n = 0; n < 3; n++) {
+        g.box({ parent: 'hide-demo', id: 'hn' + n, size: [0.7, 0.04, 0.98], pos: [-1.2 + n * 0.9, 0.05, 1.3], color: '#55506e', edgeColor: '#aaaaaa' });
+      }
+      g.label('サーバーの中の本物の手札', [-0.3, 0.4, -2.25], { parent: 'hide-demo', size: 0.22 });
+      g.label('相手に届くのは [null, null, null]', [-0.3, 0.45, 2.3], { parent: 'hide-demo', size: 0.24, color: C.enemy, bg: '#000000aa' });
+      g.arrow([-0.3, 0.3, -0.3], [-0.3, 0.3, 0.6], { parent: 'hide-demo', color: C.enemy, lift: 0.4 });
+
+      // 伸びしろ（バグ）マーカー
+      g.label('⚠ 3か所', [ARCH - 1, 2.9, -7.2], { id: 'warn-engine', size: 0.45, color: '#ffb36b', bg: '#000000aa' });
+      g.label('⚠ 1か所', [ARCH + 2.2, 2.6, 5], { id: 'warn-web', size: 0.45, color: '#ffb36b', bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？',
+        html:
+          '<p>2人で遊ぶトランプの対戦ゲーム。場には <b>戦場が3つ</b> あって、毎ラウンド <b>3つ同時に</b> 勝負する。</p>' +
+          '<ul><li>手前の青い側がプレイヤー1、奥の赤い側がプレイヤー2</li>' +
+          '<li>カードの <b>数字が大きい方が勝ち</b>。勝つと相手のカードももらえる</li>' +
+          '<li><b>持っているカードの枚数（手札＋獲得）で相手を上回ったら勝ち</b></li></ul>' +
+          '<p>プログラムは2種類ある。</p>' +
+          '<table><tr><th>版</th><th>遊び方</th></tr>' +
+          '<tr><td>1台版<br><code>index.html</code></td><td>1つの画面を2人で渡し合う。26枚ずつ配る</td></tr>' +
+          '<tr><td>サーバー版<br><code>run.py</code></td><td>CPU対戦・LAN対戦。手札6枚＋山札から補充</td></tr></table>',
+        camera: { pos: [0, 12, 11], target: [0, 0, 0] },
+        show: [],
+        enter: function (g) { shown = {}; },
+      },
+      {
+        title: '強さは数字だけ。スートは関係なし',
+        html:
+          '<p>カードの強さは <b>数字（rank）だけ</b> で決まる。♠♥♦♣ のマークは見た目だけで、勝ち負けには使わない。</p>' +
+          '<pre><code>2 < 3 < … < 10 < J(11) < Q(12) < K(13) < A(14)</code></pre>' +
+          '<p><b>A は 14 として一番強い</b>。プログラムでも 2〜14 の数字で持っていて、表示のときだけ J・Q・K・A に置き換えている。</p>' +
+          '<p>ジョーカーは入れず、<b>4マーク×13枚＝52枚</b> を作ってシャッフルする。</p>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>Card</code> / <code>make_deck()</code>、<code>game.js</code> の <code>makeDeck()</code></p>',
+        camera: { pos: [0, 4.5, 8.8], target: [0, 0, 4.2] },
+        focus: ['h1-0', 'h1-1', 'h1-2', 'h1-3', 'h1-4', 'h1-5', 'lbl-h1'],
+        update: function (g, t) {
+          // 強さの順に1枚ずつ光らせる
+          var order = [3, 1, 4, 2, 5, 0];
+          var k = Math.floor(t / 0.8) % 7;
+          order.forEach(function (idx, j) {
+            g.get('h1-' + idx).position.y = j === k ? 0.35 : 0.05;
+          });
+        },
+      },
+      {
+        title: '3枚を選んで、3つの戦場に伏せる',
+        html:
+          '<p>各ラウンド、2人とも手札から <b>ちょうど3枚</b> 選ぶ。1枚目が戦場1、2枚目が戦場2、3枚目が戦場3 に行く。</p>' +
+          '<ul><li>1台版：プレイヤー1が選ぶ → 「プレイヤー2に画面を渡してください」 → プレイヤー2が選ぶ</li>' +
+          '<li>サーバー版：それぞれの画面で選んで「決定！」</li></ul>' +
+          '<p>どの戦場に強いカードを置くか、相手の読み合いがこのゲームのポイント。</p>' +
+          '<div class="gg-note">戦場の順番の決まり方が版で違う。1台版は <b>クリックした順</b>、サーバー版は <code>sorted(self.selections[player])</code> で <b>手札の左からの順</b> に並べ直している。</div>' +
+          '<p class="gg-files">📄 <code>game.js</code> の <code>confirmSelection()</code>、<code>engine/game.py</code> の <code>select_cards()</code> / <code>resolve_round()</code></p>',
+        camera: { pos: [0, 9, 9.5], target: [0, 0, 0.5] },
+        update: function (g, t) {
+          var k = t % 4.5;
+          for (var i = 0; i < 3; i++) {
+            var a = g.phase(k, 0.3 + i * 0.35, 0.7);
+            g.arcPos('h1-' + i, handPos(i, P1_HAND_Z), [BF_X[i], 0.08, P1_SLOT_Z], a, 1.2);
+            g.flip('h1-' + i, a);
+            var b = g.phase(k, 1.8 + i * 0.35, 0.7);
+            g.arcPos('h2-' + i, handPos(i, P2_HAND_Z), [BF_X[i], 0.08, P2_SLOT_Z], b, 1.2);
+          }
+        },
+      },
+      {
+        title: 'オープン！ 大きい方が2枚とももらう',
+        html:
+          '<p>両方そろったら一斉にめくって、戦場ごとに数字を比べる。</p>' +
+          '<table><tr><th>結果</th><th>カードの行き先</th></tr>' +
+          '<tr><td>数字が大きい方の勝ち</td><td><b>自分のカード＋相手のカード</b> を2枚とも獲得</td></tr>' +
+          '<tr><td>同じ数字（相打ち）</td><td>お互い <b>自分のカードだけ</b> 獲得置き場へ</td></tr></table>' +
+          '<p>例：戦場1 は ♠K(13) が ♦Q(12) に勝ち、戦場2 は 5 と 5 で相打ち、戦場3 は ♣9 が ♥10 に負け。</p>' +
+          '<p>獲得したカードはもう場に出せない。でも <b>枚数としては自分の持ち物</b> に数える。</p>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>resolve_round()</code>、<code>game.js</code> の <code>resolveRound()</code></p>',
+        camera: { pos: [2, 10.5, 9], target: [1.6, 0, 0.2] },
+        focus: ['bf0', 'bf1', 'bf2', 'slot1-0', 'slot1-1', 'slot1-2', 'slot2-0', 'slot2-1', 'slot2-2', 'h1-0', 'h1-1', 'h1-2', 'h2-0', 'h2-1', 'h2-2', 'res0', 'res1', 'res2', 'cap1', 'cap2', 'tot1', 'tot2'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var k = t % 7;
+          var open = g.phase(k, 0.4, 0.6);
+          var marks = ['P1の勝ち', '相打ち', 'P2の勝ち'];
+          for (var i = 0; i < 3; i++) {
+            g.setPos('h1-' + i, [BF_X[i], 0.08, P1_SLOT_Z]);
+            g.setPos('h2-' + i, [BF_X[i], 0.08, P2_SLOT_Z]);
+            g.flip('h1-' + i, 0);
+            g.flip('h2-' + i, 1 - open);
+            g.get('res' + i).visible = k > 1.4;
+            setLbl(g, 'res' + i, marks[i], { size: 0.32, bg: '#000000aa', color: RESULT[i] === 1 ? '#8fc4ff' : RESULT[i] === 2 ? '#ff9aa6' : '#e8e4ff' });
+            var m = g.phase(k, 2.6 + i * 0.6, 0.8);
+            if (m > 0) {
+              g.arcPos('h1-' + i, [BF_X[i], 0.08, P1_SLOT_Z], destOf(i, 1), m, 1.2);
+              g.arcPos('h2-' + i, [BF_X[i], 0.08, P2_SLOT_Z], destOf(i, 2), m, 1.2);
+            }
+          }
+          var c1 = k < 3.4 ? 0 : k < 4 ? 2 : 3;
+          var c2 = k < 4 ? 0 : k < 4.6 ? 1 : 3;
+          setLbl(g, 'tot1', '獲得 ' + c1 + '枚', { size: 0.3, color: '#cfe0ff', bg: '#000000aa' });
+          setLbl(g, 'tot2', '獲得 ' + c2 + '枚', { size: 0.3, color: '#ffd0da', bg: '#000000aa' });
+        },
+      },
+      {
+        title: '勝ち負けの判定：差がついた瞬間に終わり',
+        html:
+          '<p>毎ラウンドの最後に <b>合計枚数 ＝ 手札 ＋ 獲得したカード</b> を比べて、<b>違っていたらその場で決着</b>。</p>' +
+          '<pre><code>if p1_total != p2_total:\n    winner = 0 if p1_total > p2_total else 1</code></pre>' +
+          '<p>勝った戦場は +2枚、相打ちは +1枚、負けは 0枚。だから実は <b>そのラウンドの勝った戦場の数が違えば終わり</b>。</p>' +
+          '<table><tr><th>3つの戦場</th><th>合計（サーバー版）</th><th>結果</th></tr>' +
+          '<tr><td>勝ち・相打ち・負け</td><td>9 対 9</td><td>続行</td></tr>' +
+          '<tr><td>相打ち×3</td><td>9 対 9</td><td>続行</td></tr>' +
+          '<tr><td>勝ち・勝ち・負け</td><td>10 対 8</td><td><b>P1の勝ち</b></td></tr>' +
+          '<tr><td>勝ち・相打ち・相打ち</td><td>10 対 8</td><td><b>P1の勝ち</b></td></tr></table>' +
+          '<p>どちらかの手札が3枚未満になったら、その時点で <b>引き分け</b>。</p>' +
+          '<div class="gg-note">エンジンにランダムな手で2万回対戦させたら、<b>約92%が1ラウンド目で決着</b> した。「何ラウンドも続く勝負」にしたいなら、ここが調整ポイントになりそう。</div>',
+        camera: { pos: [2.8, 10, 8.5], target: [2.4, 0, 0.2] },
+        focus: ['bf0', 'bf1', 'bf2', 'res0', 'res1', 'res2', 'tot1', 'tot2', 'cap1', 'cap2'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var SC = [
+            [[1, 0, 2], '9枚', '9枚', '同点 → 次のラウンドへ'],
+            [[0, 0, 0], '9枚', '9枚', '同点 → 次のラウンドへ'],
+            [[1, 1, 2], '10枚', '8枚', '差がついた → P1の勝ち！'],
+            [[1, 0, 0], '10枚', '8枚', '差がついた → P1の勝ち！'],
+          ];
+          var s = SC[Math.floor(t / 2.6) % SC.length];
+          var names = { 1: 'P1の勝ち\n+2枚', 2: 'P2の勝ち\nP1は+0', 0: '相打ち\n+1枚ずつ' };
+          for (var i = 0; i < 3; i++) {
+            g.get('res' + i).visible = true;
+            var r = s[0][i];
+            setLbl(g, 'res' + i, names[r], { size: 0.3, bg: '#000000aa', color: r === 1 ? '#8fc4ff' : r === 2 ? '#ff9aa6' : '#e8e4ff' });
+          }
+          setLbl(g, 'tot1', 'P1 合計 ' + s[1] + '\n' + s[3], { size: 0.28, color: '#cfe0ff', bg: '#000000aa' });
+          setLbl(g, 'tot2', 'P2 合計 ' + s[2], { size: 0.28, color: '#ffd0da', bg: '#000000aa' });
+          
+        },
+      },
+      {
+        title: 'サーバー版の手札：6枚から始めて山札で補充',
+        html:
+          '<p>サーバー版は最初の手札が <b>6枚</b>。ラウンドが終わるたびに、<b>手札が6枚になるまで山札から引く</b>（プレイヤー1が先）。</p>' +
+          '<pre><code>while len(self.hands[player]) < 6 and self.deck:\n    self.hands[player].append(self.deck.pop())</code></pre>' +
+          '<p>1台版は補充なしで、最初に <b>26枚ずつ全部配る</b>。</p>' +
+          '<div class="gg-note">配り方に小さなズレがある。<code>start()</code> が <code>self.deck = deck[6:]</code> にしているので、プレイヤー2に配った6枚（<code>deck[6:12]</code>）が <b>山札にも残っている</b>。山札は46枚で、同じカードが2枚出てくることがある。<code>deck[12:]</code> にすると直る。</div>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>start()</code> / <code>resolve_round()</code></p>',
+        camera: { pos: [-2.5, 11, 10], target: [-1.5, 0, 0] },
+        focus: ['deck', 'dup-note', 'draw1-0', 'draw1-1', 'draw1-2', 'draw2-0', 'draw2-1', 'draw2-2', 'h1-3', 'h1-4', 'h1-5', 'h2-3', 'h2-4', 'h2-5', 'lbl-h1', 'lbl-h2', 'local-note'],
+        show: ['draw1-0', 'draw1-1', 'draw1-2', 'draw2-0', 'draw2-1', 'draw2-2', 'dup-note', 'local-note'],
+        enter: function (g) {
+          for (var i = 0; i < 3; i++) { g.get('h1-' + i).visible = false; g.get('h2-' + i).visible = false; }
+        },
+        update: function (g, t) {
+          var k = t % 5;
+          for (var i = 0; i < 3; i++) {
+            var a = g.phase(k, 0.3 + i * 0.4, 0.7);
+            g.arcPos('draw1-' + i, DECK, handPos(i, P1_HAND_Z), a, 1.5);
+            var b = g.phase(k, 1.6 + i * 0.4, 0.7);
+            g.arcPos('draw2-' + i, DECK, handPos(i, P2_HAND_Z), b, 1.5);
+          }
+        },
+      },
+      {
+        title: 'CPUの4つの性格',
+        html:
+          '<p>CPU対戦では、席1のCPUが <code>cpu_select()</code> で3枚を選ぶ。難易度は4段階。</p>' +
+          '<table><tr><th>難易度</th><th>選び方</th></tr>' +
+          '<tr><td>初級 easy</td><td>ランダムに3枚</td></tr>' +
+          '<tr><td>中級 normal</td><td>弱い順に3枚（強いカードは温存）</td></tr>' +
+          '<tr><td>上級 hard</td><td>強さ順に並べて、真ん中の1/3</td></tr>' +
+          '<tr><td>鬼級 oni</td><td>強い順に3枚（全力）</td></tr></table>' +
+          '<p>どの難易度も <b>相手の手は見ていない</b>。自分の手札の並びだけで決めるシンプルなAI。</p>' +
+          '<div class="gg-note">上級は <code>sorted_idx[len//3 : len//3*2]</code>。手札6枚だと <code>[2:4]</code> で <b>2枚しか選ばれない</b>（光っているのが2枚なのはそのせい）。3枚になるよう範囲を広げる必要がある。</div>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>cpu_select()</code></p>',
+        camera: { pos: [0, 6, CPU_Z + 6.5], target: [0, 0.5, CPU_Z] },
+        focus: ['cpu-demo'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var LV = [
+            ['初級：ランダムに3枚', [[0, 3, 5], [1, 2, 4], [0, 4, 5]][Math.floor(t / 10) % 3]],
+            ['中級：弱い順に3枚', [0, 1, 2]],
+            ['上級：真ん中の1/3 → [2:4]\n（2枚しか選ばれない）', [2, 3]],
+            ['鬼級：強い順に3枚', [3, 4, 5]],
+          ];
+          var lv = LV[Math.floor(t / 2.5) % 4];
+          setLbl(g, 'cpu-lvl', lv[0], { size: 0.34, bg: '#000000aa', color: C.gold });
+          var k = (t % 2.5) / 2.5;
+          var up = g.phase(k, 0.1, 0.25);
+          for (var i = 0; i < 6; i++) {
+            var on = lv[1].indexOf(i) >= 0;
+            g.get('cpu-c' + i).position.set((i - 2.5) * 1.15, on ? 0.05 + up * 0.6 : 0.05, on ? -up * 0.3 : 0);
+          }
+        },
+      },
+      {
+        title: 'プログラムの全体構成（サーバー版）',
+        html:
+          '<p>サーバー版は <b>ルール（engine）</b>・<b>部屋の管理（server）</b>・<b>画面（web）</b> の3層に分かれている。</p>' +
+          '<ul><li><code>engine/game.py</code>：カード・配る・勝負・勝敗・CPU。画面のことは知らない</li>' +
+          '<li><code>server/rooms.py</code>：部屋と2つの席、合言葉、古い部屋の掃除</li>' +
+          '<li><code>server/app.py</code>：Flask で URL を受けて、JSON を返す</li>' +
+          '<li><code>web/</code>：ロビーと対戦画面。ブラウザは <b>1秒ごとに盤面を取りに行く</b>（ポーリング）</li></ul>' +
+          '<p>CPU対戦もLAN対戦も同じ「部屋」の形。違いは <b>席1がCPUか人か</b> だけ。</p>' +
+          '<div class="gg-note">右奥の緑の箱が1台版。サーバーを使わず、同じルールを JavaScript でもう一度書いている。ルールを変えるときは <b>両方直す</b> 必要がある。</div>' +
+          '<p class="gg-files">📄 <code>run.py</code>（<code>0.0.0.0:5000</code> で起動）、<code>requirements.txt</code>（Flask 2.3.3）</p>',
+        camera: { pos: [ARCH - 0.3, 13.5, 11], target: [ARCH - 0.3, 0, -1.6] },
+        focus: ['arch-lobby', 'arch-game', 'arch-run', 'arch-server', 'arch-rooms', 'arch-engine', 'arch-local', 'lbl-local',
+          'flow-lobby', 'flow-g2s', 'flow-s2g', 'flow-s2r', 'flow-r2e', 'flow-run', 'lbl-api'],
+      },
+      {
+        title: '部屋コードと token',
+        html:
+          '<p>部屋を作ると、<b>4文字の部屋コード</b> と、席ごとの <b>token（合言葉）</b> がもらえる。</p>' +
+          '<ul><li>コードの文字は <code>ABCDEFGHJKMNPQRSTUVWXYZ23456789</code>。<b>I・L・O・0・1</b> は見間違えやすいので外してある</li>' +
+          '<li>token は <code>secrets.token_urlsafe(12)</code>。ブラウザの localStorage に保存して、毎回のリクエストに付ける</li>' +
+          '<li>サーバーは token が席と合わないと <b>403</b> で断る（他人の席に座れない）</li></ul>' +
+          '<table><tr><th>掃除のルール</th><th>時間</th></tr>' +
+          '<tr><td>相手を待ったまま放置</td><td>5分</td></tr><tr><td>誰もアクセスしない</td><td>3時間</td></tr>' +
+          '<tr><td>決着したあと</td><td>30分</td></tr><tr><td>部屋の数の上限</td><td>50部屋</td></tr></table>' +
+          '<p>15秒アクセスがない席は「オフライン」扱い。</p>' +
+          '<p class="gg-files">📄 <code>server/rooms.py</code> の <code>RoomRegistry.create()</code> / <code>Room.should_clean()</code></p>',
+        camera: { pos: [ARCH + 11, 6, 7.5], target: [ARCH + 11, 0.5, 1.2] },
+        focus: ['room-demo', 'arch-server', 'arch-rooms'],
+        update: function (g, t) { g.pulse('seat0', t, 0.06); g.pulse('seat1', t + 0.6, 0.06); },
+        enter: function (g) { g.get('seat0').scale.set(1, 1, 1); g.get('seat1').scale.set(1, 1, 1); },
+      },
+      {
+        title: '相手の手札は送らない',
+        html:
+          '<p>盤面を返す <code>Game.view(seat)</code> は、<b>相手の手札を <code>None</code> の並びに置き換えて</b> から返す。</p>' +
+          '<pre><code>hands_display = [\n  [card.to_dict() for card in self.hands[0]],\n  [None] * len(self.hands[1]),\n]</code></pre>' +
+          '<p>相手のブラウザに届くのは <b>枚数だけ</b>。通信をのぞいても中身は分からない。</p>' +
+          '<p>伏せたカードも同じで、対戦画面は <code>phase</code> が <code>reveal</code> か <code>over</code> になるまで裏向きで描く。</p>' +
+          '<div class="gg-note">「隠したい情報はそもそも送らない」はオンライン対戦の基本。</div>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>view()</code>、<code>web/game.js</code> の <code>renderBattlefields()</code></p>',
+        camera: { pos: [ARCH + 11, 6.5, 2.1], target: [ARCH + 10.8, 0.2, -4.6] },
+        focus: ['hide-demo', 'arch-engine'],
+        update: function (g, t) {
+          for (var i = 0; i < 3; i++) g.get('hn' + i).position.y = 0.05 + 0.08 * Math.max(0, Math.sin(t * 3 - i));
+        },
+      },
+      {
+        title: '動かして分かった「伸びしろ」',
+        html:
+          '<p>エンジンを Python で直接動かしてみたら、サーバー版にはまだ通しで遊べない所があった。</p>' +
+          '<table><tr><th>場所</th><th>今のコードの動き</th></tr>' +
+          '<tr><td><code>select_cards()</code></td><td>プレイヤー1が選ぶと <code>phase</code> が <code>play1_wait</code> になる。でも2人目（CPUも）の選択は <code>phase != "select"</code> で <b>「今は選択できません」</b> になる</td></tr>' +
+          '<tr><td><code>cpu_select()</code></td><td>上級が2枚しか選ばない（前のステップ）</td></tr>' +
+          '<tr><td><code>start()</code></td><td>プレイヤー2の初期手札が山札にも残る</td></tr>' +
+          '<tr><td><code>web/game.js</code></td><td><code>view()</code> は自分の手札を必ず <code>hands[0]</code> に入れるのに、画面は <code>hands[seat]</code> を読むので、席1の人には手札が出ない</td></tr></table>' +
+          '<p>1台版（<code>index.html</code>）はこの影響を受けないので、<b>今すぐ遊ぶなら1台版</b>。</p>' +
+          '<div class="gg-note">直し方の例：2人目の選択も受け付けるように <code>play1_wait</code> を許可する／<code>start()</code> を <code>deck[12:]</code> に／画面側は <code>hands[0]</code> を読む。</div>',
+        camera: { pos: [ARCH - 0.3, 13.5, 11], target: [ARCH - 0.3, 0, -1.6] },
+        focus: ['arch-engine', 'arch-game', 'arch-rooms', 'arch-server', 'warn-engine', 'warn-web', 'arch-local'],
+        show: ['warn-engine', 'warn-web'],
+        update: function (g, t) { g.get('warn-engine').position.y = 2.9 + 0.15 * Math.sin(t * 4); g.get('warn-web').position.y = 2.6 + 0.15 * Math.sin(t * 4 + 1); },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

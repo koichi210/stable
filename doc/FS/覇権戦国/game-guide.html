@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>覇権戦国 | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var P1 = '#ff6b6b', P2 = '#4ecdc4';   // index.html / Prefect.getColor() と同じ色
+  var DX = 14;     // 説明用の小さい盤（7×7）
+  var ARCH = 30;   // プログラム構成の図
+  var MAPX = -26;  // 構想中の日本地図
+
+  // index.html の getDefaultPlacement() を写したもの（[駒の字, 兵数]）
+  var P1_ROWS = [
+    [['王', 3000], ['槍', 1200], ['弓', 1000], ['馬', 1100], ['歩', 1000], ['馬', 1100], ['弓', 1000], ['槍', 1200], ['槍', 1200]],
+    [['槍', 1200], ['弓', 1000], ['馬', 1100], ['歩', 1000], ['飛', 2500], ['歩', 1000], ['馬', 1100], ['弓', 1000], ['槍', 1200]],
+  ];
+  var P1_ROW3 = [['歩'], ['歩'], ['歩'], ['歩'], ['角'], ['歩'], ['歩'], ['歩'], ['歩']];
+  var P2_ROWS = [
+    [['歩', 1000], ['歩', 1000], ['歩', 1000], ['歩', 1000], ['角', 2500], ['歩', 1000], ['歩', 1000], ['歩', 1000], ['歩', 1000]],
+    [['槍', 1200], ['弓', 1000], ['馬', 1100], ['歩', 1000], ['飛', 2500], ['歩', 1000], ['馬', 1100], ['弓', 1000], ['王', 3000]],
+  ];
+  // src/data/prefectures.json（id, 名前, x, y, 持ち主, 兵, 首都, 隣）
+  var MAPD = [
+    [1,'北海道',650,80,'1',5000,1,[2]], [2,'青森県',700,140,'1',3000,0,[1,3,5]], [3,'岩手県',700,180,'1',2500,0,[2,4,5,6]],
+    [4,'宮城県',750,200,'1',2800,0,[3,5,7,8]], [5,'秋田県',670,180,'1',2200,0,[2,3,4,6]], [6,'山形県',720,220,'1',2400,0,[3,5,4,7,9]],
+    [7,'福島県',770,240,'1',2600,0,[4,6,8,9,10,11]], [8,'茨城県',820,260,'1',2700,0,[4,7,9,10,12]], [9,'栃木県',780,280,'n',2500,0,[6,7,8,10,11,13]],
+    [10,'群馬県',730,300,'n',2400,0,[7,8,9,11,13,14]], [11,'埼玉県',800,310,'n',2800,0,[7,9,10,12,14,15]], [12,'千葉県',870,300,'n',2900,0,[8,11,15,16]],
+    [13,'東京都',820,340,'n',3500,0,[10,11,14,15,22]], [14,'神奈川県',780,360,'n',3000,0,[10,11,13,15,21]], [15,'山梨県',750,340,'n',2100,0,[11,13,14,21,22,23,24]],
+    [16,'茂城県',880,340,'n',2400,0,[12,13,17]], [17,'千葉県',920,360,'n',2300,0,[16]], [18,'長野県',700,320,'n',2200,0,[10,15,21,23,24,25,26]],
+    [19,'新潟県',680,260,'n',2500,0,[6,7,10,18,24]], [20,'富山県',650,300,'n',2000,0,[19,25,26]], [21,'静岡県',760,380,'2',3000,0,[14,15,22,23]],
+    [22,'愛知県',720,400,'2',3200,0,[13,15,21,23,24,27]], [23,'岐阜県',700,360,'2',2600,0,[15,18,21,22,24,25,27]], [24,'滋賀県',680,380,'2',2500,0,[15,18,19,22,23,25,27,28]],
+    [25,'石川県',650,320,'n',2000,0,[18,20,23,24,26]], [26,'福井県',680,340,'n',1900,0,[18,20,25,27,28]], [27,'三重県',740,420,'2',2800,0,[22,23,24,28,29]],
+    [28,'京都府',700,400,'2',2700,1,[24,26,27,29,30]], [29,'奈良県',720,440,'2',2300,0,[27,28,30,31,32]], [30,'大阪府',700,420,'2',3300,0,[28,29,31,33]],
+    [31,'和歌山県',720,480,'n',2000,0,[29,30,32]], [32,'兵庫県',670,440,'2',2900,0,[29,30,31,33,34]], [33,'岡山県',680,480,'n',2500,0,[30,32,34,35,36]],
+    [34,'兵庫県東部',650,460,'n',2400,0,[32,33,35]], [35,'広島県',650,500,'n',2700,0,[33,34,36,37,38]], [36,'鳥取県',700,460,'n',2000,0,[33,35,37]],
+    [37,'島根県',630,480,'n',1950,0,[35,36,38]], [38,'山口県',620,540,'n',2400,0,[35,37,39,40]], [39,'福岡県',580,580,'n',3000,0,[38,40,41,42]],
+    [40,'佐賀県',630,600,'n',2200,0,[38,39,41]], [41,'長崎県',560,620,'n',2100,0,[39,40,42]], [42,'熊本県',600,640,'n',2400,0,[39,41,43,44]],
+    [43,'大分県',660,620,'n',2300,0,[42,44,45]], [44,'宮崎県',680,660,'n',2200,0,[42,43,45]], [45,'鹿児島県',630,680,'n',2100,0,[43,44]],
+    [46,'沖縄県',600,750,'n',1800,0,[]], [47,'香川県',740,480,'n',2100,0,[30,33,36]],
+  ];
+
+  function B(x, y, h) { return [x - 4, h == null ? 0.16 : h, y - 4]; }          // 本盤のマス (x,y) → 3D
+  function D(i, j, h) { return [DX + i - 3, h == null ? 0.16 : h, j - 3]; }     // 説明盤のマス
+  function M(p, h) { return [MAPX + (p[2] - 740) / 28, h || 0, (p[3] - 415) / 28]; }
+
+  var cache = {};
+  function setText(g, id, text, o) { if (cache[id] !== text) { g.setLabel(id, text, o); cache[id] = text; } }
+  var PL = { size: 0.3, bg: '#000000bb', color: '#ffffff' };
+
+  // 駒＝円盤＋字ラベル。id でまとめて動かせるよう group にする
+  function piece(g, id, pos, color, ch, o) {
+    o = o || {};
+    g.group(id, { pos: pos, parent: o.parent });
+    g.cylinder({ id: id + '-body', parent: id, radius: 0.36, height: 0.2, pos: [0, 0, 0], color: color, opacity: o.opacity, emissive: o.gold ? '#ffd166' : '#000000', emissiveIntensity: 0.4 });
+    g.label(ch, [0, 0.42, 0], { id: id + '-lbl', parent: id, size: o.size || 0.3, bg: '#000000aa', color: '#ffffff' });
+  }
+
+  GameGuide.start({
+    title: '覇権戦国',
+    back: '../index.html',
+    subtitle: '兵数を持った駒で戦う「将棋版」戦国バトル（開発初期）。HTML＋JavaScript 1ファイル＋Node(Express/ws)、Phaser＋TypeScript版を準備中',
+    camera: { pos: [0, 11, 10], target: [0, 0, 0.3] },
+
+    build: function (g) {
+      // ---------- 本盤 9×9 ----------
+      for (var y = 0; y < 9; y++) for (var x = 0; x < 9; x++) {
+        g.plate({ size: [0.94, 0.94], pos: B(x, y, 0.03), color: y < 4.5 ? '#4a2a32' : '#24423f', opacity: 0.95, radius: 0.06 });
+      }
+      g.label('プレイヤー1（あなた）', [0, 0.4, -5.2], { id: 'lbl-p1', size: 0.34, color: P1 });
+      g.label('プレイヤー2（CPU）', [0, 0.4, 5.2], { id: 'lbl-p2', size: 0.34, color: P2 });
+      P1_ROWS.forEach(function (row, yy) { row.forEach(function (p, xx) { piece(g, 'a' + xx + '-' + yy, B(xx, yy), P1, p[0]); }); });
+      P2_ROWS.forEach(function (row, yy) { row.forEach(function (p, xx) { piece(g, 'b' + xx + '-' + (yy + 6), B(xx, yy + 6), P2, p[0]); }); });
+      // 置かれない3行目
+      g.group('p1-missing', {});
+      P1_ROW3.forEach(function (p, xx) { piece(g, 'm' + xx, B(xx, 2), '#888888', p[0], { parent: 'p1-missing', opacity: 0.35 }); });
+      g.label('この3行目（歩8＋角）は 18駒の上限で置かれない', [0, 1.3, -2], { id: 'lbl-missing', parent: 'p1-missing', size: 0.28, bg: '#000000cc', color: '#ffd166' });
+      g.label('王将「北海道」', [-4, 1.25, -4], { id: 'lbl-k1', size: 0.26, bg: '#000000aa', color: P1 });
+      g.label('王将「沖縄県」', [4, 1.25, 3], { id: 'lbl-k2', size: 0.26, bg: '#000000aa', color: P2 });
+
+      // 成りゾーン
+      g.plate({ id: 'zone-p1', size: [9, 3], pos: [0, 0.07, 3], color: P1, opacity: 0.35, radius: 0.1, label: 'プレイヤー1が成れる場所（y ≥ 6）', labelOffset: [0, 0.4, 1.9], labelSize: 0.28 });
+      g.plate({ id: 'zone-p2', size: [9, 3], pos: [0, 0.07, -3], color: P2, opacity: 0.35, radius: 0.1, label: 'プレイヤー2が成れる場所（y ≤ 2）', labelOffset: [0, 0.4, -1.9], labelSize: 0.28 });
+      piece(g, 'promo', B(2, 3), P2, '弓\n1000', { size: 0.24 });
+
+      // ---------- 説明用の盤 7×7（x = DX） ----------
+      g.group('hl', {});
+      for (var j = 0; j < 7; j++) for (var i = 0; i < 7; i++) {
+        g.plate({ size: [0.94, 0.94], pos: D(i, j, 0.03), color: '#2d2944', opacity: 0.95, radius: 0.06 });
+        g.plate({ id: 'h' + i + j, parent: 'hl', size: [0.8, 0.8], pos: D(i, j, 0.08), color: '#7ef0ff', opacity: 0.75, radius: 0.08 });
+      }
+      g.label('説明用の盤', [DX, 0.4, -4], { id: 'lbl-demo', size: 0.3, color: '#b8b2d6' });
+      piece(g, 'dm', D(3, 3), P2, '歩');
+      piece(g, 'dOwn', D(3, 1), P2, '槍');
+      piece(g, 'dEn', D(5, 3), P1, '弓');
+      piece(g, 'dA', D(3, 4), P2, '歩\n1000', { size: 0.24 });
+      piece(g, 'dD', D(3, 3), P1, '槍\n1200', { size: 0.24 });
+      g.label('', D(3, 3, 2.1), { id: 'dmsg', size: 0.3, bg: '#000000cc', color: '#ffd166' });
+      // 能力の範囲ダメージ用の的
+      [[3, 2], [2, 3], [4, 4], [3, 5], [5, 3], [1, 1]].forEach(function (c, k) { piece(g, 't' + k, D(c[0], c[1]), P1, '歩'); });
+
+      // 相性の輪
+      g.group('adv', { pos: [DX, 0, 0] });
+      var AD = [['槍', '#e67e22'], ['歩', '#95a5a6'], ['弓', '#27ae60'], ['馬', '#8e44ad']];
+      AD.forEach(function (a, k) {
+        var ang = -Math.PI / 2 + k * Math.PI / 2;
+        g.cylinder({ id: 'adv' + k, parent: 'adv', radius: 0.7, height: 0.4, pos: [Math.cos(ang) * 2.4, 0.5, Math.sin(ang) * 2.4], color: a[1], label: a[0] + '兵', labelSize: 0.4, labelOffset: [0, 0.75, 0] });
+      });
+      for (var k = 0; k < 4; k++) {
+        var a0 = -Math.PI / 2 + k * Math.PI / 2 + 0.36, a1 = -Math.PI / 2 + (k + 1) * Math.PI / 2 - 0.36;
+        g.arrow([Math.cos(a0) * 2.4, 0.7, Math.sin(a0) * 2.4], [Math.cos(a1) * 2.4, 0.7, Math.sin(a1) * 2.4], { parent: 'adv', id: 'adva' + k, lift: 0.6, color: C.gold, label: '×1.3', labelSize: 0.26 });
+      }
+      g.label('矢印の向き＝「攻めると有利」', [0, 0.3, 3.9], { parent: 'adv', id: 'adv-l', size: 0.3, color: '#ffd166' });
+
+      // アイテムカード
+      var CARDS = [['援軍', '全駒+500\n×5'], ['奇襲', '次の攻撃2倍\n×5'], ['兵力UP', '1駒+1000\n×5'], ['ダメ軽減', '受ダメ50%\n×5'], ['援軍II', '全駒+800\n×4'],
+        ['全攻撃', '全駒1.5倍\n×3'], ['全守備', '受ダメ70%\n×3'], ['快進撃', '移動+1\n×4'], ['回復', '+2000\n×3'], ['連撃', '2回攻撃\n×3']];
+      g.group('cards', { pos: [0, 0, 6.6] });
+      CARDS.forEach(function (c, k) {
+        g.card({ id: 'cd' + k, parent: 'cards', pos: [(k - 4.5) * 0.95, 0.05, 0], w: 0.85, text: c[0], sub: c[1], color: '#2b9a6b' });
+      });
+      g.label('アイテムカード 40枚（10種）', [0, 0.4, 1.4], { parent: 'cards', id: 'cards-l', size: 0.3, color: '#cfffe5' });
+      g.card({ id: 'cd-fly', pos: [0, 0.05, 6.6], w: 0.85, text: '奇襲', sub: '次の攻撃2倍', color: '#2b9a6b' });
+      g.label('使うと…手札から消えるだけ\n（効果は「後で実装」）', [0, 3.2, 5.6], { id: 'cd-msg', size: 0.3, bg: '#000000cc', color: '#ffd166' });
+
+      // CPU 難易度の階段
+      g.group('cpu', { pos: [DX, 0, 0] });
+      [['初級', 'ランダム'], ['中級', '王に近づく'], ['上級', '点数で選ぶ'], ['鬼級', '点数＋成り']].forEach(function (c, k) {
+        var h = 0.6 + k * 0.7;
+        g.box({ id: 'cpu' + k, parent: 'cpu', size: [1.6, h, 1.6], pos: [(k - 1.5) * 1.9, h / 2, 0], color: ['#5ee6a8', '#4fa3ff', '#ff9f43', '#ff5f6d'][k], label: c[0] + '\n' + c[1], labelSize: 0.3 });
+      });
+
+      // ---------- プログラム構成（x = ARCH） ----------
+      g.box({ id: 'ar-html', size: [5.2, 1.6, 3], pos: [ARCH - 3, 0.8, -1], color: '#7b5cff', label: 'index.html（約1500行）\n画面・ルール・CPU・LAN の全部', labelSize: 0.3 });
+      g.box({ id: 'ar-server', size: [3.2, 1.2, 1.8], pos: [ARCH + 4, 0.6, -1], color: C.server, label: 'server.js\nExpress＋ws（:3000）', labelSize: 0.3 });
+      g.box({ id: 'ar-src', size: [3.4, 0.9, 1.6], pos: [ARCH - 4.5, 0.45, 4], color: '#4a4466', opacity: 0.7, label: 'src/main.ts（Phaser）\n試作の画面だけ', labelSize: 0.28 });
+      g.box({ id: 'ar-ent', size: [3.4, 0.9, 1.6], pos: [ARCH, 0.45, 4], color: '#4a4466', opacity: 0.7, label: 'src/entities/\nMap.ts・Prefect.ts', labelSize: 0.28 });
+      g.box({ id: 'ar-json', size: [3.2, 0.9, 1.6], pos: [ARCH + 4.5, 0.45, 4], color: '#2b9a6b', opacity: 0.7, label: 'prefectures.json\n47県の仮データ', labelSize: 0.28 });
+      g.box({ id: 'ar-plan', size: [3.4, 0.8, 1.4], pos: [ARCH, 0.4, 7.4], color: '#3a3555', label: 'CLAUDE.md・TODO.md\n「日本地図で陣取り」計画', labelSize: 0.28 });
+      g.label('いま遊べる本体', [ARCH - 3, 2.6, -2.6], { id: 'ar-l1', size: 0.3, color: '#ffd166' });
+      g.label('準備中（まだ index.html から使われていない）', [ARCH, 0.2, 5.8], { id: 'ar-l2', size: 0.28, color: '#b8b2d6' });
+      g.flow([ARCH - 0.3, 1.2, -1.3], [ARCH + 2.4, 1.2, -1.3], { id: 'af1', color: C.data, lift: 0.5 });
+      g.flow([ARCH + 2.4, 1.0, -0.7], [ARCH - 0.3, 1.0, -0.7], { id: 'af2', color: C.good, lift: -0.3 });
+      g.flow([ARCH - 1.5, 0.8, 4], [ARCH - 2.8, 0.8, 4], { id: 'af3', color: '#b8b2d6', lift: 0.4, count: 3 });
+      g.flow([ARCH + 2.9, 0.8, 4], [ARCH + 1.7, 0.8, 4], { id: 'af4', color: '#2b9a6b', lift: 0.4, count: 3 });
+
+      // LAN 図（z = -9 付近）
+      g.box({ id: 'lan-host', size: [3, 1.2, 1.6], pos: [ARCH - 5, 0.6, -9], color: P1, label: 'ホスト（席0）', labelSize: 0.3 });
+      g.box({ id: 'lan-srv', size: [3, 1.2, 1.6], pos: [ARCH, 0.6, -9], color: C.server, label: 'server.js\n部屋 = Room（2席）', labelSize: 0.3 });
+      g.box({ id: 'lan-guest', size: [3, 1.2, 1.6], pos: [ARCH + 5, 0.6, -9], color: P2, label: 'ゲスト（席1）', labelSize: 0.3 });
+      g.arrow([ARCH - 3.4, 1.0, -9.4], [ARCH - 1.6, 1.0, -9.4], { id: 'la1', color: C.gold, lift: 0.8, label: '① POST /api/room/create', labelSize: 0.24 });
+      g.arrow([ARCH + 3.4, 1.0, -9.4], [ARCH + 1.6, 1.0, -9.4], { id: 'la2', color: C.data, lift: 0.8, label: '② WS {type:"join", code}', labelSize: 0.24 });
+      g.arrow([ARCH + 1.6, 0.8, -8.5], [ARCH + 3.4, 0.8, -8.5], { id: 'la3', color: C.good, lift: -0.2, label: '③ playerJoined', labelSize: 0.24 });
+      g.label('✕ ホストのWSは部屋に登録されない', [ARCH - 2.5, 0.3, -7.2], { id: 'la-x', size: 0.28, bg: '#000000cc', color: '#ff6b6b' });
+
+      // ---------- 構想中の日本地図（x = MAPX） ----------
+      g.group('map', {});
+      var byId = {};
+      MAPD.forEach(function (p) { byId[p[0]] = p; });
+      var seen = {};
+      MAPD.forEach(function (p) {
+        p[7].forEach(function (n) {
+          var key = Math.min(p[0], n) + '-' + Math.max(p[0], n);
+          if (seen[key] || !byId[n]) return;
+          seen[key] = 1;
+          g.line([M(p, 0.05), M(byId[n], 0.05)], { parent: 'map', color: '#6f6a8f', opacity: 0.6 });
+        });
+      });
+      MAPD.forEach(function (p) {
+        var col = p[4] === '1' ? P1 : p[4] === '2' ? P2 : '#ffd700';
+        var h = p[5] / 1600;
+        var pos = M(p, h / 2);
+        g.cylinder({ id: 'mp' + p[0], parent: 'map', radius: 0.26, height: h, pos: pos, color: col, opacity: 0.92,
+          label: (p[6] ? '★' : '') + p[1].replace(/[県府都]$/, ''), labelOffset: [0, h / 2 + 0.35, 0], labelSize: p[6] ? 0.4 : 0.3 });
+      });
+      g.label('柱の高さ = troops（兵）／色 = owner（赤 player1・青 player2・金 neutral）', [MAPX, 0.3, 14.2], { id: 'map-l', size: 0.34, color: '#ffffff' });
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？（いまの姿）',
+        html:
+          '<p>戦国時代っぽい世界で、<b>相手の王将を取ったら勝ち</b> の2人対戦ボードゲーム。将棋の盤に「兵数」と「兵種の相性」を足したような遊びになっている。</p>' +
+          '<ul><li>9×9の盤。手前が CPU（プレイヤー2）、奥があなた（プレイヤー1）</li>' +
+          '<li>駒には <b>兵数</b>（1000〜3000）があり、戦うと減っていく</li>' +
+          '<li>モードは CPU対戦（4段階）と LAN対戦（作りかけ）</li></ul>' +
+          '<div class="gg-note"><b>まだ開発初期</b>。設計メモ（<code>CLAUDE.md</code>）では「日本地図の県を取り合うリアルタイム戦略」を目指していて、いま遊べるのはその前段の <b>「将棋版」</b>（<code>index.html</code> の画面タイトルも「覇権戦国 - 将棋版」）。<code>TODO.md</code> の進捗は「未開始」のまま。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code>（1ファイルにHTML・CSS・JavaScriptが全部入り）</p>',
+        camera: { pos: [0, 11, 10], target: [0, 0, 0.3] },
+        show: ['lbl-k1', 'lbl-k2'],
+      },
+      {
+        title: '盤と駒の初期配置',
+        html:
+          '<p>両者とも <b>18駒</b>。プレイヤー1は上の2行、プレイヤー2は y=6〜7 の2行に並ぶ。</p>' +
+          '<table><tr><th>駒</th><th>兵数</th><th>兵種</th></tr>' +
+          '<tr><td>王（王将）</td><td>3000</td><td>槍</td></tr><tr><td>飛（飛車）</td><td>2500</td><td>馬</td></tr>' +
+          '<tr><td>角</td><td>2500</td><td>弓</td></tr><tr><td>槍兵</td><td>1200</td><td>槍</td></tr>' +
+          '<tr><td>騎兵（馬）</td><td>1100</td><td>馬</td></tr><tr><td>弓兵・歩兵</td><td>1000</td><td>弓・歩</td></tr></table>' +
+          '<p>王将には県の名前がついていて、プレイヤー1は <b>北海道</b>、プレイヤー2は <b>沖縄県</b>。</p>' +
+          '<div class="gg-note">コードを追うと、プレイヤー1用には3行分（27駒）書いてあるのに、<code>generatePrefectures()</code> が「18駒まで」で止めるので <b>3行目（角を含む）は置かれない</b>。だからプレイヤー1には角がない。また「手動配置」ボタンはあるけど、今は自動配置と同じ動きになる。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>getDefaultPlacement()</code> / <code>generatePrefectures()</code> / <code>initBoard()</code></p>',
+        camera: { pos: [-0.5, 10, 8.5], target: [0, 0, -0.8] },
+        show: ['p1-missing', 'lbl-k1', 'lbl-k2'],
+        update: function (g, t) { g.get('p1-missing').position.y = 0.15 + 0.1 * Math.sin(t * 2.5); },
+      },
+      {
+        title: '駒の動き',
+        html:
+          '<p>1ターンに動かせる駒は1つ。動かすと自動で相手の番になる。</p>' +
+          '<ul><li><b>王・兵（槍・弓・馬・歩）</b>：まわり8方向に1マス</li>' +
+          '<li><b>飛</b>：縦横にどこまでも</li><li><b>角</b>：斜めにどこまでも</li></ul>' +
+          '<p>飛・角は、<b>味方の駒の手前で止まる</b>。<b>敵の駒のマスまでは進めて</b>（＝攻撃）、その先へは行けない。</p>' +
+          '<div class="gg-note">本物の将棋と違って、歩も横や後ろに動ける。「成る」と兵数は増えるけど、動き方は変わらない。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>getMovableCells()</code></p>',
+        camera: { pos: [DX, 8.5, 6.5], target: [DX, 0, 0] },
+        focus: ['hl', 'dm', 'dOwn', 'dEn', 'lbl-demo'],
+        show: ['hl', 'dm', 'dOwn', 'dEn'],
+        update: function (g, t) {
+          var mode = Math.floor(t / 3) % 3;
+          var cells = {};
+          var i, j;
+          if (mode === 0) {
+            for (i = 2; i <= 4; i++) for (j = 2; j <= 4; j++) if (!(i === 3 && j === 3)) cells[i + '' + j] = 1;
+          } else {
+            var dirs = mode === 1 ? [[0, 1], [0, -1], [1, 0], [-1, 0]] : [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+            dirs.forEach(function (d) {
+              for (var s = 1; s < 7; s++) {
+                var x = 3 + d[0] * s, y = 3 + d[1] * s;
+                if (x < 0 || x > 6 || y < 0 || y > 6) break;
+                if (x === 3 && y === 1) break;           // 味方の槍
+                cells[x + '' + y] = 1;
+                if (x === 5 && y === 3) break;           // 敵の弓
+              }
+            });
+          }
+          for (i = 0; i < 7; i++) for (j = 0; j < 7; j++) {
+            var h = g.get('h' + i + j);
+            h.visible = !!cells[i + '' + j];
+            if (h.visible) g.setColor(h, (i === 5 && j === 3) ? '#ff6b6b' : '#7ef0ff');
+          }
+          setText(g, 'dm-lbl', ['歩', '飛', '角'][mode], { size: 0.3, bg: '#000000aa', color: '#ffffff' });
+          g.get('dm').position.y = 0.16 + 0.08 * Math.abs(Math.sin(t * 3));
+        },
+      },
+      {
+        title: '戦闘：攻めた側が必ずマスを取る',
+        html:
+          '<p>敵の駒のマスに動くと戦闘。<b>守った駒は必ず盤から消え、攻めた駒がそのマスに入る</b>。勝ち負けではなく「攻めた側がどれだけ兵を失うか」が決まる。</p>' +
+          '<table><tr><th>攻め方</th><th>攻めた側の被害</th></tr>' +
+          '<tr><td>正面（前へ進んで取る）・自分が少ない</td><td>250</td></tr>' +
+          '<tr><td>正面・自分が多い</td><td>兵数の差</td></tr>' +
+          '<tr><td>正面・同じ</td><td>250（相打ち）</td></tr>' +
+          '<tr><td>奇襲（横・後ろに動いて取る）</td><td>250</td></tr></table>' +
+          '<p>どれにも相性と能力の倍率が掛かる。兵数は0より下にならない（0でも駒は残る）。</p>' +
+          '<p>例：歩1000が正面の槍1200を取る → 被害250で <b>750</b>。馬1100が横から弓1000を取る → 奇襲で被害250 → <b>850</b>。</p>' +
+          '<div class="gg-note">「多いほうが差の分だけ被害を受ける」のは少し不思議な式。王将を取った時点でゲーム終了。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>movePiece()</code> / <code>battle()</code> / <code>checkGameOver()</code></p>',
+        camera: { pos: [DX + 1, 7.5, 6], target: [DX, 0.3, 0] },
+        focus: ['dA', 'dD', 'dmsg', 'lbl-demo'],
+        show: ['dA', 'dD', 'dmsg'],
+        update: function (g, t) {
+          var side = Math.floor(t / 5) % 2 === 1, k = t % 5;
+          var from = side ? D(4, 3) : D(3, 4);
+          var mv = g.phase(k, 0.8, 0.7);
+          g.lerpPos('dA', from, D(3, 3), mv);
+          g.get('dA').position.y += Math.sin(Math.PI * mv) * 0.5;
+          var s = k < 1.4 ? 1 : Math.max(0.001, 1 - (k - 1.4) * 3);
+          g.get('dD').scale.set(s, s, s);
+          var A = side ? ['馬', 1100, 850] : ['歩', 1000, 750];
+          setText(g, 'dA-lbl', A[0] + '\n' + (k < 1.6 ? A[1] : A[2]), { size: 0.24, bg: '#000000aa', color: '#ffffff' });
+          setText(g, 'dD-lbl', side ? '弓\n1000' : '槍\n1200', { size: 0.24, bg: '#000000aa', color: '#ffffff' });
+          setText(g, 'dmsg', k < 1.4 ? (side ? '横から攻める＝奇襲' : '前へ攻める＝正面') : (side ? '奇襲：被害250' : '正面・少ない側：被害250'), { size: 0.3, bg: '#000000cc', color: '#ffd166' });
+        },
+      },
+      {
+        title: '兵種の相性',
+        html:
+          '<p>兵種は4つ。じゃんけんのように回っていて、有利な相手を攻めると <b>倍率1.3</b>。</p>' +
+          '<pre><code>槍 → 歩 → 弓 → 馬 → 槍\n（槍は歩に強い、歩は弓に強い、\n  弓は馬に強い、馬は槍に強い）</code></pre>' +
+          '<p>王は槍、飛は馬、角は弓の兵種として扱われる。</p>' +
+          '<div class="gg-note">今のコードでは、この1.3倍は <b>攻めた側が受ける被害</b> に掛かっている（守った駒はどのみち消えるため）。たとえば槍1200が正面の歩1000を取ると、被害は 200 ではなく 260。「有利なのに損をする」ので、ダメージの向きは今後の調整ポイント。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>ADVANTAGE</code> / <code>getAdvantageBonus()</code></p>',
+        camera: { pos: [DX, 8, 7], target: [DX, 0.4, 0.3] },
+        focus: ['adv'],
+        show: ['adv'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.2) % 4;
+          for (var i = 0; i < 4; i++) {
+            g.get('adv' + i).scale.set(1, 1, 1);
+            g.get('adva' + i).visible = true;
+          }
+          g.pulse('adv' + k, t, 0.15);
+        },
+      },
+      {
+        title: '成り：敵陣に入ると兵数2倍',
+        html:
+          '<p>敵の陣地（相手側の3行）に入ると <b>成る</b> ことができ、兵数が <b>2倍</b> になる。1つの駒は1回だけ。</p>' +
+          '<ul><li>プレイヤー1：y が 6 以上のマス</li><li>プレイヤー2：y が 2 以下のマス</li>' +
+          '<li>人は「成りますか？」の確認ダイアログで選ぶ。CPU は必ず成る</li></ul>' +
+          '<p>例：手前の青い弓兵1000が奥の陣に入る → <b>2000</b>。</p>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>isInEnemyTerritoryRange()</code> / <code>checkPromotion()</code></p>',
+        camera: { pos: [0, 10.5, 8.5], target: [0, 0, -0.5] },
+        show: ['zone-p1', 'zone-p2', 'promo'],
+        focus: ['zone-p1', 'zone-p2', 'promo'],
+        update: function (g, t) {
+          var k = t % 5;
+          var mv = g.phase(k, 0.8, 0.8);
+          g.lerpPos('promo', B(2, 3), B(2, 2), mv);
+          g.get('promo').position.y += Math.sin(Math.PI * mv) * 0.6;
+          var done = k > 1.8;
+          g.setColor('promo-body', done ? '#ffd166' : P2);
+          setText(g, 'promo-lbl', done ? '成り！\n弓 2000' : '弓\n1000', { size: 0.26, bg: '#000000aa', color: done ? '#ffd166' : '#ffffff' });
+          if (done) g.pulse('promo', t, 0.08);
+        },
+      },
+      {
+        title: '兵種ごとの能力',
+        html:
+          '<p>「能力を使う」ボタン → 自分の駒を選ぶと、その兵種の能力が発動する（手番は終わらない）。</p>' +
+          '<table><tr><th>駒</th><th>能力</th><th>効果</th></tr>' +
+          '<tr><td>槍</td><td>突撃</td><td>次の戦闘の倍率×1.5</td></tr>' +
+          '<tr><td>弓</td><td>爆撃</td><td>距離1の敵に500ダメージ</td></tr>' +
+          '<tr><td>馬</td><td>突進</td><td>兵+700</td></tr>' +
+          '<tr><td>歩</td><td>鼓舞</td><td>兵+1500</td></tr>' +
+          '<tr><td>王</td><td>統率</td><td>味方全員 兵+500</td></tr>' +
+          '<tr><td>飛</td><td>強行突破</td><td>兵+1000</td></tr>' +
+          '<tr><td>角</td><td>範囲砲撃</td><td>距離2以内の敵に250ダメージ</td></tr></table>' +
+          '<p>どの能力が出るかは <b>駒の兵種</b> で決まる（<code>abilityData[piece.troop]</code>）。「距離」は縦＋横のマス数（斜め1マスは距離2）。1回使うと <b>3ターン</b> 使えない。</p>' +
+          '<div class="gg-note">兵種で引くので、<b>王は槍の「突撃」、飛は馬の「突進」、角は弓の「爆撃」</b> になる。王の「統率」・飛の「強行突破」・角の「範囲砲撃」は表に書いてあるだけで、今は出てこない。馬の「次ターン攻撃不可」も、フラグを立てるだけでまだチェックされていない。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>abilityData</code> / <code>useAbility()</code> / <code>applyAreaDamage()</code></p>',
+        camera: { pos: [DX, 8.5, 6.5], target: [DX, 0, 0] },
+        focus: ['hl', 'dm', 'lbl-demo', 't0', 't1', 't2', 't3', 't4', 't5'],
+        show: ['hl', 'dm', 't0', 't1', 't2', 't3', 't4', 't5'],
+        update: function (g, t) {
+          var bishop = Math.floor(t / 3.5) % 2 === 1, k = t % 3.5;
+          var r = 1, dmg = 500;
+          setText(g, 'dm-lbl', bishop ? '角(弓)' : '弓', { size: 0.3, bg: '#000000aa', color: '#ffffff' });
+          for (var i = 0; i < 7; i++) for (var j = 0; j < 7; j++) {
+            var d = Math.abs(i - 3) + Math.abs(j - 3);
+            var h = g.get('h' + i + j);
+            h.visible = d > 0 && d <= r && k > 0.6;
+            if (h.visible) g.setColor(h, '#ff5f6d');
+          }
+          var T = [[3, 2], [2, 3], [4, 4], [3, 5], [5, 3], [1, 1]];
+          T.forEach(function (c, n) {
+            var d = Math.abs(c[0] - 3) + Math.abs(c[1] - 3);
+            var hit = d <= r && k > 1.2;
+            setText(g, 't' + n + '-lbl', hit ? '-' + dmg : '歩', { size: 0.3, bg: '#000000aa', color: hit ? '#ff6b6b' : '#ffffff' });
+            g.get('t' + n).position.y = 0.16 + (hit && k < 1.6 ? Math.sin(t * 40) * 0.05 : 0);
+          });
+        },
+      },
+      {
+        title: 'アイテムカード（効果はこれから）',
+        html:
+          '<p>40枚のカード（10種類）をシャッフルして、最初に <b>5枚ずつ</b> 配る。自分の番が来るたびに1枚増える。</p>' +
+          '<table><tr><th>カード</th><th>書いてある効果</th><th>枚数</th></tr>' +
+          '<tr><td>援軍 / 援軍II</td><td>味方全駒 +500 / +800</td><td>5 / 4</td></tr>' +
+          '<tr><td>奇襲</td><td>次の攻撃2倍</td><td>5</td></tr><tr><td>兵力UP</td><td>選んだ駒 +1000</td><td>5</td></tr>' +
+          '<tr><td>ダメ軽減</td><td>次のターン受ダメ50%</td><td>5</td></tr><tr><td>全攻撃 / 全守備</td><td>1.5倍 / 受ダメ70%</td><td>3 / 3</td></tr>' +
+          '<tr><td>快進撃</td><td>移動範囲+1</td><td>4</td></tr><tr><td>回復</td><td>+2000</td><td>3</td></tr><tr><td>連撃</td><td>2回攻撃</td><td>3</td></tr></table>' +
+          '<div class="gg-note"><b>未実装</b>：カードは1ターン1枚使えるけど、今は手札から消えるだけ（コードに「後で効果実装」とある）。追加の1枚はシャッフル後の山ではなく、元の並び順の11枚目から配られる。ログには「20枚ずつ」と出るが実際は5枚。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>ITEM_CARDS</code> / <code>addCardToPlayer()</code> / <code>useCard()</code></p>',
+        camera: { pos: [0, 7.5, 14.5], target: [0, 0.8, 5.4] },
+        focus: ['cards', 'cd-fly', 'cd-msg'],
+        show: ['cards', 'cd-fly', 'cd-msg'],
+        update: function (g, t) {
+          var k = t % 4;
+          var up = g.phase(k, 0.6, 1.0);
+          g.setPos('cd-fly', [0.5, 0.06 + up * 2.2, 6.6 - up * 0.8]);
+          
+          var s = k > 2.6 ? Math.max(0.001, 1 - (k - 2.6) * 2) : 1;
+          g.get('cd-fly').scale.set(s, s, s);
+          g.get('cd-msg').visible = k > 1.6;
+        },
+      },
+      {
+        title: 'CPUの4つの難易度',
+        html:
+          '<p>CPU は自分の駒の「動ける手」を全部集めて、難易度ごとのやり方で1手選ぶ（考える時間は約1秒）。</p>' +
+          '<table><tr><th>難易度</th><th>選び方</th></tr>' +
+          '<tr><td>初級</td><td>駒も行き先も完全ランダム</td></tr>' +
+          '<tr><td>中級</td><td>駒はランダム。行き先は相手の王に一番近いマス</td></tr>' +
+          '<tr><td>上級</td><td>全部の手に点数をつけて最高点を選ぶ</td></tr>' +
+          '<tr><td>鬼級</td><td>上級の点数＋大駒狙い＋成りボーナス</td></tr></table>' +
+          '<pre><code>上級: 敵を取る +1000（王なら さらに +10000）\n      王までの距離 × −10\n鬼級: 敵を取る +1000（王 +50000、飛・角 +500）\n      敵陣に入る +200、距離 × −5</code></pre>' +
+          '<div class="gg-note">鬼級の「敵陣に入る」判定が、行き先のマスの駒（<code>board[to].piece.promoted</code>）を見ているので、<b>空いている敵陣のマスに入る手を調べると止まってしまう</b> 可能性がある。動かす駒の <code>promoted</code> を見るつもりだったはず。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の <code>getCpuMove()</code> / <code>executeCpuTurn()</code></p>',
+        camera: { pos: [DX, 7.5, 11], target: [DX, 1.2, 0] },
+        focus: ['cpu'],
+        show: ['cpu'],
+        update: function (g, t) { g.pulse('cpu' + (Math.floor(t / 1.5) % 4), t, 0.06); },
+      },
+      {
+        title: 'プログラムの構成',
+        html:
+          '<p>今遊べるのは <b><code>index.html</code> 1ファイル</b>。画面の切り替え、盤の描画、ルール、CPU、LAN通信まで全部が1つの <code>&lt;script&gt;</code> に入っている。盤は9×9の <code>div</code> を毎回作り直して描いている（<code>renderBoard()</code>）。</p>' +
+          '<ul><li><code>server.js</code>：Express で <code>index.html</code> を配りつつ、WebSocket で部屋を管理（ポート3000）</li>' +
+          '<li><code>src/main.ts</code>：Phaser で「ターン」「資源 1000」「次のターン」ボタンを出すだけの試作</li>' +
+          '<li><code>src/entities/</code>：県（<code>Prefect</code>）と地図（<code>GameMap</code>：隣の敵・味方・中立の県を探す関数）</li>' +
+          '<li><code>src/data/prefectures.json</code>：47県の座標・持ち主・兵・隣の県</li></ul>' +
+          '<div class="gg-note"><code>index.html</code> は <code>src/</code> を読み込んでいないので、<code>src/</code> 側はまだ動いていない。<code>package.json</code> にも <code>phaser</code> が入っていないため、<code>main.ts</code> を動かすにはまず追加が必要。</div>',
+        camera: { pos: [ARCH, 13, 14], target: [ARCH, 0, 2] },
+        focus: ['ar-html', 'ar-server', 'ar-src', 'ar-ent', 'ar-json', 'ar-plan', 'ar-l1', 'ar-l2', 'af1', 'af2', 'af3', 'af4'],
+      },
+      {
+        title: 'LAN対戦のしくみ（作りかけ）',
+        html:
+          '<p>LAN対戦は <code>npm start</code> で <code>server.js</code> を起動し、<code>http://&lt;IP&gt;:3000</code> を開いて使う想定（Vite の開発サーバーには部屋のAPIがない）。</p>' +
+          '<ol><li>ホストが <code>POST /api/room/create</code> → 4文字のコード（I・L・O・0・1 のような紛らわしい文字は使わない）</li>' +
+          '<li>ゲストが WebSocket で <code>{type:"join", code}</code> → 席1に座る</li>' +
+          '<li>サーバーが <code>playerJoined</code> を部屋に配る</li>' +
+          '<li>駒を動かすと <code>{type:"move", from, to}</code> を相手に転送</li></ol>' +
+          '<div class="gg-note"><b>まだつながらない所</b>：ホストは部屋を作ったあと WebSocket を開くけど、席0として部屋に登録するメッセージを送っていない。そのためホストに <code>playerJoined</code> も <code>move</code> も届かない。ゲストが送る <code>boardState</code> もサーバーは受け取らず、受け取った <code>move</code> は駒を動かすだけで戦闘や手番交代をしない。部屋は5分たっても始まらなければ消える。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>Room</code> クラスと <code>wss.on(\'connection\')</code>、<code>index.html</code> の <code>createRoom()</code> / <code>joinRoom()</code> / <code>handleMessage()</code></p>',
+        camera: { pos: [ARCH, 10, 3], target: [ARCH, 0.5, -8.6] },
+        focus: ['lan-host', 'lan-srv', 'lan-guest', 'la1', 'la2', 'la3', 'la-x'],
+        update: function (g, t) { g.get('la-x').visible = (t % 2) < 1.4; },
+      },
+      {
+        title: 'これからの構想：日本地図の陣取り',
+        html:
+          '<p>設計メモが目指しているのは、<b>日本の県を舞台にした陣取り</b>。その下準備として県データと地図クラスが用意されている。</p>' +
+          '<pre><code>{ "id": 1, "name": "北海道", "x": 650, "y": 80,\n  "terrain": "plain", "owner": "player1",\n  "population": 10000, "troops": 5000,\n  "isCapital": true, "neighbors": [2] }</code></pre>' +
+          '<ul><li>最初の持ち主：東北（北海道〜茨城）が player1、近畿・東海の一部が player2、残りは中立</li>' +
+          '<li>首都（★）は北海道と京都府。将棋版の王将「北海道」はここから来ている</li>' +
+          '<li>県1つにつき1ターン100の資源（<code>Prefect.resourcePerTurn</code>）を予定</li></ul>' +
+          '<p><b>計画のみ（未実装）</b>：県の境界線・クリックで選択・ユニットのドラッグ配置・ターンごとの資源・ユニットの衝突判定・LAN同期・CPU戦略（<code>TODO.md</code> は全部未チェック）。</p>' +
+          '<div class="gg-note">データはまだ下書き。「千葉県」が2つあったり「茂城県」「兵庫県東部」がいたり、沖縄は隣の県が空っぽ。座標も実際の地図とはずれているので、使う前に整える必要がある。</div>' +
+          '<p class="gg-files">📄 <code>src/data/prefectures.json</code>、<code>src/entities/Prefect.ts</code> / <code>Map.ts</code>、<code>CLAUDE.md</code>、<code>TODO.md</code></p>',
+        camera: { pos: [MAPX + 1, 23, 21], target: [MAPX + 1, 0, 1.5] },
+        focus: ['map', 'map-l'],
+        update: function (g, t) { g.pulse('mp1', t, 0.12); g.pulse('mp28', t + 1, 0.12); },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

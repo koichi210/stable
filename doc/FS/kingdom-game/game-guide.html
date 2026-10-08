@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>陣形と城壁（仮） | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // ================================================================
+  //  ゲームのデータ（kingdom-game/js の値をそのまま写したもの）
+  // ================================================================
+  var P = 'plain', H = 'hill', F = 'forest', R = 'river';
+  var TERR = {
+    plain:  { name: '平地', move: 1, def: 0,  col: '#56763f' },
+    hill:   { name: '丘',   move: 1, def: 3,  col: '#9a7a4a' },
+    forest: { name: '森',   move: 1, def: 1,  col: '#2b5e35' },
+    river:  { name: '河川', move: 2, def: -1, col: '#2c6cb0' },
+  };
+  // stages.js の field1「蟻ヶ原の初陣」
+  var FIELD = [
+    [P, P, H, P, H, P, P],
+    [P, F, P, P, P, F, P],
+    [P, P, R, R, R, P, P],
+    [P, H, P, P, P, H, P],
+    [P, P, P, P, P, P, P],
+    [P, P, P, P, P, P, P],
+  ];
+  // stages.js の siege1「朱鷺口の城攻め」
+  var SIEGE = [
+    [P, P, P, P, P, P, P],
+    [P, P, P, P, P, P, P],
+    [P, P, P, P, P, P, P],
+    [P, H, P, P, P, H, P],
+    [F, P, P, P, P, P, F],
+    [P, P, P, P, P, P, P],
+    [P, P, P, P, P, P, P],
+  ];
+  // units.js
+  var UT = {
+    infantry: { name: '歩兵', hp: 32, atk: 9,  range: 1, move: 2, cat: 'infantry', beats: 'cavalry',  def: 0, cost: 2 },
+    cavalry:  { name: '騎兵', hp: 28, atk: 11, range: 1, move: 3, cat: 'cavalry',  beats: 'archer',   def: 0, cost: 3 },
+    archer:   { name: '弓兵', hp: 20, atk: 10, range: 2, move: 1, cat: 'archer',   beats: 'infantry', def: 0, cost: 2 },
+    pike:     { name: '戟兵', hp: 38, atk: 8,  range: 1, move: 1, cat: 'pike',     beats: null,       def: 2, cost: 3 },
+    hq:       { name: '本陣', hp: 50, atk: 4,  range: 1, move: 0, cat: null,       beats: null,       def: 2, cost: 0 },
+    ram:      { name: '衝車', hp: 44, atk: 6,  range: 1, move: 1, cat: null,       beats: null,       def: 1, cost: 4, siegeAtk: 20 },
+    ladder:   { name: '雲梯', hp: 24, atk: 7,  range: 1, move: 1, cat: null,       beats: null,       def: 0, cost: 3, siegeAtk: 12 },
+  };
+  // provinces.js の PROVINCES
+  var PROV = [
+    ['owari', '尾張', ['mikawa', 'mino', 'ise'], 40, 55, 0],
+    ['mikawa', '三河', ['owari', 'ise', 'totomi'], 55, 62, 2],
+    ['mino', '美濃', ['owari', 'omi', 'shinano'], 38, 33, 1],
+    ['ise', '伊勢', ['owari', 'mikawa', 'yamato'], 33, 78, 1],
+    ['omi', '近江', ['mino', 'echizen', 'yamashiro'], 18, 35, 2],
+    ['suruga', '駿河', ['totomi', 'kai', 'musashi'], 70, 55, 2],
+    ['kai', '甲斐', ['suruga', 'shinano', 'kouzuke'], 76, 33, 3],
+    ['echizen', '越前', ['omi', 'kaga'], 10, 14, 3],
+    ['totomi', '遠江', ['mikawa', 'suruga'], 62, 60, 2],
+    ['shinano', '信濃', ['mino', 'kai'], 55, 40, 2],
+    ['kaga', '加賀', ['echizen'], 14, 22, 4],
+    ['musashi', '武蔵', ['suruga', 'kouzuke'], 68, 44, 3],
+    ['kouzuke', '上野', ['kai', 'musashi', 'mutsu'], 66, 26, 4],
+    ['mutsu', '陸奥', ['kouzuke'], 75, 8, 5],
+    ['yamashiro', '山城', ['omi', 'yamato', 'harima'], 10, 46, 3],
+    ['yamato', '大和', ['ise', 'yamashiro'], 18, 64, 2],
+    ['harima', '播磨', ['yamashiro', 'aki'], 2, 50, 4],
+    ['aki', '安芸', ['harima', 'iyo'], 2, 74, 5],
+    ['iyo', '伊予', ['aki', 'chikuzen'], 10, 90, 5],
+    ['chikuzen', '筑前', ['iyo'], 2, 95, 6],
+  ];
+
+  // ================================================================
+  //  ルールの再現（battle.js / board.js / ai.js と同じ計算）
+  // ================================================================
+  var DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  function tAt(T, r, c) { return (T[r] && T[r][c]) || 'plain'; }
+  function manhattan(r1, c1, r2, c2) { return Math.abs(r1 - r2) + Math.abs(c1 - c2); }
+
+  // board.js computeReachable() と同じダイクストラ法
+  function computeReachable(T, sr, sc, budget, isBlocked) {
+    var rows = T.length, cols = T[0].length;
+    var dist = new Map(), visited = new Set();
+    function key(r, c) { return r + ',' + c; }
+    dist.set(key(sr, sc), 0);
+    for (;;) {
+      var ck = null, cc = Infinity;
+      dist.forEach(function (cost, k) { if (!visited.has(k) && cost < cc) { ck = k; cc = cost; } });
+      if (ck === null) break;
+      visited.add(ck);
+      var rc = ck.split(',').map(Number);
+      DIRS.forEach(function (d) {
+        var nr = rc[0] + d[0], nc = rc[1] + d[1];
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return;
+        if (isBlocked(nr, nc)) return;
+        var cost = cc + TERR[tAt(T, nr, nc)].move;
+        if (cost > budget) return;
+        var nk = key(nr, nc);
+        if (!dist.has(nk) || cost < dist.get(nk)) dist.set(nk, cost);
+      });
+    }
+    dist.delete(key(sr, sc));
+    return dist;
+  }
+
+  // battle.js computeDamage()
+  function computeDamage(att, def, T, mult) {
+    var dmg = att.atk;
+    if (att.beats && def.cat && att.beats === def.cat) dmg = Math.round(dmg * 1.5);
+    dmg -= TERR[tAt(T, def.r, def.c)].def;
+    dmg -= def.def || 0;
+    dmg = Math.round(dmg * (mult || 1));
+    return Math.max(1, dmg);
+  }
+
+  function mkUnit(id, owner, type, r, c, label) {
+    var u = UT[type];
+    return { id: id, owner: owner, type: type, r: r, c: c, hp: u.hp, atk: u.atk, range: u.range, move: u.move,
+      cat: u.cat, beats: u.beats, def: u.def, isHQ: type === 'hq', label: label };
+  }
+
+  // ai.js runEnemyTurn() と同じ手順で、敵の番に起きることを記録する
+  function simEnemyTurn(units, T) {
+    var events = [];
+    function blocked(r, c) { return units.some(function (u) { return u.r === r && u.c === c; }); }
+    function targetsOf(u) {
+      var eff = u.range + (tAt(T, u.r, u.c) === 'forest' && u.cat === 'archer' ? 1 : 0);
+      return units.filter(function (v) { return v.owner !== u.owner && manhattan(u.r, u.c, v.r, v.c) <= eff; });
+    }
+    var ids = units.filter(function (u) { return u.owner === 'enemy' && !u.isHQ; }).map(function (u) { return u.id; });
+    ids.forEach(function (id) {
+      var u = units.filter(function (x) { return x.id === id; })[0];
+      if (!u) return;
+      var acted = false;
+      var targets = targetsOf(u);
+      if (targets.length === 0) {
+        var pl = units.filter(function (v) { return v.owner === 'player'; });
+        if (pl.length) {
+          var nearest = pl.slice().sort(function (a, b) { return manhattan(u.r, u.c, a.r, a.c) - manhattan(u.r, u.c, b.r, b.c); })[0];
+          var reach = computeReachable(T, u.r, u.c, u.move, blocked);
+          var best = null, bestD = manhattan(u.r, u.c, nearest.r, nearest.c);
+          reach.forEach(function (cost, k) {
+            var rc = k.split(',').map(Number);
+            var d = manhattan(rc[0], rc[1], nearest.r, nearest.c);
+            if (d < bestD) { bestD = d; best = rc; }
+          });
+          if (best) {
+            events.push({ type: 'move', id: id, who: u.label, toward: nearest.label, from: [u.r, u.c], to: best });
+            u.r = best[0]; u.c = best[1]; acted = true; // 移動した時点で acted=true（攻撃はできない）
+          }
+        }
+      }
+      if (targets.length > 0 && !acted) {
+        var tg = targets.slice().sort(function (a, b) { return a.hp - b.hp; })[0];
+        var dmg = computeDamage(u, tg, T);
+        tg.hp = Math.max(0, tg.hp - dmg);
+        events.push({ type: 'attack', id: id, who: u.label, target: tg.id, tname: tg.label, dmg: dmg, hp: tg.hp, from: [u.r, u.c], at: [tg.r, tg.c] });
+        if (tg.hp <= 0) units = units.filter(function (v) { return v.id !== tg.id; });
+      }
+    });
+    return events;
+  }
+
+  // 敵の番の例：自軍は 本陣(5,3)・歩兵(4,1)・騎兵(3,3)
+  var SIM_UNITS = [
+    mkUnit('f-php', 'player', 'hq', 5, 3, '自軍本陣'),
+    mkUnit('f-ehq', 'enemy', 'hq', 0, 3, '敵本陣'),
+    mkUnit('f-einf1', 'enemy', 'infantry', 2, 1, '敵の歩兵A'),
+    mkUnit('f-einf2', 'enemy', 'infantry', 2, 5, '敵の歩兵B'),
+    mkUnit('f-earc', 'enemy', 'archer', 1, 3, '敵の弓兵'),
+    mkUnit('f-ecav', 'enemy', 'cavalry', 2, 3, '敵の騎兵'),
+    mkUnit('f-pinf', 'player', 'infantry', 4, 1, '自軍の歩兵'),
+    mkUnit('f-pcav', 'player', 'cavalry', 3, 3, '自軍の騎兵'),
+  ];
+  var EVENTS = simEnemyTurn(SIM_UNITS.map(function (u) { return Object.assign({}, u); }), FIELD);
+  var BASE_POS = {};
+  SIM_UNITS.forEach(function (u) { BASE_POS[u.id] = [u.r, u.c]; });
+  BASE_POS['f-pcav'] = [4, 3]; // 盤の基本形では騎兵は配置直後の (4,3)
+
+  // 移動範囲の例：騎兵(4,3) 移動3
+  var REACH = computeReachable(FIELD, 4, 3, 3, function (r, c) {
+    return SIM_UNITS.some(function (u) { var p = BASE_POS[u.id]; return p[0] === r && p[1] === c; });
+  });
+
+  // ダメージ計算の例
+  var DUEL = [
+    { a: 'cavalry', d: 'archer', t: 'plain' },
+    { a: 'infantry', d: 'pike', t: 'hill' },
+    { a: 'archer', d: 'cavalry', t: 'river' },
+    { a: 'infantry', d: 'cavalry', t: 'forest' },
+  ].map(function (e) {
+    var A = UT[e.a], D = UT[e.d];
+    var dmg = computeDamage({ atk: A.atk, beats: A.beats }, { cat: D.cat, def: D.def, r: 0, c: 0 }, [[e.t]]);
+    var adv = A.beats === D.cat;
+    var s = adv ? A.atk + ' × 1.5 = ' + (A.atk * 1.5) + ' → ' + Math.round(A.atk * 1.5) : String(A.atk);
+    var td = TERR[e.t].def, sub = false;
+    if (td) { s += (td > 0 ? ' − ' + td : ' + ' + (-td)) + '（' + TERR[e.t].name + '）'; sub = true; }
+    if (D.def) { s += ' − ' + D.def + '（' + D.name + 'の守り）'; sub = true; }
+    if (sub) s += ' = ' + dmg;
+    e.text = A.name + ' → ' + D.name + '（' + TERR[e.t].name + '）\n' + s;
+    e.dmg = dmg;
+    e.row = '<tr><td>' + A.name + '→' + D.name + '</td><td>' + TERR[e.t].name + '</td><td>' + s.replace(/（[^）]*）/g, '') + '</td><td><b>' + dmg + '</b></td></tr>';
+    return e;
+  });
+
+  // 攻城戦：矢櫓の狙い（siege.js pickTowerTarget：射程内でHP最小）
+  var SIEGE_PL = [
+    { id: 's-ram', name: '衝車', r: 1, c: 3, hp: 44, def: 1 },
+    { id: 's-lad', name: '雲梯', r: 1, c: 4, hp: 24, def: 0 },
+    { id: 's-php', name: '本陣', r: 6, c: 3, hp: 50, def: 2 },
+  ];
+  function towerPick(tr, tc) {
+    var inR = SIEGE_PL.filter(function (u) { return manhattan(tr, tc, u.r, u.c) <= 3; });
+    inR.sort(function (a, b) { return a.hp - b.hp; });
+    var t = inR[0];
+    return { t: t, dmg: Math.max(1, 7 - TERR[tAt(SIEGE, t.r, t.c)].def - t.def) };
+  }
+  var TOWER_L = towerPick(0, 1), TOWER_R = towerPick(0, 5);
+
+  // ================================================================
+  //  座標
+  // ================================================================
+  var S = 1.2, PY = 0.27;
+  function fpos(r, c, y) { return [(c - 3) * S, y == null ? PY : y, (r - 2.5) * S]; }
+  var SX = -14;
+  function spos(r, c, y) { return [(c - 3) * S, y == null ? PY : y, (r - 3) * S]; } // siege グループ内
+  var CZ = -17;
+  function cpos(p, y) { return [(p[3] - 39) * 0.2, y == null ? 0.2 : y, (p[4] - 51) * 0.14]; } // conq グループ内
+  var PX = -14, PZ = -17, PS = 0.8;
+  function ppos(x, y, h) { return [(x - 5.5) * PS, h == null ? 0.2 : h, (y - 4.5) * PS]; } // pvp グループ内
+  var ARCH = 20;
+  var TRI = [0, 0, 9.5];
+
+  function shorten(a, b, d) {
+    var dx = b[0] - a[0], dz = b[2] - a[2], L = Math.sqrt(dx * dx + dz * dz) || 1;
+    return [[a[0] + dx / L * d, a[1], a[2] + dz / L * d], [b[0] - dx / L * d, b[1], b[2] - dz / L * d]];
+  }
+
+  // 駒（円柱＋ラベル）
+  function piece(g, id, parent, text, owner, pos, o) {
+    o = o || {};
+    var col = owner === 'player' ? C.me : owner === 'enemy' ? C.enemy : (o.color || C.neutral);
+    return g.cylinder({ id: id, parent: parent, radius: o.radius || 0.38, height: o.height || 0.3, pos: pos, color: col,
+      label: text, labelSize: o.labelSize || 0.24, labelBg: owner === 'player' ? '#0b1f3dcc' : '#3d0b14cc', labelOffset: [0, o.labelY || 0.5, 0] });
+  }
+
+  // ラベル書き換えのキャッシュ（毎フレーム作り直さないように）
+  var LC = {};
+  var TOFF = 0; // 動作確認用の時間オフセット（通常は0）
+  function setL(g, key, sprite, text, o) {
+    if (LC[key] === text) return;
+    LC[key] = text;
+    g.setLabel(sprite, text, o);
+  }
+  function pieceLabel(g, id) { return g.get(id).userData.label; }
+  var PL_OPT = { size: 0.24, bg: '#0b1f3dcc' }, EN_OPT = { size: 0.24, bg: '#3d0b14cc' };
+
+  function lunge(k) { return Math.sin(Math.PI * Math.min(1, Math.max(0, k))); }
+
+  // 敵の番（EVENTS）を t0 秒から dur 秒ずつ再生する。戻り値は今再生中のイベント番号
+  function playEnemy(g, t, t0, dur, dmgId) {
+    var cur = -1;
+    var dmgLbl = g.get(dmgId);
+    dmgLbl.visible = false;
+    EVENTS.forEach(function (e, i) {
+      var s = t0 + i * dur;
+      if (t >= s) cur = i;
+      var k = g.phase(t, s, dur * 0.6);
+      if (e.type === 'move') {
+        var a = fpos(e.from[0], e.from[1]), b = fpos(e.to[0], e.to[1]);
+        g.lerpPos(e.id, a, b, k);
+      } else {
+        var A = fpos(e.from[0], e.from[1]), B = fpos(e.at[0], e.at[1]);
+        var l = lunge(g.linear(t, s, dur * 0.5)) * 0.45;
+        g.setPos(e.id, [A[0] + (B[0] - A[0]) * l, PY + l * 0.6, A[2] + (B[2] - A[2]) * l]);
+        if (t >= s + dur * 0.25 && t < s + dur) {
+          dmgLbl.visible = true;
+          var up = g.linear(t, s + dur * 0.25, dur * 0.75);
+          dmgLbl.position.set(B[0], 1.3 + up * 0.6, B[2]);
+          setL(g, dmgId, dmgLbl, '−' + e.dmg + '（残り' + e.hp + '）', { size: 0.3, color: '#ff8a8a', bg: '#000000bb' });
+        }
+      }
+    });
+    return cur;
+  }
+
+  // ---- 説明文に使う、計算結果から作った文 ----
+  var EVENT_HTML = '<ol>' + EVENTS.map(function (e) {
+    if (e.type === 'move') return '<li>' + e.who + '：射程内に敵なし → 一番近い' + e.toward + 'へ (' + e.from.join(',') + ')→(' + e.to.join(',') + ')</li>';
+    return '<li>' + e.who + '：射程内でHPが一番低い' + e.tname + 'を攻撃 <b>−' + e.dmg + '</b>（残りHP ' + e.hp + '）</li>';
+  }).join('') + '</ol>';
+  var riverReach = false;
+  REACH.forEach(function (cost, k) { var rc = k.split(',').map(Number); if (FIELD[rc[0]][rc[1]] === R) riverReach = true; });
+
+  GameGuide.start({
+    title: '陣形と城壁（仮）',
+    back: '../index.html',
+    subtitle: '兵種の三すくみ×地形で戦う陣形バトル＋攻城戦＋国盗り（素のHTML/CSS/JavaScript・ビルド不要）',
+    camera: { pos: [0, 9.5, 9.5], target: [0, 0, 0.3] },
+
+    build: function (g) {
+      // ================= 野戦の盤（蟻ヶ原の初陣 7×6） =================
+      g.group('field', {});
+      g.plate({ parent: 'field', size: [7 * S + 0.5, 6 * S + 0.5], pos: [0, 0.01, 0], color: '#1d2a1b', opacity: 1, radius: 0.2 });
+      for (var r = 0; r < 6; r++) {
+        for (var c = 0; c < 7; c++) {
+          var t = FIELD[r][c], p = fpos(r, c, 0.05);
+          g.plate({ id: 'ft-' + r + '-' + c, parent: 'field', size: [S * 0.94, S * 0.94], pos: p, color: TERR[t].col, opacity: 1, radius: 0.08,
+            emissive: t === R ? '#0b2e66' : undefined, emissiveIntensity: t === R ? 0.6 : undefined });
+          if (t === H) g.cylinder({ parent: 'field', radiusTop: 0.2, radius: 0.5, height: 0.1, pos: [p[0], 0.13, p[2]], color: '#b08d58' });
+          if (t === F) {
+            g.cylinder({ parent: 'field', radiusTop: 0.01, radius: 0.17, height: 0.5, pos: [p[0] - 0.33, 0.33, p[2] - 0.3], color: '#3f8a4a', segments: 10 });
+            g.cylinder({ parent: 'field', radiusTop: 0.01, radius: 0.14, height: 0.4, pos: [p[0] + 0.34, 0.28, p[2] - 0.32], color: '#3f8a4a', segments: 10 });
+          }
+        }
+      }
+      g.plate({ id: 'deploy-zone', parent: 'field', size: [7 * S, 2 * S], pos: [0, 0.1, 2 * S], color: C.me, opacity: 0.2, thickness: 0.01, radius: 0.1 });
+      g.label('自軍の配置エリア（4・5行目）', [0, 0.3, 3 * S + 0.65], { id: 'lbl-deploy', parent: 'field', size: 0.26, color: '#bcd6ff' });
+      g.label('敵の陣地（0行目に敵本陣）', [0, 0.3, -3 * S - 0.6], { id: 'lbl-enemyside', parent: 'field', size: 0.26, color: '#ffc2c8' });
+
+      // 駒
+      g.group('fpieces', {});
+      piece(g, 'f-php', 'fpieces', '本陣', 'player', fpos(5, 3));
+      piece(g, 'f-ehq', 'fpieces', '本陣', 'enemy', fpos(0, 3));
+      piece(g, 'f-einf1', 'fpieces', '歩兵', 'enemy', fpos(2, 1));
+      piece(g, 'f-einf2', 'fpieces', '歩兵', 'enemy', fpos(2, 5));
+      piece(g, 'f-earc', 'fpieces', '弓兵', 'enemy', fpos(1, 3));
+      piece(g, 'f-ecav', 'fpieces', '騎兵', 'enemy', fpos(2, 3));
+      piece(g, 'f-pinf', 'fpieces', '歩兵', 'player', fpos(4, 1));
+      piece(g, 'f-pcav', 'fpieces', '騎兵', 'player', fpos(4, 3));
+      piece(g, 'p-hero', 'fpieces', '白央（武将）', 'player', fpos(4, 2), { color: C.gold });
+      g.setColor('p-hero', '#ffd166');
+
+      // 地形の説明ラベル
+      g.group('tlabels', {});
+      var tl = function (r, c, txt) { var q = fpos(r, c, 1.05); g.label(txt, q, { parent: 'tlabels', size: 0.22, bg: '#000000aa' }); };
+      tl(3, 1, '丘：守+3');
+      tl(1, 5, '森：守+1\n弓は射程+1');
+      tl(2, 4, '河川：移動2\n守−1');
+      tl(4, 5, '平地');
+
+      // 配置・ターンの流れ用
+      g.label('ターン1　コスト 6 / 14', [0, 2.3, -4.6], { id: 'lbl4', size: 0.36, bg: '#000000bb', color: '#ffd166' });
+      g.plate({ id: 'hand4', size: [1.7, 3.0], pos: [5.6, 0.04, 2.0], color: '#2a3550', opacity: 0.9, label: '配置できるユニット', labelOffset: [0, 0.3, -1.8], labelSize: 0.22 });
+      [['歩兵 コスト2', -1.05], ['騎兵 コスト3', -0.35], ['弓兵 コスト2', 0.35], ['戟兵 コスト3', 1.05]].forEach(function (h) {
+        g.cylinder({ parent: 'hand4', radius: 0.2, height: 0.14, pos: [-0.45, 0.1, h[1]], color: C.me });
+        g.label(h[0], [0.25, 0.25, h[1]], { parent: 'hand4', size: 0.17, color: '#dfe8ff' });
+      });
+      g.label('−', [0, 1.3, 0], { id: 'dmg4', size: 0.3, color: '#ff8a8a', bg: '#000000bb' });
+
+      // 移動範囲（step5）
+      g.group('reach', {});
+      REACH.forEach(function (cost, k) {
+        var rc = k.split(',').map(Number), q = fpos(rc[0], rc[1], 0.14);
+        g.plate({ id: 'rc-' + rc[0] + '-' + rc[1], parent: 'reach', size: [S * 0.8, S * 0.8], pos: q, color: '#7ef0ff', opacity: 0.45, thickness: 0.02, radius: 0.08 });
+        g.label(String(cost), [q[0], 0.55, q[2] + 0.25], { id: 'rl-' + rc[0] + '-' + rc[1], parent: 'reach', size: 0.32, color: '#ffffff', bg: '#00405acc' });
+      });
+      g.label('騎兵（移動3）　河川は1マスで2消費', [0, 1.5, -4.3], { id: 'lbl5', parent: 'reach', size: 0.3, bg: '#000000bb', color: '#7ef0ff' });
+
+      // 武将スキル（step7）
+      g.label('疾駆：移動したあと、そのまま攻撃', [-2.2, 2.0, -2.6], { id: 'lbl7', size: 0.3, bg: '#000000bb', color: '#ffd166' });
+      g.label('−11', [0, 1.3, 0], { id: 'dmg7', size: 0.34, color: '#ff8a8a', bg: '#000000bb' });
+
+      // 敵AI（step9）
+      g.label('敵の番', [0, 2.4, -4.6], { id: 'lbl9', size: 0.3, bg: '#000000bb', color: '#ffc2c8' });
+      g.label('−', [0, 1.3, 0], { id: 'dmg9', size: 0.3, color: '#ff8a8a', bg: '#000000bb' });
+
+      // ================= 三すくみ（step3） =================
+      g.group('tri', { pos: TRI });
+      g.plate({ parent: 'tri', size: [11, 6.4], pos: [0.6, 0.01, 0.1], color: '#1f1c2e', opacity: 0.9, radius: 0.3 });
+      var TP = { infantry: [0, PY, -1.7], cavalry: [2.3, PY, 1.5], archer: [-2.3, PY, 1.5], pike: [4.4, PY, -1.7] };
+      ['infantry', 'cavalry', 'archer', 'pike'].forEach(function (k) {
+        var u = UT[k];
+        piece(g, 'tri-' + k, 'tri', u.name, 'player', TP[k], { radius: 0.5, height: 0.36, labelSize: 0.3, labelY: 0.6 });
+        g.label('HP' + u.hp + ' 攻' + u.atk + '\n射程' + u.range + ' 移動' + u.move + ' コスト' + u.cost + (u.def ? '\n素の守り+' + u.def : ''),
+          [TP[k][0], 0.2, TP[k][2] + 1.3], { parent: 'tri', size: 0.2, color: '#d8d4ee', bold: false });
+      });
+      [['infantry', 'cavalry'], ['cavalry', 'archer'], ['archer', 'infantry']].forEach(function (pr, i) {
+        var ab = shorten(TP[pr[0]], TP[pr[1]], 0.75);
+        ab[0][1] = ab[1][1] = 0.45;
+        g.arrow(ab[0], ab[1], { id: 'tri-a' + i, parent: 'tri', color: C.gold, lift: 0.9, label: '×1.5', labelSize: 0.3 });
+      });
+      g.label('相性なし', [4.4, 1.35, -1.7], { parent: 'tri', size: 0.22, color: '#b8b2d6' });
+
+      // ================= ダメージ計算の例（step6） =================
+      g.group('duel', { pos: TRI });
+      g.plate({ parent: 'duel', size: [8.6, 4.4], pos: [0, 0.01, 0.3], color: '#1f1c2e', opacity: 0.9, radius: 0.3 });
+      g.plate({ id: 'duel-ta', parent: 'duel', size: [1.6, 1.6], pos: [-2, 0.05, 0.6], color: TERR.plain.col, opacity: 1 });
+      g.plate({ id: 'duel-td', parent: 'duel', size: [1.6, 1.6], pos: [2, 0.05, 0.6], color: TERR.plain.col, opacity: 1 });
+      piece(g, 'duel-a', 'duel', '騎兵', 'player', [-2, PY, 0.6], { radius: 0.5, labelSize: 0.3, labelY: 0.6 });
+      piece(g, 'duel-d', 'duel', '弓兵', 'enemy', [2, PY, 0.6], { radius: 0.5, labelSize: 0.3, labelY: 0.6 });
+      g.label('式', [0, 2.6, 0.6], { id: 'duel-f', parent: 'duel', size: 0.32, bg: '#000000bb', color: '#ffffff' });
+      g.label('−17', [2, 1.6, 0.6], { id: 'duel-n', parent: 'duel', size: 0.45, color: '#ff8a8a', bg: '#000000bb' });
+      g.label('守る側のマスの地形', [2, 0.2, 1.75], { parent: 'duel', size: 0.2, color: '#d8d4ee', bold: false });
+
+      // ================= 攻城戦の盤（朱鷺口の城攻め 7×7） =================
+      g.group('siege', { pos: [SX, 0, 0] });
+      g.plate({ parent: 'siege', size: [7 * S + 0.5, 7 * S + 0.5], pos: [0, 0.01, 0], color: '#1d2a1b', opacity: 1, radius: 0.2 });
+      for (var sr = 0; sr < 7; sr++) {
+        for (var sc = 0; sc < 7; sc++) {
+          var st = SIEGE[sr][sc], sp = spos(sr, sc, 0.05);
+          g.plate({ parent: 'siege', size: [S * 0.94, S * 0.94], pos: sp, color: sr === 0 ? '#4a4652' : TERR[st].col, opacity: 1, radius: 0.08 });
+          if (st === H) g.cylinder({ parent: 'siege', radiusTop: 0.2, radius: 0.5, height: 0.1, pos: [sp[0], 0.13, sp[2]], color: '#b08d58' });
+          if (st === F) g.cylinder({ parent: 'siege', radiusTop: 0.01, radius: 0.17, height: 0.5, pos: [sp[0] - 0.3, 0.33, sp[2] - 0.3], color: '#3f8a4a', segments: 10 });
+        }
+      }
+      // 矢櫓の射程（マンハッタン距離3）
+      g.group('trange', { parent: 'siege' });
+      for (var rr = 1; rr < 7; rr++) for (var rc2 = 0; rc2 < 7; rc2++) {
+        if (manhattan(0, 1, rr, rc2) <= 3 || manhattan(0, 5, rr, rc2) <= 3) {
+          var q2 = spos(rr, rc2, 0.12);
+          g.plate({ parent: 'trange', size: [S * 0.9, S * 0.9], pos: q2, color: C.enemy, opacity: 0.38, thickness: 0.02, radius: 0.08 });
+        }
+      }
+      ['wall', 'tower', 'wall', 'gate', 'wall', 'tower', 'wall'].forEach(function (k, i) {
+        var q = spos(0, i, 0);
+        if (k === 'wall') g.box({ id: i === 4 ? 's-wall4' : null, parent: 'siege', size: [S * 0.92, 0.8, S * 0.8], pos: [q[0], 0.45, q[2]], color: '#8d8a99',
+          label: i === 4 ? '城壁 HP40' : null, labelSize: 0.22, labelBg: '#000000aa' });
+        if (k === 'tower') g.box({ id: 's-tower' + i, parent: 'siege', size: [S * 0.7, 1.6, S * 0.7], pos: [q[0], 0.85, q[2]], color: '#b5654a',
+          label: '矢櫓 HP20\n攻7 射程3', labelSize: 0.22, labelBg: '#000000aa' });
+        if (k === 'gate') g.box({ id: 's-gate', parent: 'siege', size: [S * 0.92, 1.0, S * 0.6], pos: [q[0], 0.55, q[2]], color: '#7a4a25',
+          label: '城門 HP34', labelSize: 0.26, labelBg: '#000000aa' });
+      });
+      piece(g, 's-ram', 'siege', '衝車', 'player', spos(1, 3));
+      piece(g, 's-lad', 'siege', '雲梯', 'player', spos(1, 4));
+      piece(g, 's-php', 'siege', '本陣', 'player', spos(6, 3));
+      piece(g, 's-einf1', 'siege', '歩兵', 'enemy', spos(2, 1));
+      piece(g, 's-einf2', 'siege', '歩兵', 'enemy', spos(2, 5));
+      g.label('攻城戦', [0, 2.6, -5.2], { id: 'lbl8', parent: 'siege', size: 0.32, bg: '#000000bb', color: '#ffd166' });
+      g.label('−20', [0, 1.6, 0], { id: 'dmg8', parent: 'siege', size: 0.34, color: '#ff8a8a', bg: '#000000bb' });
+      var tl0 = spos(0, 1, 1.6), tr0 = spos(0, 5, 1.6);
+      var tlT = spos(TOWER_L.t.r, TOWER_L.t.c, 0.5), trT = spos(TOWER_R.t.r, TOWER_R.t.c, 0.5);
+      g.arrow(tl0, tlT, { id: 's-arrL', parent: 'siege', color: '#ff9f43', lift: 0.6 });
+      g.arrow(tr0, trT, { id: 's-arrR', parent: 'siege', color: '#ff9f43', lift: 0.6 });
+
+      // ================= 国盗り編の地図（20カ国） =================
+      g.group('conq', { pos: [0, 0, CZ] });
+      g.plate({ parent: 'conq', size: [17, 14], pos: [0, 0.01, 0.2], color: '#1b2433', opacity: 1, radius: 0.4 });
+      var idx = {};
+      PROV.forEach(function (p) { idx[p[0]] = p; });
+      var done = {};
+      PROV.forEach(function (p) {
+        p[2].forEach(function (n) {
+          var k = [p[0], n].sort().join('-');
+          if (done[k] || !idx[n]) return;
+          done[k] = true;
+          g.line([cpos(p, 0.12), cpos(idx[n], 0.12)], { parent: 'conq', color: '#8890b0', opacity: 0.55 });
+        });
+      });
+      PROV.forEach(function (p) {
+        var home = p[0] === 'owari';
+        g.cylinder({ id: 'pv-' + p[0], parent: 'conq', radius: 0.4, height: 0.24, pos: cpos(p), color: home ? C.me : '#c0505c',
+          label: p[1] + (home ? '（本拠地）' : ' 勢' + p[5]), labelSize: 0.22, labelBg: '#000000aa', labelOffset: [0, 0.45, 0] });
+      });
+      g.label('兵糧 20', [0, 2.4, -7.6], { id: 'lbl10', parent: 'conq', size: 0.34, bg: '#000000bb', color: '#ffd166' });
+
+      // 勢力 → 合戦の敵編成（step11）
+      g.group('comp', { pos: [11.8, 0, CZ] });
+      g.plate({ parent: 'comp', size: [6.4, 7.4], pos: [0.3, 0.01, 0.4], color: '#241f33', opacity: 1, radius: 0.3 });
+      g.label('勢力 → 合戦の敵（＋敵本陣）', [0.3, 0.4, -3.1], { parent: 'comp', size: 0.32, color: '#ffd166' });
+      var COMP = [['歩兵', '歩兵'], ['歩兵', '歩兵', '弓兵'], ['歩兵', '歩兵', '弓兵', '騎兵'], ['歩兵', '歩兵', '弓兵', '騎兵', '戟兵']];
+      COMP.forEach(function (row, i) {
+        var z = -2 + i * 1.45;
+        g.label('勢' + (i + 1) + (i === 3 ? '〜6' : ''), [-2.2, 0.35, z], { id: 'comp-l' + i, parent: 'comp', size: 0.32, color: '#ffffff' });
+        row.forEach(function (nm, j) {
+          piece(g, 'comp-' + i + '-' + j, 'comp', nm, 'enemy', [-1.0 + j * 0.95, 0.2, z], { radius: 0.3, height: 0.22, labelSize: 0.25, labelY: 0.4 });
+        });
+      });
+      g.label('勢5・6も強さは勢4で頭打ち', [0.3, 0.3, 3.6], { parent: 'comp', size: 0.3, color: '#ffc2c8' });
+      g.flow([6.2, 0.4, CZ + 1.2], [8.6, 0.4, CZ + 0.2], { id: 'comp-flow', color: C.gold, lift: 1.2, count: 5 });
+
+      // ================= PVP マップ（12×10） =================
+      g.group('pvp', { pos: [PX, 0, PZ] });
+      g.plate({ parent: 'pvp', size: [12 * PS + 0.5, 10 * PS + 0.5], pos: [0, 0.01, 0], color: '#1d2230', opacity: 1, radius: 0.2 });
+      var seed = 11;
+      function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+      var PCOL = { plain: '#56763f', mountain: '#7d6a55', forest: '#2b5e35', water: '#2c6cb0' };
+      for (var py = 0; py < 10; py++) for (var px = 0; px < 12; px++) {
+        var rv = rnd(), tt = rv < 0.15 ? 'water' : rv < 0.35 ? 'mountain' : rv < 0.5 ? 'forest' : 'plain';
+        g.plate({ parent: 'pvp', size: [PS * 0.92, PS * 0.92], pos: ppos(px, py, 0.05), color: PCOL[tt], opacity: 1, radius: 0.06 });
+      }
+      g.box({ parent: 'pvp', size: [0.6, 0.5, 0.6], pos: ppos(1, 1, 0.3), color: C.me, label: '北軍の王都 (1,1)', labelSize: 0.22, labelBg: '#0b1f3dcc' });
+      g.box({ parent: 'pvp', size: [0.6, 0.5, 0.6], pos: ppos(10, 8, 0.3), color: C.enemy, label: '南軍(CPU)の王都 (10,8)', labelSize: 0.22, labelBg: '#3d0b14cc', labelOffset: [0, 1.75, 0] });
+      [[9, 7], [10, 7], [11, 7], [9, 8], [10, 9]].forEach(function (q, i) {
+        g.cylinder({ id: 'pvp-cpu' + i, parent: 'pvp', radius: 0.26, height: 0.22, pos: ppos(q[0], q[1], 0.18), color: C.enemy });
+      });
+      g.label('CPUのユニット5体', [ppos(10, 9)[0], 0.3, ppos(10, 9)[2] + 0.75], { parent: 'pvp', size: 0.2, color: '#ffc2c8' });
+      g.cylinder({ parent: 'pvp', radius: 0.26, height: 0.22, pos: ppos(2, 1, 0.18), color: C.me });
+      g.cylinder({ parent: 'pvp', radius: 0.26, height: 0.22, pos: ppos(1, 2, 0.18), color: C.me });
+      piece(g, 'pvp-me', 'pvp', '軽騎兵', 'player', ppos(6, 5, 0.18), { radius: 0.26, height: 0.22, labelSize: 0.2, labelY: 0.4 });
+      g.group('pvp-range', { parent: 'pvp' });
+      for (var ay = 0; ay < 10; ay++) for (var ax = 0; ax < 12; ax++) {
+        if (Math.abs(ax - 8) + Math.abs(ay - 6) <= 3) {
+          var aq = ppos(ax, ay, 0.1);
+          g.plate({ parent: 'pvp-range', size: [PS * 0.8, PS * 0.8], pos: aq, color: '#ffd166', opacity: 0.3, thickness: 0.02, radius: 0.05 });
+        }
+      }
+      g.arrow(ppos(8, 6, 0.4), ppos(9, 7, 0.4), { id: 'pvp-arr', parent: 'pvp', color: C.gold, lift: 0.6 });
+      g.label('16 × (0.8〜1.2) − 3 = 9〜16', [ppos(9, 7)[0] + 0.6, 2.1, ppos(9, 7)[2] - 0.4], { id: 'pvp-dmg', parent: 'pvp', size: 0.26, color: '#ff8a8a', bg: '#000000bb' });
+      g.label('PVP（開発中）', [0, 2.2, -4.8], { id: 'lbl12', parent: 'pvp', size: 0.32, bg: '#000000bb', color: '#ffd166' });
+
+      // ================= アーキテクチャ図（x=20 付近） =================
+      var AL = ARCH - 4.4, AR = ARCH + 4.4;
+      g.box({ id: 'arch-index', size: [11, 0.6, 1.1], pos: [ARCH, 0.3, -5.6], color: '#4a4466', label: 'index.html：31本の <script> を順番に読む（window.KG に登録）', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-main', size: [5.6, 0.4, 1.0], pos: [AL, 0.2, -3.3], color: '#7b5cff', label: 'main.js：タイトル・画面遷移', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-pvpentry', size: [5.6, 0.4, 1.0], pos: [AR, 0.2, -3.3], color: '#7b5cff', label: '各UIが DOMContentLoaded で\n自分のボタンに登録', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-ui-l', size: [5.6, 0.4, 1.0], pos: [AL, 0.2, -0.9], color: C.me, label: '画面：ui.js・conquest-ui.js\nformation-ui.js', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-ui-r', size: [5.6, 0.4, 1.0], pos: [AR, 0.2, -0.9], color: C.me, label: '画面：pvp-*-ui.js・cpu-*-ui.js\nguide-ui.js', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-logic-l', size: [5.6, 0.4, 1.0], pos: [AL, 0.2, 1.5], color: C.server, label: 'ルール：battle.js・board.js・siege.js\nai.js・conquest.js', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-logic-r', size: [5.6, 0.4, 1.0], pos: [AR, 0.2, 1.5], color: C.server, label: 'ルール：pvp-battle.js・pvp-map.js\npvp-ai.js・pvp-ship.js', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-data-l', size: [5.6, 0.4, 1.0], pos: [AL, 0.2, 3.9], color: '#2b9a6b', label: 'データ：units・characters・castles\nstages・history-stages・provinces', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-data-r', size: [5.6, 0.4, 1.0], pos: [AR, 0.2, 3.9], color: '#2b9a6b', label: 'データ：pvp-units・pvp-heroes\npvp-formations', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-save', size: [5.6, 0.4, 1.0], pos: [AL, 0.2, 6.3], color: '#c77dff', label: '保存：save.js・roster.js\n→ localStorage', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'arch-rand', size: [5.6, 0.4, 1.0], pos: [AR, 0.2, 6.3], color: '#c77dff', label: '保存：pvp-formations.js\n→ localStorage', labelSize: 0.3, labelBg: '#000000c0', labelOffset: [0, 0.55, 0] });
+      g.label('キャンペーン系（中華編・歴史編・国盗り編）', [AL, 0.3, 7.5], { id: 'arch-hl', size: 0.3, color: '#bcd6ff' });
+      g.label('PVP系（CPU対戦・図鑑）', [AR, 0.3, 7.5], { id: 'arch-hr', size: 0.3, color: '#bcd6ff' });
+      g.line([[ARCH, 0.05, -2.6], [ARCH, 0.05, 7.2]], { id: 'arch-split', color: '#b8b2d6', dashed: true, opacity: 0.6 });
+      g.flow([AL - 0.6, 0.8, -2.7], [AL - 0.6, 0.8, -1.5], { id: 'f-main-ui', color: C.data, lift: 0.4, count: 3 });
+      g.flow([AL - 1.2, 0.8, -0.3], [AL - 1.2, 0.8, 0.9], { id: 'f-ui-logic', color: C.gold, lift: 0.4, count: 3 });
+      g.flow([AL + 1.2, 0.8, 0.9], [AL + 1.2, 0.8, -0.3], { id: 'f-logic-ui', color: C.good, lift: 0.4, count: 3 });
+      g.flow([AL, 0.8, 3.3], [AL, 0.8, 2.1], { id: 'f-data-logic', color: '#2b9a6b', lift: 0.4, count: 3 });
+      g.flow([AR - 1.2, 0.8, -0.3], [AR - 1.2, 0.8, 0.9], { id: 'f-ui-logic-r', color: C.gold, lift: 0.4, count: 3 });
+      g.flow([AR, 0.8, 3.3], [AR, 0.8, 2.1], { id: 'f-data-logic-r', color: '#2b9a6b', lift: 0.4, count: 3 });
+      g.flow([AL + 1.5, 0.8, -2.7], [AL + 1.5, 0.8, 5.7], { id: 'f-main-save', color: '#c77dff', lift: 0.0, count: 6, speed: 0.2 });
+      g.label('操作', [AL - 2.2, 1.2, 0.3], { id: 'arch-l1', size: 0.22, color: C.gold });
+      g.label('render()', [AL + 2.25, 1.2, 0.3], { id: 'arch-l2', size: 0.22, color: C.good });
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？',
+        html:
+          '<p>グリッドの盤にユニットを並べて CPU 軍と戦う、<b>ターン制の戦術シミュレーション</b>。中国の戦国時代を描いた合戦漫画にインスパイアされて作られた。</p>' +
+          '<p>タイトル画面から、こんなモードを選べる。</p>' +
+          '<table><tr><th>モード</th><th>中身</th></tr>' +
+          '<tr><td>はじめる（中華編）</td><td>野戦1＋攻城戦1。人名・地名はすべてオリジナル</td></tr>' +
+          '<tr><td>歴史編</td><td>河越城〜関ヶ原まで、実在の合戦10ステージ（野戦9・攻城戦1）</td></tr>' +
+          '<tr><td>国盗り編</td><td>尾張から20カ国を、交渉か合戦で従える地図モード</td></tr>' +
+          '<tr><td>編成</td><td>有名武将・城を戦闘に持ち込む</td></tr>' +
+          '<tr><td>PVP編成・CPU対戦・図鑑</td><td>別ルールのPVP系（開発中）</td></tr></table>' +
+          '<p>勝ち方は2種類。<b>野戦は敵本陣を倒す</b>、<b>攻城戦は城門を壊す</b>。自軍の本陣が倒れたら負け。</p>' +
+          '<div class="gg-note">ビルドもサーバーも不要。<code>index.html</code> をダブルクリックすればブラウザで動く。</div>',
+        camera: { pos: [0, 9.5, 9.5], target: [0, 0, 0.3] },
+        focus: ['field', 'fpieces'],
+        show: [],
+      },
+      {
+        title: '盤面と地形',
+        html:
+          '<p>中華編の野戦「蟻ヶ原の初陣」は <b>横7×縦6マス</b>。奥の0行目に敵本陣、手前の4・5行目が自軍の配置エリア。</p>' +
+          '<table><tr><th>地形</th><th>移動コスト</th><th>防御補正</th><th>その他</th></tr>' +
+          '<tr><td>平地</td><td>1</td><td>0</td><td></td></tr>' +
+          '<tr><td>丘</td><td>1</td><td>+3</td><td></td></tr>' +
+          '<tr><td>森</td><td>1</td><td>+1</td><td>弓兵が乗ると射程+1</td></tr>' +
+          '<tr><td>河川</td><td>2</td><td>−1</td><td>受けるダメージが増える</td></tr></table>' +
+          '<p>防御補正は <b>攻撃を受けた側がいるマス</b> で決まる。射程や距離は、斜めを使わない <b>マンハッタン距離</b>（縦の差＋横の差）で測る。</p>' +
+          '<div class="gg-note">真ん中の河川には敵の騎兵が陣取っている。河川は防御−1なので、じつは狙い目。</div>' +
+          '<p class="gg-files">📄 <code>board.js</code> の <code>TERRAIN_INFO</code>、盤の形は <code>stages.js</code> の <code>STAGES</code></p>',
+        camera: { pos: [0, 9.4, 8.4], target: [0, 0, -0.2] },
+        focus: ['field', 'tlabels'],
+        show: ['tlabels'],
+        update: function (g, t) {
+          t += TOFF;
+          ['ft-3-1', 'ft-1-5', 'ft-2-4'].forEach(function (id, i) { g.pulse(id, t + i * 0.7, 0.06); });
+        },
+      },
+      {
+        title: '兵種と三すくみ',
+        html:
+          '<table><tr><th>兵種</th><th>コスト</th><th>HP</th><th>攻</th><th>射程</th><th>移動</th><th>得意</th></tr>' +
+          '<tr><td>歩兵</td><td>2</td><td>32</td><td>9</td><td>1</td><td>2</td><td>騎兵</td></tr>' +
+          '<tr><td>騎兵</td><td>3</td><td>28</td><td>11</td><td>1</td><td>3</td><td>弓兵</td></tr>' +
+          '<tr><td>弓兵</td><td>2</td><td>20</td><td>10</td><td>2</td><td>1</td><td>歩兵</td></tr>' +
+          '<tr><td>戟兵</td><td>3</td><td>38</td><td>8</td><td>1</td><td>1</td><td>なし</td></tr></table>' +
+          '<p>得意な相手を殴ると <b>攻撃力×1.5</b>（四捨五入）。<b>歩兵→騎兵→弓兵→歩兵</b> のぐるぐる関係。</p>' +
+          '<p>戟兵は相性を持たない代わりに、いつでも被ダメージ−2（<code>defBonus: 2</code>）の硬さがある。</p>' +
+          '<table><tr><th>特殊</th><th>中身</th></tr>' +
+          '<tr><td>本陣</td><td>HP50・攻4・守+2。動かない。倒されたら負け</td></tr>' +
+          '<tr><td>衝車</td><td>コスト4・HP44・守+1。城攻め力20（攻城戦専用）</td></tr>' +
+          '<tr><td>雲梯</td><td>コスト3・HP24。城攻め力12（攻城戦専用）</td></tr></table>' +
+          '<p class="gg-files">📄 <code>units.js</code> の <code>UNIT_TYPES</code> / <code>SIEGE_UNIT_TYPES</code> / <code>HQ_TYPE</code></p>',
+        camera: { pos: [1, 8.6, 18.6], target: [1, 0, 9.9] },
+        focus: ['tri'],
+        show: ['tri'],
+        update: function (g, t) {
+          t += TOFF;
+          var k = Math.floor(t / 1.2) % 3;
+          for (var i = 0; i < 3; i++) g.get('tri-a' + i).scale.setScalar(i === k ? 1.08 : 1);
+          var from = ['tri-infantry', 'tri-cavalry', 'tri-archer'][k];
+          g.pulse(from, t, 0.12);
+        },
+      },
+      {
+        title: '1ターンの流れ',
+        html:
+          '<ol><li><b>配置</b>：コストを払って、配置エリアの空きマスにユニットを出す。ターン中なら何体でもOK</li>' +
+          '<li><b>行動</b>：各ユニットは「移動」「攻撃」「待機」のどれか <b>1つだけ</b>。行動済みは灰色になる</li>' +
+          '<li><b>ターン終了</b>：CPU の敵ユニット → 矢櫓 の順に動く</li>' +
+          '<li>勝ち負けを判定して、次のターンへ。<b>コスト+2</b>（上限あり）</li></ol>' +
+          '<pre><code>蟻ヶ原：開始コスト 6 / 毎ターン +2 / 上限 14\n歩兵(2)＋騎兵(3)を出すと残り 1 → 次のターン 3</code></pre>' +
+          '<p>勝敗チェックの順番は「自軍本陣が倒れた（負け）」→「制限ターン超え（負け）」→「敵本陣撃破／城門突破（勝ち）」。</p>' +
+          '<div class="gg-note">移動したユニットは、そのターンはもう攻撃できない（<code>actionMove()</code> で <code>acted = true</code> になる）。「近づいて殴る」には2ターンかかるので、相手の射程にどう入るかが勝負どころ。例外は武将スキルの「疾駆」。</div>' +
+          '<p class="gg-files">📄 <code>battle.js</code> の <code>deployUnit()</code> / <code>startNewTurn()</code> / <code>checkBattleEnd()</code>、<code>ui.js</code> の <code>handleEndTurn()</code></p>',
+        camera: { pos: [2.4, 9.4, 9.6], target: [0.8, 0, 0.5] },
+        focus: ['field', 'fpieces', 'lbl4', 'hand4', 'dmg4'],
+        show: ['lbl4', 'hand4', 'dmg4'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 12.5;
+          var HAND = [5.15, 0.3, 0.95];
+          var inf = g.phase(k, 0.9, 0.8), cav = g.phase(k, 2.1, 0.8);
+          g.get('f-pinf').visible = k > 0.9;
+          g.get('f-pcav').visible = k > 2.1;
+          g.arcPos('f-pinf', HAND, fpos(4, 1), inf, 1.6);
+          g.arcPos('f-pcav', HAND, fpos(4, 3), cav, 1.6);
+          if (k > 3.3) g.lerpPos('f-pcav', fpos(4, 3), fpos(3, 3), g.phase(k, 3.3, 0.8));
+          var acted = k > 4.1 && k < 11.5;
+          g.setColor('f-pcav', acted ? '#5c6d86' : C.me);
+          g.setColor('f-pinf', k > 4.6 && k < 11.5 ? '#5c6d86' : C.me);
+          var txt;
+          if (k < 0.9) txt = 'ターン1　コスト 6 / 14';
+          else if (k < 2.1) txt = '歩兵を配置（−2）→ コスト 4';
+          else if (k < 3.3) txt = '騎兵を配置（−3）→ コスト 1';
+          else if (k < 4.6) txt = '騎兵：移動（これで行動済み）';
+          else if (k < 5.4) txt = '歩兵：待機 → 「ターン終了」';
+          else if (k < 5.4 + EVENTS.length * 1.3) txt = '敵の番（CPU）';
+          else txt = 'ターン2　コスト 1 + 2 = 3 / 14';
+          setL(g, 'lbl4', g.get('lbl4'), txt, { size: 0.36, bg: '#000000bb', color: '#ffd166' });
+          if (k >= 5.4) playEnemy(g, k, 5.4, 1.3, 'dmg4');
+          else g.get('dmg4').visible = false;
+        },
+      },
+      {
+        title: '移動できるマス（ダイクストラ法）',
+        html:
+          '<p>騎兵（移動3）を選ぶと、行けるマスが光る。数字は <b>そのマスまでの合計移動コスト</b>。</p>' +
+          '<p>計算は <b>ダイクストラ法</b>。「まだ確定していないマスの中で一番安いマス」を1つ確定させ、その隣に「今のコスト＋隣の地形の移動コスト」を書き込む…を繰り返す。</p>' +
+          '<ul><li>平地・丘・森は1、河川は2</li><li>ユニットや、壊れていない城壁などがあるマスは通れない（味方でも）</li><li>合計が移動力を超えるマスには行けない</li></ul>' +
+          (riverReach ? '' : '<p>この配置だと、川に入るには合計4かかるので、騎兵でも川には入れない。</p>') +
+          '<div class="gg-note">盤が小さい（多くて7×7＝49マス）ので、「一番安いマス」は毎回全部のマスを見て探す素朴な書き方にしている。</div>' +
+          '<p class="gg-files">📄 <code>board.js</code> の <code>computeReachable()</code>、<code>battle.js</code> の <code>getReachableCells()</code></p>',
+        camera: { pos: [0, 7.6, 7.6], target: [0, 0, 0.9] },
+        focus: ['field', 'fpieces', 'reach'],
+        show: ['reach'],
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 5;
+          REACH.forEach(function (cost, key) {
+            var rc = key.split(',').map(Number), on = k > 0.3 + cost * 0.7;
+            g.get('rc-' + rc[0] + '-' + rc[1]).visible = on;
+            g.get('rl-' + rc[0] + '-' + rc[1]).visible = on;
+          });
+          g.pulse('f-pcav', t, 0.1);
+        },
+      },
+      {
+        title: 'ダメージ計算',
+        html:
+          '<pre><code>ダメージ = 攻撃力\n   得意な相手なら ×1.5（四捨五入）\n   − 守る側のマスの防御補正\n   − 守る側の素の防御（戟兵・本陣 2 など）\n   （一斉射撃スキルならここで ×0.6）\n   最低でも 1</code></pre>' +
+          '<table><tr><th>攻撃</th><th>地形</th><th>計算</th><th>ダメ</th></tr>' + DUEL.map(function (e) { return e.row; }).join('') + '</table>' +
+          '<p>倒したユニット（HP0）はその場で盤から消える。</p>' +
+          '<div class="gg-note">乱数は一切なし、反撃もなし。同じ状況なら必ず同じダメージになるので、先読みして戦える。</div>' +
+          '<p class="gg-files">📄 <code>battle.js</code> の <code>computeDamage()</code> / <code>applyDamageToUnit()</code></p>',
+        camera: { pos: [0, 5.2, 16.8], target: [0, 0.9, 9.9] },
+        focus: ['duel'],
+        show: ['duel'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var i = Math.floor(t / 3.2) % DUEL.length, k = t % 3.2, e = DUEL[i];
+          setL(g, 'duel-a', pieceLabel(g, 'duel-a'), UT[e.a].name, { size: 0.3, bg: '#0b1f3dcc' });
+          setL(g, 'duel-d', pieceLabel(g, 'duel-d'), UT[e.d].name, { size: 0.3, bg: '#3d0b14cc' });
+          setL(g, 'duel-f', g.get('duel-f'), e.text, { size: 0.32, bg: '#000000bb' });
+          setL(g, 'duel-n', g.get('duel-n'), '−' + e.dmg, { size: 0.45, color: '#ff8a8a', bg: '#000000bb' });
+          g.setColor('duel-td', TERR[e.t].col);
+          var l = lunge(g.linear(k, 0.5, 0.5));
+          g.setPos('duel-a', [-2 + l * 2.6, PY + l * 0.5, 0.6]);
+          var hit = k > 0.75 && k < 3.0;
+          g.get('duel-n').visible = hit;
+          g.get('duel-n').position.y = 1.5 + g.linear(k, 0.75, 2) * 0.5;
+          g.setPos('duel-d', [2 + (hit && k < 1.1 ? Math.sin(t * 60) * 0.06 : 0), PY, 0.6]);
+        },
+      },
+      {
+        title: '武将・城と編成',
+        html:
+          '<p>武将は、普通の兵種と同じデータに <code>skill</code> がついたもの。スキルは <b>1戦に1回</b> だけ使える。</p>' +
+          '<table><tr><th>skill.id</th><th>効果</th><th>持っている武将</th></tr>' +
+          '<tr><td>dash</td><td>移動したあと、そのまま攻撃もできる</td><td>白央・織田信長・真田幸村・伊達政宗・上杉謙信</td></tr>' +
+          '<tr><td>volley</td><td>射程内の敵全員に、威力×0.6 の一斉射撃</td><td>玄凱・豊臣秀吉・武田信玄</td></tr></table>' +
+          '<p>盤の金色の駒が中華編の武将「白央」（歩兵扱い・攻11・移動2）。疾駆で2マス進んで丘に乗り、そのまま隣の敵歩兵に11ダメージ。</p>' +
+          '<p><b>編成</b> 画面で選んだ有名武将5人・城5種（どれもコスト7）は、どのステージでも配置できるようになる。城は <code>move: 0</code> なので動けない代わりに硬い（大阪城 HP70・守+5 など）。</p>' +
+          '<div class="gg-note">武将を増やすときにルール側はほぼ触らなくていい。データに <code>skill.id</code> を書けば、<code>battle.js</code> の既存の分岐がそのまま使われる。</div>' +
+          '<p class="gg-files">📄 <code>characters.js</code> / <code>castles.js</code>、<code>battle.js</code> の <code>actionDashSkill()</code> / <code>actionVolleySkill()</code>、<code>main.js</code> の <code>withRoster()</code></p>',
+        camera: { pos: [-3.6, 6.4, 6.2], target: [-1.6, 0, 0.6] },
+        focus: ['field', 'fpieces', 'lbl7', 'dmg7'],
+        show: ['p-hero', 'lbl7', 'dmg7'],
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 5.5;
+          g.lerpPos('p-hero', fpos(4, 2), fpos(3, 2), g.phase(k, 0.5, 0.7));
+          if (k > 1.2) g.lerpPos('p-hero', fpos(3, 2), fpos(3, 1, PY + 0.1), g.phase(k, 1.2, 0.7));
+          if (k > 2.3) {
+            var l = lunge(g.linear(k, 2.3, 0.5)) * 0.5, a = fpos(3, 1, PY + 0.1), b = fpos(2, 1);
+            g.setPos('p-hero', [a[0], a[1] + l * 0.5, a[2] + (b[2] - a[2]) * l]);
+          }
+          var d = g.get('dmg7'), hit = k > 2.55 && k < 4.8, b2 = fpos(2, 1);
+          d.visible = hit;
+          d.position.set(b2[0], 1.3 + g.linear(k, 2.55, 2) * 0.5, b2[2]);
+        },
+      },
+      {
+        title: '攻城戦：城門を壊せば勝ち',
+        html:
+          '<p>中華編の「朱鷺口の城攻め」は7×7。0行目に <b>城壁・矢櫓・城門</b> が並ぶ。勝利条件は <b>城門のHPを0にする</b> こと（14ターン以内）。</p>' +
+          '<table><tr><th>構造物</th><th>HP</th><th>役割</th></tr>' +
+          '<tr><td>城壁</td><td>40</td><td>通れない壁。壊すと通れるようになる</td></tr>' +
+          '<tr><td>矢櫓</td><td>20</td><td>攻7・射程3。敵の番の最後に撃ってくる</td></tr>' +
+          '<tr><td>城門</td><td>34</td><td>これを壊したら勝ち</td></tr></table>' +
+          '<p>構造物へのダメージは、防御も地形も無視した <b>固定値</b>。</p>' +
+          '<pre><code>衝車 20 ／ 雲梯 12\nそれ以外 = 攻撃力 × 0.4（切り上げ）　例：歩兵 9 → 4</code></pre>' +
+          '<p>矢櫓は <b>射程内でHPが一番低い</b> 自軍ユニットを狙う。今の例だと、左の矢櫓は' + TOWER_L.t.name + 'に ' + TOWER_L.dmg + '、右の矢櫓は' + TOWER_R.t.name + 'に ' + TOWER_R.dmg + ' ダメージ（HPの低い雲梯が狙われる）。</p>' +
+          '<div class="gg-note">企画メモ（docs）には「城門 or 城壁の一定区画を突破で勝利」「雲梯で城壁を登る」とあるけど、今のコードでは勝利条件は城門だけ。雲梯も「城攻め力12の兵器」で、登る処理はない。</div>' +
+          '<p class="gg-files">📄 <code>siege.js</code> の <code>siegeDamageOf()</code> / <code>pickTowerTarget()</code>、<code>battle.js</code> の <code>checkBattleEnd()</code></p>',
+        camera: { pos: [SX + 1.5, 8.8, 8.2], target: [SX, 0, -0.8] },
+        focus: ['siege'],
+        show: ['siege'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 10;
+          var gate = g.get('s-gate'), wall = g.get('s-wall4');
+          var gHp = k < 1.0 ? 34 : k < 6.4 ? 14 : 0;
+          var wHp = k < 2.2 ? 40 : 28;
+          var ramHp = k < 4.0 ? 44 : 44 - TOWER_L.dmg, ladHp = k < 5.0 ? 24 : 24 - TOWER_R.dmg;
+          setL(g, 'gate', gate.userData.label, gHp > 0 ? '城門 HP' + gHp : '城門 突破！', { size: 0.26, bg: '#000000aa' });
+          setL(g, 'wall', wall.userData.label, '城壁 HP' + wHp, { size: 0.22, bg: '#000000aa' });
+          setL(g, 'ram', pieceLabel(g, 's-ram'), '衝車 HP' + ramHp, PL_OPT);
+          setL(g, 'lad', pieceLabel(g, 's-lad'), '雲梯 HP' + ladHp, PL_OPT);
+          var gs = 1 - 0.85 * g.phase(k, 6.4, 0.6);
+          gate.position.y = 0.55 - 0.85 * (1 - gs);
+          var ram = spos(1, 3), lad = spos(1, 4);
+          var l1 = Math.max(lunge(g.linear(k, 0.6, 0.6)), lunge(g.linear(k, 6.0, 0.6))) * 0.5;
+          g.setPos('s-ram', [ram[0], PY, ram[2] - l1]);
+          var l2 = lunge(g.linear(k, 1.8, 0.6)) * 0.5;
+          g.setPos('s-lad', [lad[0], PY, lad[2] - l2]);
+          g.get('s-arrL').visible = k > 3.6 && k < 4.8;
+          g.get('s-arrR').visible = k > 4.6 && k < 5.8;
+          var d = g.get('dmg8'), txt = null, at = null;
+          if (k > 0.9 && k < 1.9) { txt = '−20'; at = spos(0, 3); }
+          else if (k > 2.1 && k < 3.1) { txt = '−12'; at = spos(0, 4); }
+          else if (k > 3.9 && k < 4.9) { txt = '−' + TOWER_L.dmg; at = spos(TOWER_L.t.r, TOWER_L.t.c); }
+          else if (k > 4.9 && k < 5.9) { txt = '−' + TOWER_R.dmg; at = spos(TOWER_R.t.r, TOWER_R.t.c); }
+          else if (k > 6.3 && k < 7.3) { txt = '−20'; at = spos(0, 3); }
+          d.visible = !!txt;
+          if (txt) { setL(g, 'dmg8', d, txt, { size: 0.34, color: '#ff8a8a', bg: '#000000bb' }); d.position.set(at[0], 1.7, at[2] + 0.2); }
+          var s;
+          if (k < 1.6) s = '自軍の番：衝車が城門を攻撃（固定20）';
+          else if (k < 3.4) s = '雲梯が城壁を攻撃（固定12）';
+          else if (k < 6.0) s = '敵の番：矢櫓は射程内のHP最小を撃つ';
+          else if (k < 7.0) s = '次の番：衝車がもう一撃';
+          else s = '城門HP 0 → 勝利！';
+          setL(g, 'lbl8', g.get('lbl8'), s, { size: 0.32, bg: '#000000bb', color: '#ffd166' });
+        },
+      },
+      {
+        title: '敵AIの考え方',
+        html:
+          '<p>敵の番では、敵ユニットが <b>登録された順に1体ずつ</b>、次のルールで動く。</p>' +
+          '<ol><li>射程内に自軍がいる → <b>HPが一番低い</b> 相手を攻撃</li>' +
+          '<li>いない → <b>一番近い</b> 自軍ユニットを決めて、行けるマスのうち一番近づけるマスへ移動</li>' +
+          '<li>どちらもできなければ待機</li></ol>' +
+          '<p>そのあと矢櫓（攻城戦のみ）が撃つ。敵本陣は動かない。</p>' +
+          '<p>盤の例（自軍の騎兵が川の手前(3,3)まで出た直後）を、このページのJSが同じルールで計算した結果:</p>' + EVENT_HTML +
+          '<div class="gg-note"><code>ai.js</code> は移動したあとにもう一度射程を調べているけど、移動で <code>acted = true</code> になるので実際には攻撃しない。プレイヤーと同じ「1ターン1行動」がちゃんと守られている。</div>' +
+          '<p class="gg-files">📄 <code>ai.js</code> の <code>runEnemyTurn()</code> / <code>findBestMoveTowards()</code></p>',
+        camera: { pos: [0.5, 9.2, 8.2], target: [0, 0, 0] },
+        focus: ['field', 'fpieces', 'lbl9', 'dmg9'],
+        show: ['lbl9', 'dmg9'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % (1 + EVENTS.length * 2 + 1.5);
+          g.setPos('f-pcav', fpos(3, 3));
+          var cur = k < 1 ? -1 : playEnemy(g, k, 1, 2, 'dmg9');
+          if (k < 1) g.get('dmg9').visible = false;
+          var e = EVENTS[cur];
+          var txt = cur < 0 ? '敵の番：登録順に1体ずつ' : k > 1 + EVENTS.length * 2 ? '敵の行動が終了' :
+            e.type === 'move' ? e.who + '：一番近い' + e.toward + 'へ前進' : e.who + '：HP最小の' + e.tname + 'を攻撃';
+          setL(g, 'lbl9', g.get('lbl9'), txt, { size: 0.3, bg: '#000000bb', color: '#ffc2c8' });
+          if (e) g.pulse(e.id, t, 0.12);
+        },
+      },
+      {
+        title: '国盗り編：地図と交渉',
+        html:
+          '<p>尾張だけが自国の状態でスタートして、<b>20カ国すべてを自国にしたら天下統一</b>。手を出せるのは <b>自国と線でつながった隣の国</b> だけ。</p>' +
+          '<table><tr><th>行動</th><th>中身</th></tr>' +
+          '<tr><td>交渉</td><td>兵糧 <b>10＋8×勢力</b> を払う。成功率 <b>85−15×勢力 %</b>（15〜85%）。失敗すると相手の勢力+1</td></tr>' +
+          '<tr><td>制圧</td><td>陣形バトルで決着。勝てば自国に。負けても失うものはない</td></tr>' +
+          '<tr><td>ターン終了</td><td>兵糧 <b>+(5＋3×自国の数)</b>。他の国はそれぞれ 25% で勢力+1（最大6）</td></tr></table>' +
+          '<p>最初の兵糧は20。勢1の美濃なら「兵糧18・成功率70%」で交渉できる。</p>' +
+          '<div class="gg-note">交渉も制圧も、1ターンに何回でもできる（ターン終了は兵糧を貯めるためのボタン）。また国盗りの進み具合は保存されないので、ページを読み込み直すと最初から。</div>' +
+          '<p class="gg-files">📄 <code>conquest.js</code> の <code>negotiate()</code> / <code>endConquestTurn()</code>、国データは <code>provinces.js</code> の <code>PROVINCES</code></p>',
+        camera: { pos: [0, 15.5, -5.2], target: [0, 0, CZ + 0.6] },
+        focus: ['conq'],
+        show: ['conq', 'lbl10'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 10;
+          var minoOwn = k > 3.5, mikawaOwn = k > 6.6;
+          g.setColor('pv-mino', minoOwn ? C.me : '#c0505c');
+          g.setColor('pv-mikawa', mikawaOwn ? C.me : '#c0505c');
+          var act = ['pv-mikawa', 'pv-mino', 'pv-ise'];
+          if (minoOwn) act = act.concat(['pv-omi', 'pv-shinano']);
+          if (mikawaOwn) act = act.concat(['pv-totomi']);
+          act.forEach(function (id) {
+            if ((id === 'pv-mino' && minoOwn) || (id === 'pv-mikawa' && mikawaOwn)) return;
+            g.pulse(id, t, 0.18);
+          });
+          var s;
+          if (k < 1.5) s = 'ターン1　兵糧 20（光っている国に手を出せる）';
+          else if (k < 3.5) s = '美濃と交渉：兵糧 −18（成功率 70%）';
+          else if (k < 5) s = '交渉成立！ 美濃が自国に　兵糧 2';
+          else if (k < 6.6) s = '三河を制圧 → 陣形バトルへ';
+          else if (k < 8) s = '勝利！ 三河が自国に';
+          else s = 'ターン終了：兵糧 +14（5＋3×3国）→ 16';
+          setL(g, 'lbl10', g.get('lbl10'), s, { size: 0.34, bg: '#000000bb', color: '#ffd166' });
+        },
+      },
+      {
+        title: '国盗り編：合戦はその場で作る',
+        html:
+          '<p>「制圧」を押すと、国の勢力から <b>ステージのデータをその場で組み立てて</b>、中華編と同じ戦闘エンジンに渡している。</p>' +
+          '<pre><code>generateProvinceBattleStage(province)\n 地形：蟻ヶ原と同じ 7×6\n 敵：歩兵2\n　　＋弓兵（勢2〜）＋騎兵（勢3〜）\n　　＋戟兵（勢4〜）\n コスト：開始6・毎ターン+2・上限14\n 制限ターン：なし</code></pre>' +
+          '<p>勝ち負けは、戦闘が終わったときに <code>resolveConquerResult()</code> が地図に書き戻す。新しい戦闘ルールは1つも増やさず、「どのステージを、どんな文脈で見せるか」の層を足しただけ、という作り。</p>' +
+          '<div class="gg-note">勢力は1〜4に丸めてから敵を決めるので、勢5・6の国（陸奥・安芸・伊予・筑前）も合戦の強さは勢4と同じ。強い国は「交渉は難しいけど、合戦の難しさは同じ」になっている。</div>' +
+          '<p class="gg-files">📄 <code>provinces.js</code> の <code>buildEnemyComposition()</code> / <code>generateProvinceBattleStage()</code>、<code>main.js</code> の <code>startConquestBattle()</code></p>',
+        camera: { pos: [9.2, 10.8, -7.6], target: [9.2, 0, CZ + 0.3] },
+        focus: ['conq', 'comp', 'comp-flow'],
+        show: ['conq', 'comp', 'comp-flow'],
+        update: function (g, t) {
+          t += TOFF;
+          var i = Math.floor(t / 1.3) % 4;
+          var ids = ['pv-mino', 'pv-mikawa', 'pv-kai', 'pv-kaga'];
+          g.pulse(ids[i], t, 0.25);
+          g.pulse('comp-l' + i, t, 0.15);
+        },
+      },
+      {
+        title: 'PVP・CPU対戦モード（開発中）',
+        html:
+          '<p>タイトルの「PVP編成」「CPU対戦」「ユニット図鑑」は、ここまでとは <b>別の戦闘エンジン</b>（<code>KG.pvpBattle</code>）で動いている。</p>' +
+          '<ul><li>12×10マス。地形は毎回ランダム（水15%・山20%・森15%）</li>' +
+          '<li>ユニット23種（歩兵・騎馬・弓・鉄砲・大砲の5系統）＋武将28人＋船</li>' +
+          '<li>1編成は武将3人まで＋ユニット8体まで。配置コストは合計50まで（編成は15枠）</li>' +
+          '<li>10ターンで終了。1ターンに1回だけ、2マス以内の移動か、3マス以内への攻撃</li></ul>' +
+          '<pre><code>ダメージ = 攻撃力（得意なら×1.5）\n         × 0.8〜1.2 の乱数\n         − 相手の今のHP ÷ 10\n（各段階で切り捨て・最低1）</code></pre>' +
+          '<p>相性も本編とちがう。本編は「歩兵が騎兵に強い」けど、PVPは <b>騎馬が歩兵に強く</b>、歩兵は弓・鉄砲に、弓と鉄砲は騎馬に強い。</p>' +
+          '<div class="gg-note">コードを読むと、まだつながっていない所がある。<br>・CPUの攻撃は <code>console.log</code> だけ（<code>executeAttackWithAI()</code>）<br>・王都が拠点として登録されないので壊せず、勝負は必ず時間切れの引き分け<br>・武将の能力（<code>applyHeroAbilities()</code>）はどこからも呼ばれていない<br>・難易度の選択は覚えるだけで使われていない<br>・CPU対戦の配置画面の拠点ボタンの id（major/minor）が定義（castle/fortress）と合っていない<br>・大砲は説明では「全兵種に弱い」けど、コードは大砲が受けるダメージを×0.8（つまり硬い）</div>' +
+          '<p>CPUは「武将一覧の先頭3人」（コスト合計40）を持たされるので、残り10コストでユニットは5体だけ置ける。</p>' +
+          '<p class="gg-files">📄 <code>pvp-map.js</code> / <code>pvp-battle.js</code> の <code>calculateFinalDamage()</code>、<code>pvp-ai.js</code>、<code>pvp-battle-ui.js</code> の <code>handleTileClick()</code></p>',
+        camera: { pos: [PX + 0.5, 10.2, PZ + 8.6], target: [PX + 0.5, 0, PZ + 0.2] },
+        focus: ['pvp'],
+        show: ['pvp'],
+        enter: function () { LC = {}; },
+        update: function (g, t) {
+          t += TOFF;
+          var k = t % 7;
+          g.lerpPos('pvp-me', ppos(6, 5, 0.18), ppos(8, 6, 0.18), g.phase(k, 0.8, 1));
+          g.get('pvp-range').visible = k > 2.2;
+          g.get('pvp-arr').visible = k > 3.2 && k < 6.5;
+          g.get('pvp-dmg').visible = k > 3.6 && k < 6.5;
+          if (k > 3.6 && k < 4.2) g.setPos('pvp-cpu0', ppos(9, 7, 0.18 + Math.abs(Math.sin(t * 30)) * 0.08));
+          var s = k < 2.2 ? '1ターン目：軽騎兵が2マス移動（行動はこれで終わり）' : k < 3.2 ? '2ターン目：3マス以内なら攻撃できる' : '軽騎兵 → 近衛兵（騎馬は歩兵に強い）';
+          setL(g, 'lbl12', g.get('lbl12'), s, { size: 0.3, bg: '#000000bb', color: '#ffd166' });
+        },
+      },
+      {
+        title: 'プログラムの全体構成',
+        html:
+          '<p>どのファイルも、<code>window.KG</code> という1つの入れ物に自分の機能をぶら下げる（<code>KG.battle</code>、<code>KG.ai</code> …）。<code>index.html</code> は <b>使われる側から順に</b> script を読むので、後のファイルは前のファイルの機能を使える。</p>' +
+          '<ul><li><b>データ</b>：兵種・武将・ステージ・国。ただのオブジェクト</li>' +
+          '<li><b>ルール</b>：盤面の計算と状態の書き換え。DOM には一切さわらない</li>' +
+          '<li><b>画面</b>：DOM の操作はここだけ。クリックをルールの関数につなぐ</li>' +
+          '<li><b>main.js</b>：タイトル → ステージ選択 → 戦闘 → リザルト の画面遷移</li></ul>' +
+          '<pre><code>main.js startStage()\n → createBattleState(stage)   … state を作る\n → mountBattleUI(root, state, onEnd)\n → クリック → battle.js の関数が state を書き換え\n → render() で盤面をまるごと描き直す</code></pre>' +
+          '<p>中華編・歴史編・国盗り編は、全部この同じ流れに乗っている。違うのは渡す <code>stage</code> だけ。</p>' +
+          '<div class="gg-note">右側のPVP系は、データもルールも左とは別々。共有しているのは <code>window.KG</code> だけで、ほぼ独立したもう1つのゲームになっている。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code>、<code>util.js</code> の冒頭コメント、<code>main.js</code> の <code>startStage()</code></p>',
+        camera: { pos: [ARCH, 13, 12], target: [ARCH, 0, 1.2] },
+      },
+      {
+        title: 'データ表・保存・乱数',
+        html:
+          '<p>ステージはただのオブジェクトで、地形は文字の2次元配列。歴史編はそこに解説文の <code>history</code> を足しただけ。</p>' +
+          '<pre><code>{ id: "field1", type: "field", cols: 7, rows: 6,\n  terrain: [[P,P,H,P,H,P,P], ...],\n  playerDeployRows: [4, 5],\n  enemyUnits: [{ type: "infantry", r: 2, c: 1 }, ...],\n  startCost: 6, costPerTurn: 2, maxCost: 14,\n  winCondition: { type: "defeatHQ" } }</code></pre>' +
+          '<table><tr><th>localStorage のキー</th><th>中身</th></tr>' +
+          '<tr><td><code>kingdom-game-save-v1</code></td><td>クリアしたステージの id 一覧</td></tr>' +
+          '<tr><td><code>kingdom-game-roster-v1</code></td><td>編成した武将・城の id 一覧</td></tr>' +
+          '<tr><td><code>kg_pvp_formations</code></td><td>PVP編成15枠</td></tr></table>' +
+          '<p>ステージ一覧では「1つ前のステージがクリア済みなら遊べる」。中華編と歴史編は別々の一覧なので、進み具合も別々。</p>' +
+          '<table><tr><th>どこで</th><th>乱数（Math.random）</th></tr>' +
+          '<tr><td>本編の戦闘・敵AI</td><td>使っていない（完全に決まった結果）</td></tr>' +
+          '<tr><td>国盗りの交渉</td><td>成功するかどうか</td></tr>' +
+          '<tr><td>国盗りのターン終了</td><td>各国が25%で勢力+1</td></tr>' +
+          '<tr><td>PVP</td><td>地形・ダメージ±20%・兵の種類</td></tr></table>' +
+          '<div class="gg-note"><code>save.js</code> と <code>roster.js</code> は、壊れたデータやプライベートモードでも <code>try/catch</code> で受け止めてプレイを続けられる。<code>pvp-formations.js</code> の保存には <code>try/catch</code> がない。</div>',
+        camera: { pos: [ARCH, 10.5, 15.5], target: [ARCH, 0, 4.2] },
+        focus: ['arch-data-l', 'arch-data-r', 'arch-save', 'arch-rand', 'arch-logic-l', 'f-data-logic', 'f-data-logic-r', 'f-main-save', 'arch-split'],
+        update: function (g, t) {
+          t += TOFF;
+          g.pulse('arch-save', t, 0.04);
+          g.pulse('arch-rand', t + 1, 0.04);
+        },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

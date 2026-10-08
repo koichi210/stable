@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcanaExplosion | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 盤面の座標（自分＝手前 z+、相手＝奥 z-）
+  var ME_BATTLE = [0, 0.05, 1.7], OP_BATTLE = [0, 0.05, -1.7];
+  var ME_BENCH = [[-1.3, 0.05, 3.6], [0, 0.05, 3.6], [1.3, 0.05, 3.6]];
+  var OP_BENCH = [[-1.3, 0.05, -3.6], [0, 0.05, -3.6], [1.3, 0.05, -3.6]];
+  var ME_HAND = [[-0.9, 0.05, 5.6], [0, 0.05, 5.6], [0.9, 0.05, 5.6]];
+  var ME_CDECK = [-3.4, 0.25, 3.6], OP_CDECK = [-3.4, 0.25, -3.6];
+  var ITEM_DECK = [-4.2, 0.25, 0], THIRD = [3.6, 0.05, 0];
+  var ME_DISCARD = [3.4, 0.05, 3.6];
+  var ARCH = 20; // アーキテクチャ図は x=20 付近に置く
+
+  var fatigueShown = null, hpShown = null, dmgShown = null;
+
+  function hpPillar(g, id, x, z, color, label) {
+    g.group(id, { pos: [x, 0, z] });
+    g.cylinder({ id: id + '-base', parent: id, radius: 0.42, height: 0.08, pos: [0, 0.04, 0], color: '#3a3555' });
+    g.cylinder({ id: id + '-bar', parent: id, radius: 0.32, height: 1, pos: [0, 0.5, 0], color: color, emissive: color, emissiveIntensity: 0.25 });
+    g.label(label, [0, 2.6, 0], { id: id + '-label', parent: id, size: 0.3, bg: '#00000088' });
+  }
+  function setHp(g, id, hp, label) {
+    var bar = g.get(id + '-bar');
+    var h = Math.max(0.02, hp / 100);
+    bar.scale.y = h;
+    bar.position.y = h / 2 + 0.08;
+    g.setLabel(id + '-label', label + '\nHP ' + hp, { size: 0.3, bg: '#00000088' });
+  }
+
+  GameGuide.start({
+    title: 'ArcanaExplosion',
+    back: '../index.html',
+    subtitle: 'トランプ52枚がキャラクターとアイテムに化けるカードバトル（Python＋Flask＋HTML/JS）',
+    camera: { pos: [0, 11, 11], target: [0, 0, 0.5] },
+
+    build: function (g) {
+      // ---------- 盤面 ----------
+      g.plate({ id: 'mat-me', size: [9.6, 5.6], pos: [0, 0.01, 3.5], color: '#1d2a44', opacity: 0.9 });
+      g.plate({ id: 'mat-op', size: [9.6, 5.6], pos: [0, 0.01, -3.5], color: '#3a1d2a', opacity: 0.9 });
+
+      g.plate({ id: 'slot-me-battle', size: [1.3, 1.65], pos: [0, 0.04, 1.7], color: C.me, opacity: 0.35, label: 'バトル場', labelOffset: [1.25, 0.3, 0], labelSize: 0.26 });
+      g.plate({ id: 'slot-op-battle', size: [1.3, 1.65], pos: [0, 0.04, -1.7], color: C.enemy, opacity: 0.35, label: 'バトル場', labelOffset: [1.25, 0.3, 0], labelSize: 0.26 });
+      g.plate({ id: 'slot-me-bench', size: [4.1, 1.65], pos: [0, 0.04, 3.6], color: C.me, opacity: 0.18, label: 'ベンチ（3枠）', labelOffset: [0, 0.3, 1.1], labelSize: 0.26 });
+      g.plate({ id: 'slot-op-bench', size: [4.1, 1.65], pos: [0, 0.04, -3.6], color: C.enemy, opacity: 0.18, label: 'ベンチ（相手からは伏せ札）', labelOffset: [0, 0.3, -1.1], labelSize: 0.26 });
+
+      // 自分のカード
+      g.card({ id: 'me-battle', pos: ME_BATTLE, text: '♦10', sub: '攻120 / 防80', color: '#e0457b' });
+      g.card({ id: 'me-b0', pos: ME_BENCH[0], text: '♥Q', sub: '聖女クイーン\n防+30', color: '#e0457b' });
+      g.card({ id: 'me-b1', pos: ME_BENCH[1], text: '♣K', sub: '指揮官キング\n攻+30', color: '#2b2b44' });
+      g.card({ id: 'me-b2', pos: ME_BENCH[2], text: '♠5', sub: '攻80 / 防20', color: '#2b2b44' });
+      // 相手のカード（バトル場だけ表、ベンチは伏せ）
+      g.card({ id: 'op-battle', pos: OP_BATTLE, rot: [0, Math.PI, 0], text: '♠8', sub: '攻110 / 防50', color: '#2b2b44' });
+      g.card({ id: 'op-b0', pos: OP_BENCH[0], faceDown: true, text: '♥J', backColor: '#6b2340' });
+      g.card({ id: 'op-b1', pos: OP_BENCH[1], faceDown: true, text: '♦7', backColor: '#6b2340' });
+
+      // 手札
+      g.card({ id: 'me-h0', pos: ME_HAND[0], text: '♣9', sub: '攻90 / 防90', color: '#2b2b44', w: 0.75 });
+      g.card({ id: 'me-h1', pos: ME_HAND[1], text: '♥4', sub: '攻20 / 防60', color: '#e0457b', w: 0.75 });
+      g.label('キャラクター手札（最大7枚）', [0, 0.35, 6.75], { id: 'lbl-hand', size: 0.24, color: '#cfd8ff' });
+      g.card({ id: 'me-i0', pos: [4.2, 0.05, 5.6], text: '♣J', sub: '気付け薬\n疲労回復', color: '#2b9a6b', w: 0.75 });
+      g.label('アイテム手札', [4.2, 0.35, 6.75], { id: 'lbl-item', size: 0.24, color: '#cfffe5' });
+
+      // 山札
+      g.box({ id: 'me-cdeck', size: [0.9, 0.4, 1.26], pos: ME_CDECK, color: '#2f4a8a', label: 'キャラ山札', labelSize: 0.24 });
+      g.box({ id: 'op-cdeck', size: [0.9, 0.4, 1.26], pos: OP_CDECK, color: '#8a2f4a', label: '相手のキャラ山札', labelSize: 0.24 });
+      g.box({ id: 'item-deck', size: [0.9, 0.4, 1.26], pos: ITEM_DECK, color: '#2b9a6b', label: 'アイテム山札\n（2人で共有）', labelSize: 0.24 });
+      g.plate({ id: 'me-discard', size: [1.1, 1.45], pos: [3.4, 0.03, 3.6], color: '#444055', opacity: 0.6, label: '捨て札', labelOffset: [0, 0.3, 1.0], labelSize: 0.24 });
+
+      // トレーナーHP
+      hpPillar(g, 'hp-me', -5.6, 3.2, C.me, 'あなた');
+      hpPillar(g, 'hp-op', -5.6, -3.2, C.enemy, '相手');
+
+      // 動く演出用
+      g.card({ id: 'draw-c', pos: ME_CDECK, faceDown: true, backColor: '#2f4a8a', w: 0.75 });
+      g.card({ id: 'draw-i', pos: ITEM_DECK, faceDown: true, backColor: '#2b9a6b', w: 0.75 });
+      g.label('疲労 0', [0, 0.9, 1.7], { id: 'fatigue', size: 0.34, bg: '#000000aa', color: '#ffd166' });
+      g.label('-60', [0, 1.2, -1.7], { id: 'dmg', size: 0.5, color: '#ff6b6b', bg: '#000000aa' });
+      g.arrow([0, 0.4, 1.0], [0, 0.4, -1.0], { id: 'atk-arrow', color: C.gold, lift: 1.4 });
+      g.card({ id: 'third', pos: THIRD, text: '魔', sub: '第三勢力\nHP130', color: C.third, face: '#f6eeff' });
+      g.arrow([3.4, 0.4, -0.3], [0.6, 0.4, -1.6], { id: 'third-arrow-op', color: C.third, lift: 1.2 });
+      g.arrow([3.4, 0.4, 0.3], [0.6, 0.4, 1.6], { id: 'third-arrow-me', color: C.third, lift: 1.2 });
+      g.group('gods', {});
+      ['神', '神', '神'].forEach(function (t, i) {
+        g.card({ id: 'god' + i, parent: 'gods', pos: ME_BENCH[i], text: t, sub: ['阿修羅神', '守護聖女', '破壊神帝'][i], color: '#d4a017', face: '#fff8e1' });
+      });
+
+      // ---------- アーキテクチャ図（x=20 付近） ----------
+      g.box({ id: 'arch-web1', size: [2.6, 1.2, 1.6], pos: [ARCH - 4, 0.6, 3.2], color: C.me, label: 'ブラウザ（席0）\nweb/app.js', labelSize: 0.28 });
+      g.box({ id: 'arch-web2', size: [2.6, 1.2, 1.6], pos: [ARCH + 4, 0.6, 3.2], color: C.enemy, label: 'ブラウザ（席1）\nor CPU', labelSize: 0.28 });
+      g.box({ id: 'arch-server', size: [3.4, 1.2, 1.8], pos: [ARCH, 0.6, 0.6], color: C.server, label: 'server/app.py（Flask）\nrooms.py：部屋と席', labelSize: 0.28 });
+      g.box({ id: 'arch-engine', size: [4.2, 1.4, 2], pos: [ARCH, 0.7, -2.6], color: '#7b5cff', label: 'engine/（純粋なPython）\ngame.py・cards.py・ai.py', labelSize: 0.28 });
+      g.box({ id: 'arch-balance', size: [1.8, 0.8, 1.2], pos: [ARCH - 4.4, 0.4, -2.6], color: '#2b9a6b', label: 'balance.json\n数値はここだけ', labelSize: 0.26 });
+      g.box({ id: 'arch-skins', size: [1.8, 0.8, 1.2], pos: [ARCH + 4.4, 0.4, -2.6], color: '#c77dff', label: 'skins/*.json\nカード名・技名', labelSize: 0.26 });
+      g.box({ id: 'arch-sim', size: [2.2, 0.9, 1.4], pos: [ARCH, 0.45, -5.6], color: '#4a4466', label: 'simulate.py\nCPU同士で数百戦', labelSize: 0.26 });
+      g.flow([ARCH - 4, 1.2, 2.5], [ARCH - 0.8, 1.2, 1.2], { id: 'flow-act1', color: C.data, lift: 0.8 });
+      g.flow([ARCH + 0.8, 1.2, 1.2], [ARCH + 4, 1.2, 2.5], { id: 'flow-view2', color: C.data, lift: 0.8 });
+      g.flow([ARCH - 0.5, 1.2, 0], [ARCH - 0.5, 1.4, -1.8], { id: 'flow-s2e', color: C.gold, lift: 0.6 });
+      g.flow([ARCH + 0.5, 1.4, -1.8], [ARCH + 0.5, 1.2, 0], { id: 'flow-e2s', color: C.good, lift: 0.6 });
+      g.flow([ARCH - 3.5, 0.8, -2.6], [ARCH - 2.1, 0.8, -2.6], { id: 'flow-bal', color: '#2b9a6b', lift: 0.5, count: 3 });
+      g.flow([ARCH + 3.5, 0.8, -2.6], [ARCH + 2.1, 0.8, -2.6], { id: 'flow-skin', color: '#c77dff', lift: 0.5, count: 3 });
+      g.flow([ARCH, 0.9, -4.9], [ARCH, 0.9, -3.6], { id: 'flow-sim', color: '#b8b2d6', lift: 0.5, count: 4 });
+      g.label('行動 {type:"attack"}', [ARCH - 2.6, 2.4, 2.2], { id: 'lbl-act', size: 0.26, color: C.data });
+      g.label('room.view(席) で\n相手の手札を消してから返す', [ARCH + 3, 2.6, 1.5], { id: 'lbl-view', size: 0.26, color: C.data, bg: '#00000088' });
+      // 隠す仕組み用：手札の中身 → 枚数だけに変換
+      g.group('hide-demo', { pos: [ARCH + 8.5, 0, 0.6] });
+      g.card({ parent: 'hide-demo', id: 'hd0', pos: [-0.6, 0.05, -1.4], text: '♠K', sub: '暴君', color: '#2b2b44', w: 0.7 });
+      g.card({ parent: 'hide-demo', id: 'hd1', pos: [0.3, 0.05, -1.4], text: '♣A', sub: '賢者の杖', color: '#2b9a6b', w: 0.7 });
+      g.card({ parent: 'hide-demo', id: 'hd2', pos: [1.2, 0.05, -1.4], text: '♥3', sub: '攻10/防50', color: '#e0457b', w: 0.7 });
+      g.label('サーバーの中（本物の手札）', [0.3, 0.4, -2.6], { parent: 'hide-demo', size: 0.24 });
+      g.label('hand_count: 3', [0.3, 0.6, 1.4], { parent: 'hide-demo', size: 0.34, color: C.enemy, bg: '#000000aa' });
+      g.label('相手のブラウザに届くのは枚数だけ', [0.3, 0.4, 2.2], { parent: 'hide-demo', size: 0.24 });
+      g.arrow([0.3, 0.3, -0.6], [0.3, 0.3, 0.9], { parent: 'hide-demo', color: C.enemy, lift: 0.5 });
+
+      setHp(g, 'hp-me', 200, 'あなた');
+      setHp(g, 'hp-op', 200, '相手');
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？',
+        html:
+          '<p>トランプ52枚を <b>キャラクター</b> と <b>アイテム</b> に読み替えて戦う、2人対戦のカードバトル。</p>' +
+          '<p>勝ち負けはシンプルで、<b>相手のトレーナーHP（200）を0にしたら勝ち</b>。左の青と赤の柱がトレーナーHPだよ。</p>' +
+          '<ul><li>手前の青い側が自分、奥の赤い側が相手</li><li>中央の緑の山はアイテム山札で、2人で1箱を共有する</li></ul>' +
+          '<div class="gg-note">リアルのトランプでも遊べるように作られていて、PC版はそのルールをそのままコードにしたもの。</div>',
+        camera: { pos: [0, 11, 11], target: [0, 0, 0.5] },
+        enter: function (g) { setHp(g, 'hp-me', 200, 'あなた'); setHp(g, 'hp-op', 200, '相手'); },
+        show: [],
+      },
+      {
+        title: 'トランプがキャラクターになる計算式',
+        html:
+          '<p>キャラクターの強さは、<b>カードの数字とスート（マーク）から自動で決まる</b>。</p>' +
+          '<pre><code>基本値 = 数字 × 10\n攻撃 = 基本値 + スート補正(攻)\n防御 = 基本値 + スート補正(防)</code></pre>' +
+          '<table><tr><th>スート</th><th>攻</th><th>防</th><th>性格</th></tr>' +
+          '<tr><td>♠</td><td>+30</td><td>−30</td><td>超攻撃型</td></tr>' +
+          '<tr><td>♦</td><td>+20</td><td>−20</td><td>攻撃寄り</td></tr>' +
+          '<tr><td>♣</td><td>±0</td><td>±0</td><td>バランス</td></tr>' +
+          '<tr><td>♥</td><td>−20</td><td>+20</td><td>守り寄り</td></tr></table>' +
+          '<p>だから手前の <b>♦10</b> は 攻120／防80。J・Q・K・A には固有の <b>技</b> がついている。</p>' +
+          '<p class="gg-files">📄 <code>engine/cards.py</code> の <code>character_stats()</code>、数値は <code>balance.json</code></p>',
+        camera: { pos: [0, 4.2, 6.2], target: [0, 0, 2.8] },
+        focus: ['me-battle', 'me-b0', 'me-b1', 'me-b2', 'me-h0', 'me-h1'],
+        update: function (g, t) { g.pulse('me-battle', t, 0.06); },
+        enter: function (g) { g.get('me-battle').scale.set(1, 1, 1); },
+      },
+      {
+        title: '場の構成：バトル場とベンチ',
+        html:
+          '<p>1人が場に出せるのは <b>バトル場1枚＋ベンチ3枚</b>。</p>' +
+          '<ul><li><b>バトル場</b>：攻撃するのも、攻撃されるのもここ。相手にも中身が見える</li>' +
+          '<li><b>ベンチ</b>：直接は戦わないけど、♥Q（防+30）や♣K（攻+30）のように <b>置いておくだけでバトル場を強化</b> するカードがいる</li></ul>' +
+          '<p>相手のベンチは <b>裏向き</b>。何体いるかは分かるけど、中身は分からない。</p>' +
+          '<div class="gg-note">ベンチに置きっぱなしで永久にバフを出せると強すぎるので、ベンチにいられるのは <b>3ターンまで</b>（期限切れで強制退場）。</div>',
+        camera: { pos: [6.5, 7, 6], target: [0, 0, 0] },
+        focus: ['slot-me-battle', 'slot-op-battle', 'slot-me-bench', 'slot-op-bench', 'me-battle', 'op-battle', 'me-b0', 'me-b1', 'me-b2', 'op-b0', 'op-b1'],
+        update: function (g, t) { g.pulse('me-b0', t, 0.07); g.pulse('me-b1', t + 0.6, 0.07); },
+        enter: function (g) { g.get('me-b0').scale.set(1, 1, 1); g.get('me-b1').scale.set(1, 1, 1); },
+      },
+      {
+        title: 'ターン開始：毎ターン1枚ずつ引く',
+        html:
+          '<p>自分の番が来ると、まずサーバーが自動で次の処理をする。</p>' +
+          '<ol><li>行動権のリセット（攻撃1回・交代1回・アイテム1枚）</li><li>疲労カウントを1減らす</li><li>毒・呪いの継続ダメージ</li>' +
+          '<li>バトル場が空ならベンチから一番元気な子が繰り上がる</li><li><b>キャラ山札から1枚</b>、<b>アイテム山札から1枚</b> 引く（各手札は最大7枚）</li></ol>' +
+          '<p>キャラクター手札は、好きなタイミングで空き枠に何枚でも出せる（行動権は使わない）。</p>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>_begin_turn()</code></p>',
+        camera: { pos: [-2.5, 6.5, 9.5], target: [-1, 0, 3.6] },
+        focus: ['me-cdeck', 'item-deck', 'draw-c', 'draw-i', 'me-h0', 'me-h1', 'me-i0', 'lbl-hand', 'lbl-item'],
+        show: ['draw-c', 'draw-i'],
+        update: function (g, t) {
+          var k = (t % 3.2) / 3.2;
+          var a = g.phase(k, 0.05, 0.4), b = g.phase(k, 0.35, 0.4);
+          g.arcPos('draw-c', ME_CDECK, [0.9 * 2, 0.06, 5.6], a, 1.4);
+          g.flip('draw-c', 1 - a);
+          g.arcPos('draw-i', ITEM_DECK, [5.1, 0.06, 5.6], b, 1.8);
+          g.flip('draw-i', 1 - b);
+        },
+      },
+      {
+        title: '攻撃とダメージ計算',
+        html:
+          '<p>攻撃は1ターンに1回。バトル場のキャラクター同士でぶつかる。</p>' +
+          '<pre><code>ダメージ = 攻撃力 − 相手の防御力\n（ただし最低でも 10 は通る）</code></pre>' +
+          '<p>例：♦10（攻120）が ♠8（防50）を攻撃 → <b>70ダメージ</b>。キャラクターのHPは全員共通で <b>100</b>。</p>' +
+          '<ul><li>最低保証10があるので、防御が高いカードも無敵にはならない</li><li>倒しきれなかった余りのダメージ（オーバーキル）は貫通しない</li>' +
+          '<li>ベンチの♣K（攻+30）がいれば、攻150 → 100ダメージで一撃！</li></ul>' +
+          '<p class="gg-files">📄 <code>engine/game.py</code> の <code>_do_attack()</code> / <code>_effective_atk()</code></p>',
+        camera: { pos: [6.5, 5.5, 4], target: [0, 0.3, 0] },
+        focus: ['me-battle', 'op-battle', 'atk-arrow', 'dmg', 'me-b1'],
+        show: ['atk-arrow', 'dmg'],
+        enter: function (g) { dmgShown = null; },
+        update: function (g, t) {
+          var k = (t % 3) / 3;
+          var lunge = Math.sin(Math.PI * g.linear(k, 0.15, 0.25));
+          g.setPos('me-battle', [0, 0.05 + lunge * 0.5, 1.7 - lunge * 1.6]);
+          var hit = k > 0.3 && k < 0.9;
+          g.get('dmg').visible = hit;
+          g.get('dmg').position.y = 1.2 + g.linear(k, 0.3, 0.6) * 0.8;
+          var shake = hit && k < 0.45 ? Math.sin(t * 60) * 0.06 : 0;
+          g.setPos('op-battle', [shake, 0.05, -1.7]);
+          var v = '-70';
+          if (dmgShown !== v) { g.setLabel('dmg', v, { size: 0.5, color: '#ff6b6b', bg: '#000000aa' }); dmgShown = v; }
+        },
+      },
+      {
+        title: '疲労と強制退場 — このゲームの核',
+        html:
+          '<p>攻撃したキャラクターは <b>疲労カウント2</b> になり、自分のターン開始ごとに1減る。<b>0にならないと攻撃できない</b>。</p>' +
+          '<pre><code>攻撃した        → 疲労 2\n次の自分の番    → 疲労 1（攻撃できない）\nその次の自分の番 → 疲労 0（攻撃できる）</code></pre>' +
+          '<p>さらに <b>通算3回攻撃したら、HPが残っていても強制退場</b>（捨て札へ）。</p>' +
+          '<p>1体でずっと殴り続けることはできないので、<b>自然とカードが入れ替わり続ける</b> 設計になっている。</p>' +
+          '<div class="gg-note">回数は <code>balance.json</code> の <code>fatigue_turns</code> と <code>attacks_before_retire</code>。ドキュメントには旧仕様の「2回」が残っているけど、今のコードは3回。</div>',
+        camera: { pos: [3, 4.2, 6], target: [1.5, 0.3, 2.6] },
+        focus: ['me-battle', 'fatigue', 'me-discard'],
+        show: ['fatigue'],
+        enter: function (g) { fatigueShown = null; },
+        update: function (g, t) {
+          // 0〜9秒で 攻撃→疲労2→1→0→攻撃… を3回繰り返し、最後に捨て札へ
+          var k = t % 11;
+          var cycle = Math.floor(k / 3), inC = k % 3;
+          var txt;
+          if (cycle < 3) {
+            var f = inC < 1 ? 2 : inC < 2 ? 1 : 0;
+            txt = (cycle + 1) + '回目の攻撃\n疲労 ' + f;
+            g.setPos('me-battle', ME_BATTLE);
+            g.get('me-battle').rotation.z = 0;
+            g.get('fatigue').position.set(0, 1.1, 1.7);
+          } else {
+            var m = g.phase(k, 9.1, 1.2);
+            txt = '3回攻撃した\n→ 強制退場';
+            g.arcPos('me-battle', ME_BATTLE, [3.4, 0.08, 3.6], m, 1.2);
+            g.get('fatigue').position.set(1.7 * m, 1.1, 1.7 + m * 1.9);
+          }
+          if (fatigueShown !== txt) { g.setLabel('fatigue', txt, { size: 0.3, bg: '#000000aa', color: '#ffd166' }); fatigueShown = txt; }
+          var dim = cycle < 3 && inC >= 1;
+          g.setColor(g.get('me-battle').userData.card, dim ? '#8a8aa0' : '#ffffff');
+        },
+        leave: null,
+      },
+      {
+        title: 'トレーナーへのダメージ',
+        html:
+          '<p>トレーナーHPが削れるのは主にこの3パターン。</p>' +
+          '<table><tr><th>きっかけ</th><th>ダメージ</th></tr>' +
+          '<tr><td>自分のキャラクターが相手に倒された（毒で倒れた）</td><td>30</td></tr>' +
+          '<tr><td>相手のバトル場が空のときの <b>直接攻撃</b></td><td>攻撃力そのまま</td></tr>' +
+          '<tr><td>カード固有の効果（♦K 破壊王 など）</td><td>カード次第</td></tr></table>' +
+          '<p>強制退場や自爆など <b>自分のせいで下がった場合はノーダメージ</b>。だから「場を空けない」ことがとても大事。</p>',
+        camera: { pos: [-7.5, 5, 5], target: [-3.5, 0.8, 0] },
+        focus: ['hp-me', 'hp-op', 'op-battle'],
+        enter: function (g) { hpShown = null; },
+        update: function (g, t) {
+          var k = t % 5;
+          var hp = k < 1.5 ? 200 : k < 3 ? 170 : 50;
+          var s = String(hp);
+          if (hpShown !== s) { setHp(g, 'hp-op', hp, '相手'); hpShown = s; }
+          var gone = k >= 1.5;
+          g.get('op-battle').visible = !gone;
+        },
+      },
+      {
+        title: '三つ巴：第三勢力の乱入',
+        html:
+          '<p>合計 <b>3ターン目</b> になると、どちらの味方でもない <b>第三勢力</b> が1体だけ乱入してくる。</p>' +
+          '<ul><li>専用のターンは持たず、<b>毎ターン終了時に2人のどちらかをランダムに1回攻撃</b></li>' +
+          '<li>プレイヤーは攻撃権を相手ではなく第三勢力に向けてもいい</li>' +
+          '<li>倒したプレイヤーは、そのカードを <b>上位互換版としてベンチにゲット</b>（満杯なら特別枠が1つ増える）</li>' +
+          '<li>倒されたターンから3ターン後に次の1体が登場</li></ul>' +
+          '<p class="gg-files">📄 <code>balance.json</code> の <code>third_force</code>、<code>game.py</code> の <code>_activate_third_force()</code></p>',
+        camera: { pos: [9, 6, 0.5], target: [1.5, 0, 0] },
+        focus: ['third', 'third-arrow-op', 'third-arrow-me', 'me-battle', 'op-battle'],
+        show: ['third', 'third-arrow-op', 'third-arrow-me'],
+        update: function (g, t) {
+          var k = t % 4;
+          var toOp = Math.floor(t / 4) % 2 === 0;
+          g.get('third-arrow-op').visible = toOp && k > 0.8;
+          g.get('third-arrow-me').visible = !toOp && k > 0.8;
+          g.get('third').position.y = 0.05 + 0.15 * Math.sin(t * 2.5);
+          g.get('third').rotation.y = Math.sin(t * 0.8) * 0.3;
+        },
+      },
+      {
+        title: '逆転の切り札：ベンチ総入れ替え',
+        html:
+          '<p>ピンチのときのための、ベンチを丸ごと入れ替えるアイテムがある。</p>' +
+          '<table><tr><th>アイテム</th><th>条件・代償</th><th>出てくるもの</th></tr>' +
+          '<tr><td>♣K 神軍降臨</td><td>自分のHP40以下でだけ使える／HP−10</td><td>J・Q・Kの上位互換の神々を3体</td></tr>' +
+          '<tr><td>♠A 魔神軍降臨</td><td>いつでも使える／HP−50</td><td>♠♦の10・9・8の上位互換を3体</td></tr></table>' +
+          '<p>元々ベンチにいたキャラクターは消えずに <b>キャラクター手札に戻る</b>。</p>' +
+          '<div class="gg-note">♠A をキャラクターとして出すと「魔王」（HP250・攻150・防150・3ターン限定）に変身する技もある。</div>',
+        camera: { pos: [0, 5, 8.5], target: [0, 0, 3.6] },
+        focus: ['gods', 'slot-me-bench', 'me-b0', 'me-b1', 'me-b2', 'me-h0', 'me-h1'],
+        show: ['gods'],
+        update: function (g, t) {
+          var k = t % 4.5;
+          var down = g.phase(k, 0.4, 0.8), up = g.phase(k, 1.4, 0.9);
+          for (var i = 0; i < 3; i++) {
+            g.arcPos('me-b' + i, ME_BENCH[i], [ME_HAND[i][0] * 0.9 + 0.2, 0.08, 5.6 + 0.05 * i], down, 0.8);
+            var gp = g.get('god' + i);
+            gp.position.set(ME_BENCH[i][0], 0.05 + (1 - up) * 3, ME_BENCH[i][2]);
+            gp.rotation.y = (1 - up) * Math.PI * 2;
+          }
+        },
+        enter: function (g) {},
+      },
+      {
+        title: 'プログラムの全体構成',
+        html:
+          '<p>コードは <b>ルール（engine）</b> と <b>画面（web）</b> を完全に分けている。</p>' +
+          '<ul><li><code>engine/</code>：ターン進行・戦闘・勝敗判定。<b>画面のことを一切知らない</b>純粋なPython</li>' +
+          '<li><code>server/app.py</code>：Flaskの入り口。<code>rooms.py</code> が「部屋」と「席」を管理</li>' +
+          '<li><code>web/app.js</code>：サーバーから届いた盤面を描くだけ</li></ul>' +
+          '<p>CPU対戦もLAN対戦も同じ「部屋」の仕組み。違いは <b>席1に座るのがCPUか人間か</b> だけ。</p>' +
+          '<p>ブラウザは <b>1.2秒ごとに盤面を取りに行く（ポーリング）</b>。ターン制なのでWebSocketは使っていない。</p>',
+        camera: { pos: [ARCH, 11, 10], target: [ARCH, 0, -0.5] },
+        focus: ['arch-web1', 'arch-web2', 'arch-server', 'arch-engine', 'arch-balance', 'arch-skins', 'arch-sim',
+          'flow-act1', 'flow-view2', 'flow-s2e', 'flow-e2s', 'flow-bal', 'flow-skin', 'flow-sim', 'lbl-act', 'lbl-view'],
+      },
+      {
+        title: '「いま何ができるか」はサーバーが教える',
+        html:
+          '<p>ブラウザが送るのは「攻撃する」「交代する」といった <b>行動だけ</b>。</p>' +
+          '<pre><code>POST /api/room/action\n{ "action": { "type": "attack" } }</code></pre>' +
+          '<p>サーバーは engine で処理した結果の盤面と、<b>次に選べる行動の一覧</b>（<code>actions</code>）を返す。</p>' +
+          '<pre><code>{ "turn": 5, "is_my_turn": true,\n  "me": {...}, "opponent": {...},\n  "actions": [ {"type":"attack", ...} ] }</code></pre>' +
+          '<p>ブラウザは <code>actions</code> をボタンに変えるだけなので、<b>ルールを変えてもブラウザ側を直す必要がない</b>。</p>',
+        camera: { pos: [ARCH - 2, 5.5, 7.5], target: [ARCH - 1, 0.8, 0.5] },
+        focus: ['arch-web1', 'arch-server', 'arch-engine', 'flow-act1', 'flow-s2e', 'flow-e2s', 'lbl-act'],
+      },
+      {
+        title: 'カンニングできない仕組み',
+        html:
+          '<p>相手の手札やベンチの中身は、<b>サーバー側で消してから送っている</b>（<code>room.view(席)</code> → <code>Game.view(viewer)</code>）。</p>' +
+          '<ul><li>自分あて：<code>"hand": [...]</code>（中身あり）</li><li>相手あて：<code>"hand_count": 3</code>（枚数だけ）</li></ul>' +
+          '<p>ブラウザ側で「隠して表示」しているわけではないので、<b>通信を覗いても中身は分からない</b>。相手向けのログ行も送る前に落としている。</p>' +
+          '<div class="gg-note">オンライン対戦ゲームの基本：「隠したい情報はそもそも送らない」。</div>',
+        camera: { pos: [ARCH + 8.5, 6.5, 6.5], target: [ARCH + 8.5, 0.3, 0.6] },
+        focus: ['hide-demo', 'arch-server', 'arch-web2', 'flow-view2', 'lbl-view'],
+      },
+      {
+        title: '数値はJSON、バランスはCPUに検証させる',
+        html:
+          '<p>HP・ダメージ・手札上限などの数字は全部 <code>balance.json</code> に出してあって、<b>調整にPythonを読む必要がない</b>。</p>' +
+          '<p>カード名や技名は <code>skins/*.json</code> にあって、同じルールのまま見た目だけ着せ替えできる。</p>' +
+          '<p>engine が画面を知らないおかげで、<code>simulate.py</code> で <b>CPU同士を何百戦も自動対戦</b> させてバランスを測れる。</p>' +
+          '<pre><code>py -3 simulate.py --games 400</code></pre>' +
+          '<p>先攻勝率が45〜55%に収まっているか、試合が長すぎないか、を数字で確認しながら調整している。</p>',
+        camera: { pos: [ARCH, 6.5, -10], target: [ARCH, 0.4, -3] },
+        focus: ['arch-engine', 'arch-balance', 'arch-skins', 'arch-sim', 'flow-bal', 'flow-skin', 'flow-sim'],
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

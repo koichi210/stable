@@ -9,3 +9,4 @@
 | フォルダ | 内容 |
 |---|---|
 | [doc/line-bot-mirai/](doc/line-bot-mirai/) | LINEボット「ミライ」の構成と、立ち上げ手順の3D図解ドキュメント（掲載しているURL・ID・キーはすべてダミー） |
+| [doc/FS/](doc/FS/) | 試作ゲーム9本の仕組みを Three.js の立体図で解説するページ集 |

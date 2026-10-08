@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>そだてもん | 仕組み図解</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var GREEN = '#5c7a52', PAPER = '#f5f0e1', ACCENT = '#b1402a', GOLD = '#b6892f';
+  // 各エリアの中心
+  var CR = [-14, 0, 0];     // はじまりの育成（初代）
+  var LA = [0, 0, 13];      // ラーニング
+  var GA = [13, 0, 0];      // ガチャ
+  var AW = [13, 0, 13];     // 覚醒・合成・編成
+  var MAP = [0, 0, -16];    // 日本統一マップ
+  var BAT = [-16, 0, -15];  // 4×4 バトル
+  var ARCH = 30;            // プログラム構成図
+  var VER_Z = 12;           // バージョン年表（x=ARCH 付近）
+
+  function P(base, d) { return [base[0] + d[0], base[1] + d[1], base[2] + d[2]]; }
+
+  // ---- sodatemon-magna.html の TERRITORIES / WARLORDS をそのまま写したもの ----
+  var TERR = {
+    '沖縄': [0, 0, ['鹿児島']], '鹿児島': [1, 0, ['沖縄', '宮崎', '長崎']], '宮崎': [2, 0, ['鹿児島', '大分']],
+    '長崎': [0, 1, ['鹿児島', '佐賀']], '佐賀': [1, 1, ['長崎', '福岡', '熊本']], '福岡': [2, 1, ['佐賀', '大分']],
+    '熊本': [1, 2, ['佐賀', '大分']], '大分': [2, 2, ['宮崎', '福岡', '熊本', '香川']],
+    '香川': [3, 1, ['大分', '愛媛', '徳島']], '愛媛': [3, 2, ['香川', '徳島', '高知', '広島']], '徳島': [4, 1, ['香川', '高知']],
+    '高知': [4, 2, ['愛媛', '徳島', '兵庫']], '広島': [3, 3, ['愛媛', '岡山', '島根']], '岡山': [4, 3, ['広島', '兵庫', '鳥取']],
+    '島根': [2, 3, ['広島', '鳥取']], '鳥取': [4, 4, ['岡山', '島根', '兵庫']], '兵庫': [5, 2, ['高知', '岡山', '鳥取', '京都', '奈良']],
+    '京都': [5, 3, ['兵庫', '滋賀', '奈良']], '奈良': [6, 3, ['兵庫', '京都', '三重']], '滋賀': [5, 4, ['京都', '岐阜']],
+    '三重': [6, 4, ['奈良', '岐阜', '愛知']], '岐阜': [5, 5, ['滋賀', '三重', '愛知', '長野']], '愛知': [6, 5, ['三重', '岐阜', '静岡']],
+    '静岡': [7, 5, ['愛知', '長野', '山梨', '神奈川']], '長野': [6, 6, ['岐阜', '静岡', '山梨', '新潟']], '山梨': [7, 6, ['静岡', '長野', '東京']],
+    '神奈川': [8, 5, ['静岡', '東京', '埼玉']], '東京': [8, 6, ['山梨', '神奈川', '埼玉', '千葉']], '埼玉': [8, 7, ['東京', '神奈川', '千葉', '栃木']],
+    '千葉': [9, 6, ['東京', '埼玉', '栃木']], '栃木': [8, 8, ['埼玉', '千葉', '群馬', '福島']], '群馬': [7, 7, ['栃木', '新潟', '長野']],
+    '新潟': [6, 7, ['長野', '群馬', '福島']], '福島': [8, 9, ['栃木', '新潟', '宮城']], '宮城': [8, 10, ['福島', '岩手']],
+    '岩手': [8, 11, ['宮城', '青森']], '青森': [8, 12, ['岩手', '北海道']], '北海道': [8, 13, ['青森']],
+  };
+  var WARLORDS = [
+    ['#ff6b6b', ['沖縄', '鹿児島']], ['#ff8c8c', ['長崎']], ['#ffa5a5', ['宮崎', '大分']], ['#ffb8b8', ['佐賀']],
+    ['#ffcccc', ['福岡']], ['#ffdddd', ['熊本']], ['#ffe066', ['高知']], ['#ffd700', ['香川']], ['#ffb600', ['徳島']],
+    ['#66b2ff', ['愛媛']], ['#4d94ff', ['広島', '岡山', '島根']], ['#3d84ff', ['鳥取']], ['#ff6b9d', ['兵庫', '京都']],
+    ['#c44569', ['奈良']], ['#ff4444', ['滋賀', '岐阜', '愛知']], ['#ff7755', ['静岡']], ['#ffaa44', ['山梨', '長野']],
+    ['#6666ff', ['神奈川', '東京', '埼玉', '千葉']], ['#8844ff', ['新潟', '群馬']], ['#44ff44', ['宮城', '栃木']],
+    ['#66ff66', ['岩手']], ['#88ff88', ['福島']], ['#aaffaa', ['青森']], ['#cccccc', ['北海道']],
+  ];
+  var OWNER_COLOR = {};
+  WARLORDS.forEach(function (w) { w[1].forEach(function (t) { if (!OWNER_COLOR[t]) OWNER_COLOR[t] = w[0]; }); });
+  var PLAYER_COLOR = '#44ff44';
+  var CELL = 1.15;
+  function mapPos(name, y) {
+    var t = TERR[name];
+    return [MAP[0] + (t[0] - 4.5) * CELL, y == null ? 0.05 : y, MAP[2] - (t[1] - 6.5) * CELL];
+  }
+  var CONQUEST = ['沖縄', '鹿児島', '長崎', '宮崎', '佐賀', '大分', '香川', '愛媛', '広島', '岡山'];
+
+  // ---- 初代の育成 ----
+  var STAGES = [['たまご', 0], ['めばえ', 15], ['わかば', 40], ['わかぎ', 80], ['たいじゅ', 140]];
+  function stageOf(exp) { var k = 0; STAGES.forEach(function (s, i) { if (exp >= s[1]) k = i; }); return k; }
+  function stageX(i) { return CR[0] + (i - 2) * 2.4; }
+  function expX(e) { return CR[0] - 5 + Math.min(e, 150) / 150 * 10; }
+
+  // ---- 4×4 バトル ----
+  function cellPos(r, c) { return [BAT[0] + (c - 1.5) * 1.2, 0.05, BAT[2] + (r - 1.5) * 1.2]; }
+  var CASTLE_ME = P(BAT, [-3.8, 0, 0]), CASTLE_EN = P(BAT, [3.8, 0, 0]);
+
+  var shown = {};
+  function setLbl(g, id, txt, o) { if (shown[id] === txt) return; g.setLabel(id, txt, o); shown[id] = txt; }
+  function bar(g, id, v, max, h) {
+    var b = g.get(id); var s = Math.max(0.02, v / max);
+    b.scale.y = s; b.position.y = (h * s) / 2 + 0.05;
+  }
+
+  function creature(g, id, stage, pos) {
+    g.group(id, { pos: pos });
+    g.cylinder({ parent: id, id: id + '-ped', radius: 0.8, height: 0.2, pos: [0, 0.1, 0], color: '#4a4466' });
+    if (stage === 0) {
+      var egg = g.sphere({ parent: id, id: id + '-egg', radius: 0.55, pos: [0, 0.85, 0], color: '#f3e7c9' });
+      egg.scale.set(1, 1.3, 1);
+      g.box({ parent: id, size: [0.05, 0.35, 0.05], pos: [-0.12, 1.05, 0.5], rot: [0, 0, 0.5], color: '#8a7a5a', edges: false });
+      return;
+    }
+    var r = [0, 0.42, 0.5, 0.56, 0.62][stage];
+    g.sphere({ parent: id, id: id + '-body', radius: r, pos: [0, 0.2 + r, 0], color: '#8fc27a' });
+    var ey = 0.2 + r * 1.05;
+    g.sphere({ parent: id, radius: 0.06, pos: [-r * 0.35, ey, r * 0.9], color: '#2b2620' });
+    g.sphere({ parent: id, radius: 0.06, pos: [r * 0.35, ey, r * 0.9], color: '#2b2620' });
+    var top = 0.2 + r * 2;
+    var leaves = [[0, 0.25, 0, 0]];
+    if (stage >= 2) leaves.push([-0.3, 0.12, 0, 0.9]);
+    if (stage >= 3) leaves.push([0.3, 0.12, 0, -0.9]);
+    leaves.forEach(function (L) {
+      var lf = g.sphere({ parent: id, radius: 0.22, pos: [L[0], top + L[1] - 0.05, L[2]], color: GREEN });
+      lf.scale.set(0.45, 1.1, 0.25); lf.rotation.z = L[3];
+    });
+    if (stage === 4) {
+      [-0.22, 0, 0.22].forEach(function (x, i) {
+        g.cylinder({ parent: id, radiusTop: 0, radius: 0.09, height: 0.32, pos: [x, top + 0.48 + (i === 1 ? 0.08 : 0), -0.05], color: '#e8c25a', segments: 12 });
+      });
+    }
+  }
+
+  GameGuide.start({
+    title: 'そだてもん',
+    back: '../index.html',
+    subtitle: '勉強クイズに答えて、キャラを育てて日本統一を目指す学習ゲーム（HTML1ファイル＋素の JavaScript、保存は localStorage）',
+    camera: { pos: [0, 10, 10], target: [0, 0, 0] },
+
+    build: function (g) {
+      // ---------- 全体のループ（原点） ----------
+      g.box({ id: 'ov-learn', size: [2.6, 0.8, 1.6], pos: [0, 0.4, 3.2], color: GREEN, label: 'ラーニング\n4択クイズ', labelSize: 0.32 });
+      g.box({ id: 'ov-gacha', size: [2.6, 0.8, 1.6], pos: [4.6, 0.4, 0], color: GOLD, label: 'ガチャ\nコインでキャラ', labelSize: 0.32 });
+      g.box({ id: 'ov-chars', size: [2.6, 0.8, 1.6], pos: [0, 0.4, -3.2], color: '#7b5cff', label: 'キャラ・編成\n覚醒／合成', labelSize: 0.32 });
+      g.box({ id: 'ov-map', size: [2.6, 0.8, 1.6], pos: [-4.6, 0.4, 0], color: ACCENT, label: '日本統一\nクイズで進軍', labelSize: 0.32 });
+      g.arrow([1.6, 0.6, 2.8], [3.9, 0.6, 0.9], { id: 'ov-a1', color: C.gold, lift: 0.8, label: 'コイン +10', labelSize: 0.28 });
+      g.arrow([3.9, 0.6, -0.9], [1.6, 0.6, -2.8], { id: 'ov-a2', color: '#c77dff', lift: 0.8, label: 'キャラが出る', labelSize: 0.28, labelColor: '#e2c9ff' });
+      g.arrow([0.25, 0.6, 2.3], [0.25, 0.6, -2.3], { id: 'ov-a3', color: C.good, lift: 1.4, label: '正解で Lv+1', labelSize: 0.28 });
+      g.arrow([-1.6, 0.6, 2.8], [-3.9, 0.6, 0.9], { id: 'ov-a4', color: '#ff9f80', lift: 0.8, label: '戦いもクイズ', labelSize: 0.28 });
+
+      // ---------- 初代の育成（CR） ----------
+      for (var s = 0; s < 5; s++) {
+        creature(g, 'cr' + s, s, [stageX(s), 0, CR[2] - 0.6]);
+        g.label(STAGES[s][0] + '\nexp ' + STAGES[s][1] + '〜', [stageX(s), 2.6, CR[2] - 0.6], { id: 'cr-name' + s, size: 0.26, bg: '#00000088' });
+      }
+      g.box({ id: 'cr-track', size: [10, 0.12, 0.35], pos: [CR[0], 0.06, CR[2] + 1.6], color: '#3a3555', edges: false });
+      g.box({ id: 'cr-fill', size: [1, 0.16, 0.36], pos: [CR[0] - 5, 0.08, CR[2] + 1.6], color: GREEN, edges: false });
+      STAGES.forEach(function (st, i) {
+        g.box({ id: 'cr-tick' + i, size: [0.05, 0.3, 0.5], pos: [expX(st[1]), 0.15, CR[2] + 1.6], color: '#ffffff', edges: false });
+        g.label(String(st[1]), [expX(st[1]), 0.3, CR[2] + 2.2], { id: 'cr-tl' + i, size: 0.22, color: '#e8e4ff' });
+      });
+      g.label('exp 0', [CR[0], 0.5, CR[2] + 3.0], { id: 'cr-msg', size: 0.32, bg: '#000000aa', color: '#bff5d9' });
+
+      // ---------- ラーニング（LA） ----------
+      g.box({ id: 'la-board', size: [7.2, 2.6, 0.15], pos: P(LA, [0, 1.4, -1.6]), color: PAPER, edges: false });
+      g.label('小6：水の化学式は？', P(LA, [0, 2.0, -1.4]), { id: 'la-q', size: 0.42, color: '#2b2620' });
+      g.label('使用キャラを選んでから答える', P(LA, [0, 1.1, -1.4]), { id: 'la-q2', size: 0.26, color: '#6b6355' });
+      ['H2O', 'CO2', 'O2', 'NaCl'].forEach(function (c, i) {
+        g.plate({ id: 'la-c' + i, size: [1.5, 0.9], pos: P(LA, [-2.4 + i * 1.6, 0.05, 0.4]), color: '#fffdf6', opacity: 1,
+          label: c, labelOffset: [0, 0.35, 0], labelSize: 0.36, labelColor: '#2b2620' });
+      });
+      g.cylinder({ id: 'la-coin', radius: 0.28, height: 0.08, pos: P(LA, [-2.4, 0.3, 0.4]), color: '#ffd166', metalness: 0.6, roughness: 0.3 });
+      g.sphere({ id: 'la-xp', radius: 0.18, pos: P(LA, [-2.4, 0.3, 0.4]), color: '#7ef0ff', emissive: '#2aa0b0' });
+      g.label('コイン 5000', P(LA, [-5.2, 0.8, 0.4]), { id: 'la-coins', size: 0.32, color: '#ffd166', bg: '#000000aa' });
+      g.label('XP 0（Lv1）', P(LA, [-5.2, 0.8, 1.6]), { id: 'la-xps', size: 0.3, color: '#7ef0ff', bg: '#000000aa' });
+      g.cylinder({ id: 'la-ring', radius: 0.85, height: 0.04, pos: P(LA, [4.6, 0.03, 0.5]), color: C.good, emissive: C.good, emissiveIntensity: 0.4 });
+      g.card({ id: 'la-char', pos: P(LA, [4.6, 0.06, 0.5]), text: 'A', sub: 'キャラA\n選択中', color: '#7b5cff' });
+      g.label('Lv1 / 100', P(LA, [4.6, 1.2, 0.5]), { id: 'la-lv', size: 0.32, color: '#e2c9ff', bg: '#000000aa' });
+
+      // ---------- ガチャ（GA） ----------
+      g.box({ id: 'ga-base', size: [2.0, 1.4, 1.6], pos: P(GA, [-3.2, 0.7, 0]), color: ACCENT });
+      g.sphere({ id: 'ga-glass', radius: 1.15, pos: P(GA, [-3.2, 2.5, 0]), color: '#cfe8ff', opacity: 0.3 });
+      ['#ff6b6b', '#ffd166', '#5ee6a8', '#7ef0ff', '#c77dff', '#ff9f43'].forEach(function (c, i) {
+        g.sphere({ id: 'ga-in' + i, radius: 0.26, pos: P(GA, [-3.2 + Math.cos(i) * 0.55, 2.05 + (i % 3) * 0.3, Math.sin(i * 1.7) * 0.5]), color: c });
+      });
+      g.sphere({ id: 'ga-cap', radius: 0.26, pos: P(GA, [-3.2, 0.7, 0.9]), color: '#ffd166' });
+      for (var r = 0; r < 6; r++) {
+        g.cylinder({ id: 'ga-bar' + r, radius: 0.3, height: 1.6, pos: P(GA, [-0.6 + r * 0.95, 0.8, 0]), color: ['#b8b2d6', '#8fc4ff', '#5ee6a8', '#ffd166', '#ff9f43', '#ff5f6d'][r] });
+        g.label('★' + (r + 1) + '\n1/6', P(GA, [-0.6 + r * 0.95, 2.25, 0]), { id: 'ga-bl' + r, size: 0.24, bg: '#00000088' });
+      }
+      g.label('キャラ：1連 200／10連 1800\n装備：1連 100／10連 800', P(GA, [-0.6 + 2.4, 0.5, 1.6]), { id: 'ga-price', size: 0.28, color: '#ffe7a8', bg: '#000000aa' });
+
+      // ---------- 覚醒・合成・編成（AW） ----------
+      for (var a = 0; a < 3; a++) {
+        g.card({ id: 'aw' + a, pos: P(AW, [-1.8 + a * 1.8, 0.06, 0.6]), text: 'A', sub: 'キャラA', color: '#7b5cff' });
+        g.label('Lv5', P(AW, [-1.8 + a * 1.8, 1.0, 0.6]), { id: 'aw-l' + a, size: 0.3, bg: '#000000aa', color: '#e2c9ff' });
+      }
+      g.label('', P(AW, [0, 0.3, 2.6]), { id: 'aw-msg', size: 0.32, bg: '#000000aa', color: C.gold });
+      for (var k = 0; k < 5; k++) {
+        g.plate({ id: 'cmp' + k, size: [1.1, 1.4], pos: P(AW, [-2.6 + k * 1.3, 0.03, -2.6]), color: '#3a3555', opacity: 0.8 });
+      }
+      g.label('編成（最大5体）', P(AW, [0, 0.4, -3.75]), { id: 'cmp-lbl', size: 0.28, color: '#e8e4ff' });
+
+      // ---------- 日本統一マップ（MAP） ----------
+      var drawn = {};
+      Object.keys(TERR).forEach(function (n) {
+        g.plate({ id: 'tr-' + n, size: [1.0, 1.0], pos: mapPos(n, 0.04), color: OWNER_COLOR[n], opacity: 0.95, radius: 0.08 });
+        g.label(n, mapPos(n, 0.45), { id: 'tl-' + n, size: 0.27, color: '#ffffff', bg: '#00000066' });
+        TERR[n][2].forEach(function (m) {
+          var key = [n, m].sort().join('-');
+          if (drawn[key]) return; drawn[key] = true;
+          g.line([mapPos(n, 0.12), mapPos(m, 0.12)], { color: '#ffffff', opacity: 0.35 });
+        });
+      });
+      g.label('スタート：沖縄', P(mapPos('沖縄', 0), [-1.6, 1.0, 0.8]), { id: 'map-start', size: 0.3, color: PLAYER_COLOR, bg: '#000000aa' });
+      g.label('38の領土・24の勢力', P(MAP, [0, 0.5, 8.9]), { id: 'map-title', size: 0.34, color: '#e8e4ff' });
+
+      // ---------- 4×4 バトル（BAT） ----------
+      for (var rr = 0; rr < 4; rr++) for (var cc = 0; cc < 4; cc++) {
+        g.plate({ id: 'cell' + rr + cc, size: [1.05, 1.05], pos: cellPos(rr, cc), color: '#fffdf6', opacity: 0.85, radius: 0.06 });
+      }
+      g.box({ id: 'castle-me', size: [1.2, 1.2, 1.2], pos: P(CASTLE_ME, [0, 0.6, 0]), color: GREEN, label: '味方の城', labelSize: 0.28 });
+      g.box({ id: 'castle-en', size: [1.2, 1.2, 1.2], pos: P(CASTLE_EN, [0, 0.6, 0]), color: ACCENT, label: '敵の城', labelSize: 0.28 });
+      g.cylinder({ id: 'food-me-bar', radius: 0.25, height: 3, pos: P(CASTLE_ME, [0, 1.55, 1.6]), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.2 });
+      g.cylinder({ id: 'food-en-bar', radius: 0.25, height: 3, pos: P(CASTLE_EN, [0, 1.55, 1.6]), color: '#ff9aa6', emissive: '#ff9aa6', emissiveIntensity: 0.2 });
+      g.label('味方の兵糧 1000', P(CASTLE_ME, [0, 3.6, 1.6]), { id: 'food-me', size: 0.28, color: '#ffd166', bg: '#000000aa' });
+      g.label('敵の兵糧 1000', P(CASTLE_EN, [0, 3.6, 1.6]), { id: 'food-en', size: 0.28, color: '#ff9aa6', bg: '#000000aa' });
+      for (var q = 0; q < 2; q++) {
+        g.cylinder({ id: 'stk' + q, radius: 0.38, height: 0.5, pos: cellPos(1, 1), color: GREEN, label: '10', labelSize: 0.3, labelOffset: [0, 0.6, 0] });
+      }
+      g.label('', P(BAT, [0, 2.8, -2.8]), { id: 'bat-msg', size: 0.34, bg: '#000000aa', color: '#bff5d9' });
+
+      // ---------- プログラム構成（ARCH） ----------
+      g.plate({ id: 'arch-file', size: [8, 10.5], pos: [ARCH, 0.02, -0.4], color: '#2a2638', opacity: 0.9,
+        label: 'sodatemon-magna.html（この1ファイルに全部入り）', labelOffset: [0, 0.4, -5.6], labelSize: 0.34 });
+      g.box({ id: 'arch-css', size: [6.6, 0.4, 1.3], pos: [ARCH, 0.2, -4.4], color: '#4a4466', label: '<style>  見た目（ノート風の色）', labelSize: 0.3 });
+      g.box({ id: 'arch-html', size: [6.6, 0.5, 1.5], pos: [ARCH, 0.25, -2.4], color: '#2f4a8a', label: 'HTML：6つの section\nラーニング・ガチャ・編成・バトル・キャラ・オプション', labelSize: 0.28 });
+      g.box({ id: 'arch-data', size: [2.9, 0.7, 2.0], pos: [ARCH - 1.85, 0.35, 0.3], color: '#2b9a6b', label: 'データ表（const）\nLEARNING_DATA 159問\nTERRITORIES 38・WARLORDS 24\nキャラ表・RARITIES', labelSize: 0.28 });
+      g.box({ id: 'arch-func', size: [2.9, 0.7, 2.0], pos: [ARCH + 1.85, 0.35, 0.3], color: '#7b5cff', label: '関数は window.xxx\nanswerQuestion()\ndoGacha()\nnextSengokuBattleTurn()…', labelSize: 0.28 });
+      g.sphere({ id: 'arch-state', radius: 0.75, pos: [ARCH, 0.8, 3.4], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.25, label: 'window.gameState\n（ゲームの状態はぜんぶここ）', labelSize: 0.28 });
+      g.cylinder({ id: 'arch-ls', radius: 1.0, height: 1.2, pos: [ARCH + 6.4, 0.6, 3.4], color: C.server, label: 'localStorage\nsodatemon_magna_save', labelSize: 0.28 });
+      g.flow([ARCH + 1.2, 0.9, -1.7], [ARCH + 1.85, 0.9, -0.7], { id: 'fl-click', color: C.data, lift: 0.4, count: 4 });
+      g.flow([ARCH - 0.6, 0.8, 0.3], [ARCH + 0.4, 0.8, 0.3], { id: 'fl-data', color: '#5ee6a8', lift: 0.4, count: 3 });
+      g.flow([ARCH + 1.6, 0.9, 1.3], [ARCH + 0.5, 1.0, 2.9], { id: 'fl-f2s', color: C.gold, lift: 0.5 });
+      g.flow([ARCH - 0.6, 1.0, 2.9], [ARCH - 2.4, 0.9, -1.7], { id: 'fl-render', color: '#c77dff', lift: 1.2 });
+      g.flow([ARCH + 0.8, 1.0, 3.6], [ARCH + 5.4, 1.0, 3.6], { id: 'fl-save', color: C.server, lift: 0.8 });
+      g.flow([ARCH + 5.4, 0.8, 3.2], [ARCH + 0.8, 0.8, 3.2], { id: 'fl-load', color: C.good, lift: 0.3 });
+      g.label('onclick', [ARCH + 2.6, 1.6, -1.4], { id: 'lb-click', size: 0.24, color: C.data });
+      g.label('update〇〇Display() で\n画面を描き直す', [ARCH - 3.6, 2.2, 1.3], { id: 'lb-render', size: 0.24, color: '#e2c9ff', bg: '#00000088' });
+      g.label('セーブ（ボタンを押したときだけ）', [ARCH + 3.1, 2.1, 3.9], { id: 'lb-save', size: 0.24, color: '#ffcf9a', bg: '#00000088' });
+      g.label('ロード（起動時に自動）', [ARCH + 3.1, 0.3, 2.3], { id: 'lb-load', size: 0.24, color: '#bff5d9' });
+      g.label('初代：sodatemon_state_v1\nv2：sodatemon_state_v2\ngame-v3：sodatemon_save\n戦国統一：sengoku_save', [ARCH + 6.4, 3.4, 3.4], { id: 'lb-keys', size: 0.24, color: '#ffe7a8', bg: '#00000099' });
+
+      // ---------- バージョン年表 ----------
+      var VERS = [
+        ['sodatemon', '9/4', 0], ['v2', '9/11', 0], ['gacha', '9/11', 1], ['hub', '9/11', 1], ['lite', '9/11', 0], ['legends', '9/11', 1],
+        ['complete', '9/11', 1], ['game', '9/11', 1], ['battle', '9/12', 1], ['game-v3', '9/12', 2], ['sengoku', '9/12', 3], ['magna', '9/13', 2],
+      ];
+      var ROWC = [GREEN, '#4a6fa5', '#b6892f', '#8a4a6a'];
+      var ROWN = ['学習育成', '機能のお試し', '統合版', '別ゲーム'];
+      VERS.forEach(function (v, i) {
+        var x = ARCH - 9.35 + i * 1.7, z = VER_Z + v[2] * 2.2;
+        g.box({ id: 'ver' + i, size: [1.45, 0.5, 1.2], pos: [x, 0.25, z], color: ROWC[v[2]], label: v[0] + '\n' + v[1], labelSize: 0.36 });
+      });
+      ROWN.forEach(function (n, r) {
+        g.label(n, [ARCH - 11.6, 0.4, VER_Z + r * 2.2], { id: 'ver-row' + r, size: 0.38, color: ROWC[r] === GREEN ? '#9fd38f' : ROWC[r], bg: '#000000aa' });
+      });
+      g.line([[ARCH - 9.6, 0.05, VER_Z + 7.6], [ARCH + 9.6, 0.05, VER_Z + 7.6]], { id: 'ver-axis', color: '#ffffff', opacity: 0.6 });
+      g.label('左ほど古い・右ほど新しい（更新日時）', [ARCH, 0.4, VER_Z + 8.2], { id: 'ver-axis-l', size: 0.28, color: '#e8e4ff' });
+      g.label('いちばん新しい統合版\n→ このページの説明の中心', [ARCH + 6.6, 2.2, VER_Z + 3.0], { id: 'ver-magna', size: 0.3, color: C.gold, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: 'どんなゲーム？',
+        html:
+          '<p>勉強の <b>4択クイズに答えると、キャラが育つ</b> ゲーム。名前の「そだてもん」は「育てるもん」から。</p>' +
+          '<p>いちばん新しい <code>sodatemon-magna.html</code> では、こんなループになっている。</p>' +
+          '<ol><li><b>ラーニング</b>：正解するとコインとXP、選んだキャラのレベルが上がる</li>' +
+          '<li><b>ガチャ</b>：コインでキャラや装備を引く</li>' +
+          '<li><b>キャラ・編成</b>：同じキャラを重ねて覚醒・合成</li>' +
+          '<li><b>日本統一</b>：沖縄から1マスずつ攻め上がる。戦いの中身もクイズ</li></ol>' +
+          '<p>つまり <b>どこへ行っても問題を解くことになる</b>。勉強とゲームをくっつけた設計。</p>' +
+          '<div class="gg-note">フォルダには HTML が12個ある。どれがどれかは最後のほうのステップで整理するね。</div>',
+        camera: { pos: [0, 10, 10], target: [0, 0, 0] },
+        focus: ['ov-learn', 'ov-gacha', 'ov-chars', 'ov-map', 'ov-a1', 'ov-a2', 'ov-a3', 'ov-a4'],
+        update: function (g, t) { g.pulse('ov-learn', t, 0.05); },
+        enter: function (g) { shown = {}; g.get('ov-learn').scale.set(1, 1, 1); },
+      },
+      {
+        title: 'はじまりは「たまご」から（初代の育成）',
+        html:
+          '<p>最初の <code>sodatemon.html</code> は、クイズに答えると <b>1匹の「そだてもん」が5段階に育つ</b> ゲームだった。</p>' +
+          '<table><tr><th>段階</th><th>必要なexp</th></tr><tr><td>たまご</td><td>0</td></tr><tr><td>めばえ</td><td>15</td></tr>' +
+          '<tr><td>わかば</td><td>40</td></tr><tr><td>わかぎ</td><td>80</td></tr><tr><td>たいじゅ</td><td>140</td></tr></table>' +
+          '<pre><code>正解：exp += 10 + min(連続正解-1, 5) × 2\n不正解：exp += 2（連続はリセット）</code></pre>' +
+          '<p>連続正解ほどたくさんもらえる（最大 +20）。間違えても少しだけ育つのがやさしいポイント。</p>' +
+          '<p>正解するたびに「合」のスタンプが1つ押される（日付が変わるとリセット）。自分で作った問題を追加することもできた。</p>' +
+          '<p class="gg-files">📄 <code>sodatemon.html</code> の <code>STAGES</code> / <code>onAnswer()</code> / <code>stageOf()</code></p>',
+        camera: { pos: [CR[0] - 0.3, 7, CR[2] + 10.5], target: [CR[0] - 0.3, 0.8, CR[2] + 0.6] },
+        focus: ['cr0', 'cr1', 'cr2', 'cr3', 'cr4', 'cr-name0', 'cr-name1', 'cr-name2', 'cr-name3', 'cr-name4', 'cr-track', 'cr-fill',
+          'cr-tick0', 'cr-tick1', 'cr-tick2', 'cr-tick3', 'cr-tick4', 'cr-tl0', 'cr-tl1', 'cr-tl2', 'cr-tl3', 'cr-tl4', 'cr-msg'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var EXP = [0, 10, 22, 36, 52, 70, 90, 110, 130, 150];
+          var n = Math.min(Math.floor(t / 1.1) % 12, 9);
+          var e = EXP[n];
+          var w = Math.max(0.02, e / 150 * 10);
+          var f = g.get('cr-fill'); f.scale.x = w; f.position.x = CR[0] - 5 + w / 2;
+          var gain = n === 0 ? 0 : EXP[n] - EXP[n - 1];
+          setLbl(g, 'cr-msg', n === 0 ? 'exp 0（まだ たまご）' : n + '問連続で正解 → +' + gain + '　exp ' + e, { size: 0.32, bg: '#000000aa', color: '#bff5d9' });
+          var st = stageOf(e);
+          for (var i = 0; i < 5; i++) {
+            var o = g.get('cr' + i);
+            o.position.y = i === st ? 0.15 + 0.12 * Math.abs(Math.sin(t * 4)) : 0;
+            o.rotation.y = i === st ? Math.sin(t * 1.5) * 0.4 : 0;
+          }
+        },
+      },
+      {
+        title: 'ラーニング：正解でコイン・XP・キャラのレベル',
+        html:
+          '<p>今の統合版のラーニングは、<b>小6・中1・中2・中3</b> の4つから学年を選んで解く（全部で159問）。</p>' +
+          '<table><tr><th>正解すると</th><th>増えるもの</th></tr>' +
+          '<tr><td>プレイヤー</td><td>コイン +10、XP +2</td></tr>' +
+          '<tr><td>選んでおいたキャラ</td><td>キャラXP +100 → <b>ちょうど Lv+1</b>（最大Lvまで）</td></tr></table>' +
+          '<p>不正解のときは何も増えない。答えるまで「次の問題へ」は押せない。</p>' +
+          '<pre><code>プレイヤーLv = floor(XP ÷ 100) + 1</code></pre>' +
+          '<div class="gg-note">問題は <code>currentQuestion % 問題数</code> で <b>上から順番に</b> 出る（初代はランダムだった）。答えを覚えやすい反面、毎回同じ順番になる。</div>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>answerQuestion()</code> / <code>showQuestion()</code> / <code>updateStats()</code></p>',
+        camera: { pos: [0, 7.5, LA[2] + 11.5], target: [0, 0.6, LA[2] + 0.2] },
+        focus: ['la-board', 'la-q', 'la-q2', 'la-c0', 'la-c1', 'la-c2', 'la-c3', 'la-coin', 'la-xp', 'la-coins', 'la-xps', 'la-ring', 'la-char', 'la-lv'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var k = t % 5;
+          var picked = k > 0.8;
+          g.setColor('la-c0', picked ? '#5ee6a8' : '#fffdf6');
+          var m = g.phase(k, 1.1, 0.9);
+          g.arcPos('la-coin', P(LA, [-2.4, 0.3, 0.4]), P(LA, [-5.2, 0.4, 0.4]), m, 1.4);
+          g.arcPos('la-xp', P(LA, [-2.4, 0.3, 0.4]), P(LA, [-5.2, 0.4, 1.6]), g.phase(k, 1.3, 0.9), 1.0);
+          g.get('la-coin').rotation.x = m * Math.PI * 4;
+          var done = k > 2.1;
+          setLbl(g, 'la-coins', done ? 'コイン 5010（+10）' : 'コイン 5000', { size: 0.32, color: '#ffd166', bg: '#000000aa' });
+          setLbl(g, 'la-xps', done ? 'XP 2（+2）' : 'XP 0（Lv1）', { size: 0.3, color: '#7ef0ff', bg: '#000000aa' });
+          var lv = k > 2.4;
+          setLbl(g, 'la-lv', lv ? 'Lv2 / 100（+1）' : 'Lv1 / 100', { size: 0.32, color: '#e2c9ff', bg: '#000000aa' });
+          g.get('la-char').position.y = 0.06 + (lv && k < 3.2 ? Math.sin((k - 2.4) / 0.8 * Math.PI) * 0.6 : 0);
+        },
+      },
+      {
+        title: 'ガチャ：レア度は6段階、全部同じ確率',
+        html:
+          '<p>コインを払って <b>キャラ</b> か <b>装備</b> を引く。最初のコインは <b>5000</b>。</p>' +
+          '<table><tr><th></th><th>1連</th><th>10連</th></tr><tr><td>キャラ</td><td>200</td><td>1800（1割引）</td></tr>' +
+          '<tr><td>装備</td><td>100</td><td>800（2割引）</td></tr></table>' +
+          '<p>レア度は <code>Math.floor(Math.random() * 6)</code> で決まるので、<b>★1〜★6がどれも1/6</b>。キャラは「キャラ表のグループ（10個）」をまず選んで、その中から1人を選ぶ。</p>' +
+          '<p>出てきたキャラは <b>Lv1・最大Lv100・兵数1000</b> からスタート。</p>' +
+          '<div class="gg-note">お試し版 <code>sodatemon-gacha.html</code> は 50%・25%・15%・7%・3% の重み付きで、10連の最後はレア以上が確定だった。統合版ではシンプルな均等に戻っている。キャラ表の中身は既存作品風スキンなので、このページでは名前を出さないね。</div>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>doGacha()</code>、<code>RARITIES</code></p>',
+        camera: { pos: [GA[0] + 0.6, 6, GA[2] + 10], target: [GA[0] + 0.4, 1.2, GA[2]] },
+        focus: ['ga-base', 'ga-glass', 'ga-in0', 'ga-in1', 'ga-in2', 'ga-in3', 'ga-in4', 'ga-in5', 'ga-cap', 'ga-price',
+          'ga-bar0', 'ga-bar1', 'ga-bar2', 'ga-bar3', 'ga-bar4', 'ga-bar5', 'ga-bl0', 'ga-bl1', 'ga-bl2', 'ga-bl3', 'ga-bl4', 'ga-bl5'],
+        update: function (g, t) {
+          var SEQ = [2, 5, 0, 3, 1, 4, 3, 0];
+          var n = Math.floor(t / 1.6), k = (t % 1.6) / 1.6;
+          var r = SEQ[n % SEQ.length];
+          var cols = ['#b8b2d6', '#8fc4ff', '#5ee6a8', '#ffd166', '#ff9f43', '#ff5f6d'];
+          g.setColor('ga-cap', cols[r]);
+          g.arcPos('ga-cap', P(GA, [-3.2, 0.7, 0.9]), P(GA, [-0.6 + r * 0.95, 1.9, 0]), g.phase(k, 0.1, 0.6), 1.6);
+          for (var i = 0; i < 6; i++) {
+            var b = g.get('ga-bar' + i);
+            var s = i === r && k > 0.7 ? 1.08 : 1;
+            b.scale.set(s, 1, s);
+          }
+          g.get('ga-glass').rotation.y = t;
+          g.get('ga-base').position.y = 0.7 + (k < 0.15 ? Math.sin(k / 0.15 * Math.PI) * 0.06 : 0);
+        },
+      },
+      {
+        title: '覚醒と合成：同じキャラを重ねる',
+        html:
+          '<p>キャラ一覧でキャラを押すと、条件を満たしたときだけボタンが出る。</p>' +
+          '<table><tr><th></th><th>条件</th><th>結果</th></tr>' +
+          '<tr><td><b>覚醒</b></td><td>同じ名前のキャラが2体以上</td><td>残す1体を選ぶ。<b>同じ名前は全部消えて</b>、残した子が 最大Lv +20・兵数 +3000・覚醒回数 +1</td></tr>' +
+          '<tr><td><b>合成</b></td><td>同じ名前で <b>同じレベル</b> が2体以上</td><td>そろった子は1体にまとまって、兵数 +20000</td></tr></table>' +
+          '<p>覚醒で最大Lvの上限（100）を伸ばせるので、ラーニングでさらにLvを上げられる。</p>' +
+          '<p>後ろの5つの枠は <b>編成</b>。キャラを押して最大5体まで並べられる。</p>' +
+          '<div class="gg-note">今のコードでは、兵数や編成・装備は <b>バトルの計算に使われていない</b>（次のステップのバトルはクイズの正解数だけで決まる）。ここをつなぐと育成の意味がもっと出てきそう。</div>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>showCharOptions()</code> / <code>confirmEvolution()</code> / <code>synthesisCharacter()</code> / <code>addToComposition()</code></p>',
+        camera: { pos: [AW[0], 6, AW[2] + 7.5], target: [AW[0], 0.6, AW[2] - 0.4] },
+        focus: ['aw0', 'aw1', 'aw2', 'aw-l0', 'aw-l1', 'aw-l2', 'aw-msg', 'cmp0', 'cmp1', 'cmp2', 'cmp3', 'cmp4', 'cmp-lbl'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var awaken = Math.floor(t / 6) % 2 === 0;
+          var k = t % 6;
+          var X = [-1.8, 0, 1.8];
+          var keep = awaken ? 2 : 0;
+          var lvs = awaken ? ['Lv3', 'Lv5', 'Lv7'] : ['Lv5', 'Lv5', ''];
+          var m = g.phase(k, 1.5, 1.0);
+          for (var i = 0; i < 3; i++) {
+            var card = g.get('aw' + i), lab = g.get('aw-l' + i);
+            var used = awaken || i < 2;
+            card.visible = used; lab.visible = used && !(i !== keep && m >= 1);
+            if (!used) continue;
+            var from = P(AW, [X[i], 0.06, 0.6]), to = P(AW, [X[keep], 0.06, 0.6]);
+            if (i === keep) { g.setPos(card, from); card.position.y = 0.06 + (k > 2.5 && k < 3.3 ? 0.4 * Math.sin((k - 2.5) / 0.8 * Math.PI) : 0); }
+            else { g.arcPos(card, from, to, m, 1.0); card.visible = m < 0.98; }
+            lab.position.set(card.position.x, 1.0 + card.position.y, card.position.z);
+            var txt = lvs[i];
+            if (i === keep && k > 2.5) txt = awaken ? 'Lv7 / 120' : 'Lv5　兵 21000';
+            setLbl(g, 'aw-l' + i, txt, { size: 0.3, bg: '#000000aa', color: '#e2c9ff' });
+          }
+          var msg = awaken
+            ? (k < 2.5 ? '覚醒：同じキャラが3体 → 残す1体を選ぶ' : '覚醒×1：最大Lv 100→120、兵数 1000→4000')
+            : (k < 2.5 ? '合成：同じキャラ・同じLv5が2体' : '合成：1体にまとまって 兵数 +20000');
+          setLbl(g, 'aw-msg', msg, { size: 0.32, bg: '#000000aa', color: C.gold });
+        },
+      },
+      {
+        title: '日本統一マップ：となりの領土にだけ攻め込める',
+        html:
+          '<p>バトルは「日本統一」モード（戦国シミュレーション風）。日本を <b>38の領土</b> に分けて、<b>24の勢力</b> が持っている。</p>' +
+          '<ul><li>プレイヤーは <b>沖縄</b> からスタート（緑）</li>' +
+          '<li>攻め込めるのは、<b>自分の領土のとなり</b>（<code>adjacent</code>）だけ。浮き上がっているマスがそれ</li>' +
+          '<li>勝つとそのマスが自分のものになり、XP +100</li></ul>' +
+          '<p>マスの位置は <code>x</code>・<code>y</code> の整数で持っていて、画面では 50px 四方のマスに並べている。九州から北海道へ、左下から右上に伸びる「日本地図風」の配置。</p>' +
+          '<pre><code>"大分": { region: "九州",\n  adjacent: ["宮崎","福岡","熊本","香川"],\n  x: 2, y: 2 }</code></pre>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>TERRITORIES</code> / <code>WARLORDS</code> / <code>getPlayableAdjacentTerritories()</code></p>',
+        camera: { pos: [MAP[0] - 1.5, 19, MAP[2] + 14], target: [MAP[0] - 0.3, 0, MAP[2] + 1.6] },
+        focus: Object.keys(TERR).map(function (n) { return 'tr-' + n; }).concat(Object.keys(TERR).map(function (n) { return 'tl-' + n; }), ['map-start', 'map-title']),
+        update: function (g, t) {
+          var n = Math.min(Math.floor(t / 1.3) % (CONQUEST.length + 2), CONQUEST.length - 1) + 1;
+          var owned = {};
+          CONQUEST.slice(0, n).forEach(function (x) { owned[x] = true; });
+          var play = {};
+          Object.keys(owned).forEach(function (x) { TERR[x][2].forEach(function (y) { if (!owned[y]) play[y] = true; }); });
+          Object.keys(TERR).forEach(function (x) {
+            var p = g.get('tr-' + x);
+            g.setColor(p, owned[x] ? PLAYER_COLOR : OWNER_COLOR[x]);
+            p.position.y = play[x] ? 0.25 + 0.12 * Math.sin(t * 5) : 0.04;
+          });
+        },
+      },
+      {
+        title: '4×4の戦場：正解すると兵を置ける',
+        html:
+          '<p>攻め込むと、真ん中に <b>4×4のマス</b> が出てくる。勝ち負けは <b>兵糧（ひょうろう）</b> の削り合い。</p>' +
+          '<table><tr><th>できごと</th><th>結果</th></tr>' +
+          '<tr><td>問題に正解</td><td>好きなマスに <b>10部隊</b> 置ける。すぐ次の問題が出る</td></tr>' +
+          '<tr><td>不正解</td><td>味方の兵糧 −50〜99（ランダム）</td></tr>' +
+          '<tr><td>「次ターン」</td><td>味方の兵糧 −50。置いた部隊の合計だけ <b>敵の兵糧が減る</b>。マスは空に戻る</td></tr></table>' +
+          '<p>敵の兵糧は1000なので、勝つには <b>合計100問正解</b>（10部隊×100）が必要。1ターンに何問でも答えられるから、続けて正解するほど兵糧の節約になる。</p>' +
+          '<div class="gg-note">敵側の部隊を置く処理がまだなくて、<b>敵からのダメージは毎回0</b>。それと味方の兵糧（<code>sengokuFood</code>）は戦いが終わっても回復しない。1000を全部の戦いで使い回すので、たくさん間違えると先に進めなくなる。</div>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>sengokuBattleAnswer()</code> / <code>placeBattleUnit()</code> / <code>nextSengokuBattleTurn()</code></p>',
+        camera: { pos: [BAT[0], 9.5, BAT[2] + 11.5], target: [BAT[0], 0.8, BAT[2] + 0.2] },
+        focus: ['castle-me', 'castle-en', 'food-me-bar', 'food-en-bar', 'food-me', 'food-en', 'stk0', 'stk1', 'bat-msg'].concat(
+          [0, 1, 2, 3].reduce(function (a, r) { return a.concat([0, 1, 2, 3].map(function (c) { return 'cell' + r + c; })); }, [])),
+        show: ['stk0', 'stk1', 'bat-msg'],
+        enter: function (g) { shown = {}; },
+        update: function (g, t) {
+          var k = t % 10;
+          var c0 = cellPos(1, 1), c1 = cellPos(2, 3);
+          var s0 = g.get('stk0'), s1 = g.get('stk1');
+          var a = g.phase(k, 0.3, 0.6), b = g.phase(k, 1.8, 0.6);
+          s0.visible = k > 0.3; s1.visible = k > 1.8;
+          g.setPos(s0, [c0[0], 0.3 + (1 - a) * 2.5, c0[2]]);
+          g.setPos(s1, [c1[0], 0.3 + (1 - b) * 2.5, c1[2]]);
+          var fly = g.phase(k, 4.8, 1.0);
+          if (fly > 0) {
+            g.arcPos(s0, [c0[0], 0.3, c0[2]], P(CASTLE_EN, [0, 0.8, 0]), fly, 1.8);
+            g.arcPos(s1, [c1[0], 0.3, c1[2]], P(CASTLE_EN, [0, 0.8, 0]), fly, 1.8);
+            var sc = 1 - fly * 0.7; s0.scale.set(sc, sc, sc); s1.scale.set(sc, sc, sc);
+            if (fly >= 1) { s0.visible = false; s1.visible = false; }
+          }
+          var me = k < 3.2 ? 1000 : k < 4.8 ? 927 : 877;
+          var en = k < 5.8 ? 1000 : 980;
+          bar(g, 'food-me-bar', me, 1000, 3); bar(g, 'food-en-bar', en, 1000, 3);
+          setLbl(g, 'food-me', '味方の兵糧 ' + me, { size: 0.28, color: '#ffd166', bg: '#000000aa' });
+          setLbl(g, 'food-en', '敵の兵糧 ' + en, { size: 0.28, color: '#ff9aa6', bg: '#000000aa' });
+          var msg = k < 1.6 ? '正解！ → 10部隊を配置' : k < 3.0 ? 'また正解 → さらに10部隊' : k < 4.6 ? '不正解… 兵糧 −73（50〜99）'
+            : k < 6.4 ? '次ターン：兵糧 −50、20部隊で敵に20ダメージ' : 'マスは空に戻って、次の問題へ';
+          setLbl(g, 'bat-msg', msg, { size: 0.34, bg: '#000000aa', color: k >= 3 && k < 4.6 ? '#ff9aa6' : '#bff5d9' });
+          g.get('castle-en').position.x = CASTLE_EN[0] + (k > 5.7 && k < 6.1 ? Math.sin(t * 60) * 0.06 : 0);
+        },
+      },
+      {
+        title: 'プログラムの構成：HTML1ファイルに全部',
+        html:
+          '<p>どの版も <b>HTMLファイル1つ</b> で完結していて、サーバーもライブラリもいらない。ダブルクリックで遊べる。</p>' +
+          '<ul><li><code>&lt;style&gt;</code>：ノートや方眼紙っぽい色づかい</li>' +
+          '<li>HTML：6つの <code>section</code>。メニューで <code>active</code> を付け替えて切り替える</li>' +
+          '<li>データ表：問題・領土・勢力・キャラ表・レア度を <code>const</code> で直書き</li>' +
+          '<li>関数：<code>window.answerQuestion = function…</code> の形。ボタンの <code>onclick</code> から直接呼べるようにしている</li></ul>' +
+          '<p>ゲームの状態は <b><code>window.gameState</code> という1つのオブジェクト</b> にまとまっている。関数が中身を書き換えて、<code>updateStats()</code> などで画面を描き直す流れ。</p>' +
+          '<div class="gg-note">初代は全体を <code>(function(){ … })()</code> で包んで外から見えないようにしていた。統合版は onclick から呼ぶために <code>window.</code> に出している。どちらにも理由がある書き方。</div>',
+        camera: { pos: [ARCH + 2, 13.5, 12.5], target: [ARCH + 1.6, 0, 0.2] },
+        focus: ['arch-file', 'arch-css', 'arch-html', 'arch-data', 'arch-func', 'arch-state', 'arch-ls', 'fl-click', 'fl-data', 'fl-f2s', 'fl-render', 'lb-click', 'lb-render'],
+      },
+      {
+        title: 'セーブとロード：localStorage',
+        html:
+          '<p>データはブラウザの <b>localStorage</b> に、<code>gameState</code> まるごと JSON にして保存する。</p>' +
+          '<pre><code>localStorage.setItem("sodatemon_magna_save",\n  JSON.stringify(window.gameState));</code></pre>' +
+          '<ul><li><b>セーブ</b>：オプションの「💾 セーブ」を押したときだけ（初代は答えるたびに自動セーブ）</li>' +
+          '<li><b>ロード</b>：ページを開いたときに自動</li>' +
+          '<li>古いセーブに <code>soldiers</code> や <code>playerTerritories</code> が無ければ初期値で埋める（<b>古いデータの引っ越し</b>）</li></ul>' +
+          '<p>版ごとに <b>保存キーが別</b> なので、同じブラウザでも版をまたいでデータは共有されない。</p>' +
+          '<div class="gg-note">保存先はそのブラウザの中だけ。別のPCやスマホには引き継がれない（ハブ版にQRで引き継ぐ画面の試作があるけど、中身はまだ固定値）。</div>' +
+          '<p class="gg-files">📄 <code>sodatemon-magna.html</code> の <code>saveGame()</code> / <code>loadGame()</code> / <code>resetGame()</code></p>',
+        camera: { pos: [ARCH + 4, 7.5, 10.5], target: [ARCH + 3.5, 0.8, 2.6] },
+        focus: ['arch-state', 'arch-ls', 'fl-save', 'fl-load', 'lb-save', 'lb-load', 'lb-keys'],
+        update: function (g, t) { g.pulse('arch-ls', t, 0.05); },
+        enter: function (g) { g.get('arch-ls').scale.set(1, 1, 1); },
+      },
+      {
+        title: '12個のHTMLの関係',
+        html:
+          '<p>フォルダの HTML は、機能を1つずつ試して、最後に1つにまとめていった跡になっている（日付はファイルの更新日）。</p>' +
+          '<table><tr><th>グループ</th><th>ファイル</th></tr>' +
+          '<tr><td>学習育成</td><td><code>sodatemon.html</code>（初代・たまごが育つ）→ <code>-v2</code>（国語・理科を足して5教科、ほかの機能は「準備中」タブ）、<code>-lite</code>（軽量版）</td></tr>' +
+          '<tr><td>機能のお試し</td><td><code>-gacha</code>（ログインボーナスとガチャ）、<code>-legends</code>（キャラ図鑑）、<code>-battle</code>（50か国の征服戦）、<code>-hub</code>（メニュー画面の見た目だけ）、<code>-complete</code>・<code>game.html</code>（全部入りの下書き）</td></tr>' +
+          '<tr><td>統合版</td><td><code>game-v3.html</code> → <b><code>sodatemon-magna.html</code></b>（いちばん新しい・いちばん全部入り）</td></tr>' +
+          '<tr><td>別ゲーム</td><td><code>sodatemon-sengoku.html</code>「戦国統一」。兵糧と勢力のアイデアが magna のバトルに入った</td></tr></table>' +
+          '<p>このページの3〜9番は <code>sodatemon-magna.html</code> の説明。</p>',
+        camera: { pos: [ARCH - 1.2, 15, VER_Z + 20.5], target: [ARCH - 1.2, 0, VER_Z + 3.8] },
+        focus: ['ver0', 'ver1', 'ver2', 'ver3', 'ver4', 'ver5', 'ver6', 'ver7', 'ver8', 'ver9', 'ver10', 'ver11', 'ver-row0', 'ver-row1', 'ver-row2', 'ver-row3', 'ver-axis', 'ver-axis-l', 'ver-magna'],
+        update: function (g, t) { g.pulse('ver11', t, 0.08); },
+        enter: function (g) { g.get('ver11').scale.set(1, 1, 1); },
+      },
+      {
+        title: '遊んでみて気づいたこと（伸びしろ）',
+        html:
+          '<p>コードを読んで分かった、次に直すと良さそうなところ。</p>' +
+          '<table><tr><th>どこ</th><th>今の動き</th></tr>' +
+          '<tr><td>バトル</td><td>敵が部隊を置かないので、敵の攻撃が0のまま</td></tr>' +
+          '<tr><td>バトル</td><td>兵数・編成・装備が戦いに使われていない</td></tr>' +
+          '<tr><td>兵糧</td><td>勝っても回復しない（全部の戦いで1000を使い回し）</td></tr>' +
+          '<tr><td>マップ表示</td><td><code>updateConquestMapDisplay()</code> にテスト用の <code>alert("領土数…")</code> が残っていて、開くたびに出る</td></tr>' +
+          '<tr><td>合成</td><td>結果を <code>synthesisModal</code> に書くけど、そのモーダルを表示していない</td></tr>' +
+          '<tr><td>装備ガチャ</td><td>結果画面が <code>r.anime</code> を出すので、装備だと「undefined」になる</td></tr></table>' +
+          '<div class="gg-note">ひとつずつ直せるサイズのものばかり。特に「兵数をバトルの部隊数に反映する」をやると、ラーニング → ガチャ → 育成 → バトルのループが全部つながる。</div>',
+        camera: { pos: [-7, 15.5, 2.5], target: [-7, 0, -15.5] },
+        focus: ['castle-me', 'castle-en', 'food-me-bar', 'food-en-bar', 'food-me', 'food-en'].concat(
+          [0, 1, 2, 3].reduce(function (a, r) { return a.concat([0, 1, 2, 3].map(function (c) { return 'cell' + r + c; })); }, []),
+          Object.keys(TERR).map(function (n) { return 'tr-' + n; })),
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>
