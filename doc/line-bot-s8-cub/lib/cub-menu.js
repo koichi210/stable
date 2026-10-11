@@ -78,7 +78,7 @@
       msgs.map(function (m) {
         if (m.who === 'sys') return '<div class="tu-sys">' + br(m.text) + '</div>';
         if (m.who === 'file') return '<div class="tu-b me"><div class="tu-file">📎 ' + esc(m.text) + '</div></div>';
-        return '<div class="tu-b ' + m.who + '">' + (m.who === 'bot' ? '<span class="tu-n">カブ8ちゃん</span>' : '') + '<div>' + br(m.text) + '</div></div>';
+        return '<div class="tu-b ' + m.who + '">' + (m.who === 'bot' ? '<span class="tu-n">カブナビ8ちゃん</span>' : '') + '<div>' + br(m.text) + '</div></div>';
       }).join('') + '</div>';
   }
 

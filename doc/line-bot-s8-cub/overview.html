@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>line-bot-s8-cub 機能のつながり</title>
+<link rel="stylesheet" href="lib/guide.css">
+<link rel="stylesheet" href="lib/cub-tutorial.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // 画面は「カブナビ8ちゃんの中(保存しているもの)」と「外(人・LINEグループ・cron)」に分けて並べる。
+  // 座標は [x, y, z]。奥が -z、手前が +z。箱の高さは 0.8 で、中心 y = 0.4。
+  var N = {};   // id -> { x, z, w, d }
+  var g;
+
+  function node(id, x, z, label, color, w, d) {
+    w = w || 4.4; d = d || 2;
+    N[id] = { x: x, z: z, w: w, d: d };
+    g.box({ id: id, size: [w, 0.8, d], pos: [x, 0.4, z], color: color, radius: 0.2, edges: false, label: label, labelSize: 0.5, labelOffset: [0, 1.5, 0], labelBg: '#1b1830ee', labelBorder: color });
+  }
+
+  // 箱の縁から縁へ矢印を引く(箱の中に潜り込まないように、向きに応じて縁の位置を求める)
+  function edge(n, tx, tz) {
+    var dx = tx - n.x, dz = tz - n.z;
+    var tX = dx ? (n.w / 2) / Math.abs(dx) : 1e9, tZ = dz ? (n.d / 2) / Math.abs(dz) : 1e9;
+    var t = Math.min(tX, tZ) + 0.03;
+    return [n.x + dx * t, 0.4, n.z + dz * t];
+  }
+  function link(id, from, to, label, color, lift) {
+    var a = N[from], b = N[to];
+    var A = g.arrow(edge(a, b.x, b.z), edge(b, a.x, a.z), { id: 'a-' + id, color: color, label: label, labelSize: 0.34, labelBg: '#1b1830dd', lift: lift == null ? 1.0 : lift });
+    g.flow(A.userData.curve, { id: 'f-' + id, color: color, count: 4 });
+  }
+  // ステップで明るく見せる id(箱と矢印)
+  function ids(nodes, links) {
+    var r = ['plate'];
+    nodes.forEach(function (n) { r.push(n); });
+    links.forEach(function (l) { r.push('a-' + l, 'f-' + l); });
+    return r;
+  }
+
+  GameGuide.start({
+    title: 'カブナビ8ちゃん 機能のつながり',
+    subtitle: 'グループ・アナウンス・案内文・予定・管理者が、どうつながっているか',
+    camera: { pos: [0, 30, 24], target: [0, 0, -2] },
+    build: function (G) {
+      g = G;
+      // カブナビ8ちゃんの中(Redisに保存しているもの)を囲む床
+      g.plate({ id: 'plate', size: [25, 19], pos: [0, 0.03, -3.5], color: '#241f38', opacity: 0.95, radius: 0.5, label: '🤖 カブナビ8ちゃんの中(保存しているもの)', labelSize: 0.55, labelOffset: [0, 0.5, 10.2] });
+
+      // 中(縦に3段: 予定の列 / 案内の列 / 送信先の列)
+      node('pdf', -9, 3, '📄 カブ8通信PDF\n(読み取るだけ)', C.neutral);
+      node('events', -9, -4, '🗓 活動予定\n(取り込み済み)', C.good);
+      node('preview', 0, -4, '👀 開催案内\n(プレビュー)', C.data);
+      node('notice', 0, -11, '✏️ 案内文設定\nヘッダ・フッタ・テンプレ', C.gold);
+      node('resv', 9, 3, '📢 アナウンス予約\n(日時・宛先・本文)', '#ff8fb1');
+      node('groups', 9, -11, '👥 送信先グループ\nの登録リスト', C.third);
+      node('admins', -9, -11, '👑 管理者リスト\n(オーナー＋追加分)', C.server);
+      // 外
+      node('admin', -17, -4, '🧑‍💼 管理者\n(LINEの1:1トーク)', C.me, 4.4, 2.4);
+      node('line', 17, 3, '💬 保護者のLINEグループ\n(送信先)', '#06c755', 4.6, 2.4);
+      node('cron', 9, 10.5, '⏰ cron-job.org\n(毎分)', C.enemy, 4.4, 1.8);
+
+      // 矢印(id, from, to, ラベル, 色, 弧の高さ)
+      link('pdf', 'admin', 'pdf', 'PDFを送る\n(カブ8取り込み)', C.me, 1.6);
+      link('read', 'pdf', 'events', '読み取って保存', C.good, 0.8);
+      link('ev-pv', 'events', 'preview', '予定', C.good, 0.8);
+      link('nt-pv', 'notice', 'preview', 'ヘッダ・フッタ\n・テンプレ', C.gold, 0.8);
+      link('pv-ad', 'preview', 'admin', 'プレビュー表示で確認', C.data, 5.2);
+      link('send', 'preview', 'line', '「次回を送信」(今すぐ)', C.data, 3.2);
+      link('gr-pv', 'groups', 'preview', '送信先', C.third, 0.8);
+      link('reg', 'line', 'groups', 'グループ追加\n(グループ内で@メンション)', '#06c755', 1.6);
+      link('add-rs', 'admin', 'resv', 'アナウンス追加(日時・宛先・本文)', C.me, 7);
+      link('pv-rs', 'preview', 'resv', '本文をコピペ', C.data, 0.8);
+      link('gr-rs', 'groups', 'resv', '宛先を選ぶ', C.third, 1.2);
+      link('cr-rs', 'cron', 'resv', '毎分確認', C.enemy, 0.8);
+      link('rs-ln', 'resv', 'line', '時刻になったら\n自動で送信', '#ff8fb1', 1.6);
+      link('ad-ls', 'admin', 'admins', '管理者の追加・削除\n(削除はオーナーだけ)', C.me, 1.2);
+    },
+    steps: [
+      {
+        title: '全体像：カブナビ8ちゃんの中身',
+        html:
+          '<p>カブナビ8ちゃんは、<b>3つの外の登場人物</b>と、<b>中に保存している6つ</b>でできています。</p>' +
+          '<table><tr><th>外</th><th>役割</th></tr>' +
+          '<tr><td>🧑‍💼 管理者</td><td>リッチメニューで操作する人(1:1トーク)</td></tr>' +
+          '<tr><td>💬 保護者のLINEグループ</td><td>開催案内・アナウンスの<b>届け先</b></td></tr>' +
+          '<tr><td>⏰ cron-job.org</td><td>毎分Botを呼び出して、<b>予約の時刻</b>を知らせる</td></tr></table>' +
+          '<table><tr><th>中(保存しているもの)</th><th>役割</th></tr>' +
+          '<tr><td>📄 カブ8通信PDF</td><td>予定の読み取り元(PDF自体は保存しない)</td></tr>' +
+          '<tr><td>🗓 活動予定</td><td>PDFから読み取った予定</td></tr>' +
+          '<tr><td>✏️ 案内文設定</td><td>ヘッダ・フッタ・テンプレ</td></tr>' +
+          '<tr><td>👀 開催案内</td><td>予定＋案内文設定から作る文面</td></tr>' +
+          '<tr><td>📢 アナウンス予約</td><td>日時・宛先・本文</td></tr>' +
+          '<tr><td>👥 送信先グループ</td><td>届け先の登録リスト</td></tr>' +
+          '<tr><td>👑 管理者リスト</td><td>操作できる人</td></tr></table>' +
+          '<p>矢印の上を光の粒が流れます。<b>次のステップから、1つずつ</b>つながりを見ていきます。ドラッグで回せます。</p>'
+      },
+      {
+        title: '① 管理者：操作できるのは管理者だけ',
+        focus: ids(['admin', 'admins'], ['ad-ls']),
+        camera: { pos: [-13, 15, 7], target: [-13, 0, -7] },
+        html:
+          '<p>カブナビ8ちゃんを操作できるのは、<b>管理者リスト</b>に載っている人だけです。それ以外の人が話しかけても、<b>返事はしません</b>(1:1の「マイID」「ヘルプ」だけ例外)。</p>' +
+          '<ul><li><b>オーナー</b>は最初の管理者で、常に管理者(外せません)。</li>' +
+          '<li>管理者の<b>追加</b>は、管理者ならだれでもできます(ユーザーIDを入力)。</li>' +
+          '<li>管理者の<b>削除</b>は、事故防止のため<b>オーナーだけ</b>。</li>' +
+          '<li>追加・削除した瞬間に、その人のリッチメニューが<b>管理者用 ⇔ 一般用</b>に切り替わります。</li></ul>' +
+          '<div class="gg-note">ほかのすべての機能(下のステップ)は、この「管理者だけ」の前提の上に成り立っています。</div>'
+      },
+      {
+        title: '② グループ：送信先を登録する',
+        focus: ids(['line', 'groups'], ['reg']),
+        camera: { pos: [13, 16, 10], target: [13, 0, -4] },
+        html:
+          '<p>開催案内もアナウンスも、<b>「送信先グループの登録リスト」にあるグループ</b>へ届きます。リストへの登録は、<b>そのLINEグループの中</b>で行います。</p>' +
+          '<ol><li>保護者のLINEグループにカブナビ8ちゃんを招待</li>' +
+          '<li>グループ内で<b>@メンション</b>して「<b>グループ追加</b>」(管理者が送る)</li></ol>' +
+          '<ul><li>リストにあるグループが、<b>④⑤の送信先</b>になります(宛先の選択肢にも出ます)。</li>' +
+          '<li>「グループ削除」も、<b>外したいグループの中で</b>送ります。</li>' +
+          '<li>「グループ一覧」で、いま登録されているグループを確認できます。</li></ul>'
+      },
+      {
+        title: '③ 活動予定：PDFから予定ができる',
+        focus: ids(['admin', 'pdf', 'events'], ['pdf', 'read']),
+        camera: { pos: [-12, 16, 13], target: [-12, 0, -1] },
+        html:
+          '<p>管理者がカブ8通信の<b>PDFを送ると</b>(「カブ8取り込み」の合図のあと5分以内)、Botがそれを読み取って<b>活動予定</b>として保存します。</p>' +
+          '<ul><li>PDF<b>そのものは保存しません</b>。読み取った<b>予定だけ</b>を保存します。</li>' +
+          '<li>同じ日付・タイトルの予定は<b>上書き</b>されます。</li>' +
+          '<li>「予定一覧」で確認、「予定削除」でチェックして削除できます。</li>' +
+          '<li>日付が過ぎた予定は、一覧やプレビューを開いたときに<b>自動で消えます</b>。</li></ul>'
+      },
+      {
+        title: '④ 案内文設定：開催案内の文面ができる',
+        focus: ids(['admin', 'events', 'notice', 'preview'], ['ev-pv', 'nt-pv', 'pv-ad']),
+        camera: { pos: [-7, 20, 12], target: [-7, 0, -6] },
+        html:
+          '<p><b>開催案内</b>は、<b>活動予定</b>(日付・集合・解散・場所など)を、<b>案内文設定</b>(ヘッダ・フッタ・テンプレ)に当てはめて作ります。</p>' +
+          '<ul><li>案内文設定は<b>一度決めれば使い回せます</b>(毎月触るのは予定だけ)。</li>' +
+          '<li>管理者は「プレビュー表示」で予定を選び、<b>出来上がりの文面を確認</b>できます。</li>' +
+          '<li>ヘッダ・フッタ・テンプレを直すと、<b>次のプレビューからすぐ反映</b>されます。</li>' +
+          '<li>中身が空の項目の行は、見出しごと自動で消えます。</li></ul>'
+      },
+      {
+        title: '⑤ すぐ送る：「次回を送信」',
+        focus: ids(['preview', 'groups', 'line'], ['send', 'gr-pv']),
+        camera: { pos: [9, 18, 11], target: [9, 0, -4] },
+        html:
+          '<p>開催案内を<b>今すぐ</b>送りたいときは、チャットで「<b>次回を送信</b>」(または「次の次を送信」)と送ります。</p>' +
+          '<ul><li>送り先は、②で登録した<b>送信先グループ全部</b>です。</li>' +
+          '<li>送った結果(✅/❌)が、グループごとに返ってきます。</li>' +
+          '<li>送る前に、確認用のプレビューが出ます(ボタンでそのまま送ることもできます)。</li></ul>' +
+          '<div class="gg-note">日時を決めて送りたいときは、次の<b>アナウンス予約</b>を使います。</div>'
+      },
+      {
+        title: '⑥ アナウンス：予約して、時刻に自動で送る',
+        focus: ids(['admin', 'preview', 'resv', 'groups', 'cron', 'line'], ['add-rs', 'pv-rs', 'gr-rs', 'cr-rs', 'rs-ln']),
+        camera: { pos: [0, 28, 22], target: [0, 0, -2] },
+        html:
+          '<p><b>アナウンス予約</b>は、「いつ・どのグループへ・何を」を保存しておき、<b>時刻になると自動で</b>送る機能です。</p>' +
+          '<ol><li>管理者が「アナウンス追加」で、<b>宛先</b>(登録した送信先グループから選ぶ)・<b>日時</b>・<b>本文</b>を入力</li>' +
+          '<li>本文は、プレビューの文面を<b>コピペ</b>して手直しするのが基本</li>' +
+          '<li>外の<b>cron-job.org</b>が<b>毎分</b>Botを呼び出し、「いま送る時刻の予約」があれば送信</li>' +
+          '<li>送れた予約は<b>自動で消えます</b>(1回きり)。失敗した分は残って、次の呼び出しで再送</li></ol>' +
+          '<ul><li>「アナウンス一覧」で予約を確認、「アナウンス削除」でチェックして取り消せます。</li></ul>' +
+          '<div class="gg-note">Botの中にも時計はありますが、<b>起こしてくれるのはcron-job.org</b>です(VercelのHobbyプランは毎分のcronを持てないため)。</div>'
+      },
+      {
+        title: 'まとめ：メニューと、つながり',
+        html:
+          '<table><tr><th>メニュー</th><th>触るもの</th><th>つながる先</th></tr>' +
+          '<tr><td>管理者用 → 管理者編集</td><td>👑 管理者リスト</td><td>全機能(操作できる人を決める)</td></tr>' +
+          '<tr><td>管理者用 → 保護者連絡 → グループ</td><td>👥 送信先リスト</td><td>開催案内・アナウンスの宛先</td></tr>' +
+          '<tr><td>管理者用 → 活動予定</td><td>🗓 活動予定</td><td>開催案内の元データ</td></tr>' +
+          '<tr><td>… → 案内文設定</td><td>✏️ ヘッダ・フッタ・テンプレ</td><td>開催案内の文面</td></tr>' +
+          '<tr><td>… → 案内文設定 → プレビュー表示</td><td>👀 開催案内</td><td>確認、アナウンスの本文、「次回を送信」</td></tr>' +
+          '<tr><td>… → アナウンス</td><td>📢 アナウンス予約</td><td>宛先は送信先リスト、送信はcron</td></tr></table>' +
+          '<p>流れで言うと、<b>管理者を決める → 送信先グループを登録 → 案内文を設定(初回だけ) → 毎月PDFを取り込む → プレビューで確認 → 送る(今すぐ or 予約)</b>です。</p>' +
+          '<p>操作の手順は<a href="tutorial-admin.html">管理者向けチュートリアル</a>で、メニューを押しながら見られます。</p>' +
+          '<p class="gg-files">人名・ID・グループ名の例は、すべてダミーです。</p>'
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>
