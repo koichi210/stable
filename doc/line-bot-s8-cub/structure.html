@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>line-bot-s8-cub メニューの階層</title>
+<link rel="stylesheet" href="lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="lib/guide.js"></script>
+<script src="menus-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var M = window.CUB_MENUS, C = GameGuide.colors;
+  var DX = 9, DZ = 1.9;             // 階層1段ぶんの横幅 / 兄弟どうしの間隔
+  var BOX = { w: 6.2, h: 0.7, d: 1.5 };
+
+  // ---- メニューの定義(menus-data.js = rich-menu-config.js から自動生成)からツリーを作る ----
+  // 「◀ 戻る」は階層の逆戻りなので省く。切り替え(switch)は枝、それ以外(画面・チャット)は葉。
+  function strip(label) { return label.replace(/^[\p{Extended_Pictographic}️‍\s]+/u, ''); }
+  function walkMenu(menuId, depth, path) {
+    var kids = [];
+    M[menuId].layout.forEach(function (row) {
+      row.forEach(function (t) {
+        if (/戻る/.test(t.label)) return;
+        var id = path + '/' + strip(t.label);
+        var n = { id: id, label: t.label, name: strip(t.label), color: t.color, depth: depth, kind: t.kind, children: [] };
+        if (t.kind === 'switch') n.children = walkMenu(t.target, depth + 1, id);
+        kids.push(n);
+      });
+    });
+    return kids;
+  }
+  var roots = [
+    { id: 'a', label: '🧑‍💼 管理者のメニュー', name: '管理者', color: C.me, depth: 0, kind: 'root', children: walkMenu('main-admin', 1, 'a') },
+    { id: 'm', label: '👪 一般(保護者)のメニュー', name: '一般', color: C.good, depth: 0, kind: 'root', children: walkMenu('main', 1, 'm') },
+  ];
+
+  // 葉に縦の位置を割り当て、枝は子の真ん中に置く
+  var leafZ = 0, all = [];
+  function layout(n, parent) {
+    n.parent = parent; all.push(n);
+    n.x = n.depth * DX;
+    if (!n.children.length) { n.z = leafZ; leafZ += DZ; return; }
+    n.children.forEach(function (c) { layout(c, n); });
+    n.z = (n.children[0].z + n.children[n.children.length - 1].z) / 2;
+  }
+  roots.forEach(function (r) { layout(r, null); leafZ += DZ; });
+  var zs0 = all.map(function (n) { return n.z; }), zMid = (Math.min.apply(null, zs0) + Math.max.apply(null, zs0)) / 2;
+  all.forEach(function (n) { n.z -= zMid; });
+
+  function descendants(n) { var r = [n]; n.children.forEach(function (c) { r = r.concat(descendants(c)); }); return r; }
+  function ancestors(n) { var r = []; for (var p = n.parent; p; p = p.parent) r.push(p); return r; }
+  function leaves(n) { return descendants(n).filter(function (x) { return !x.children.length; }); }
+  function pathOf(n) { return ancestors(n).reverse().concat([n]).map(function (x) { return x.name; }).join(' → '); }
+  function find(path) { return all.filter(function (n) { return n.id === path; })[0]; }
+  // 見せる範囲: その枝全部 + そこまでの道筋(祖先)
+  function focusOf(n) {
+    var ids = [];
+    descendants(n).concat(ancestors(n)).forEach(function (x) { ids.push(x.id); if (x.parent) ids.push('e:' + x.id); });
+    return ids;
+  }
+  function camFor(n) { return camList(descendants(n).concat(ancestors(n))); }
+  function camList(list) {
+    var xs = list.map(function (x) { return x.x; }), zs = list.map(function (x) { return x.z; });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2, cz = (Math.min.apply(null, zs) + Math.max.apply(null, zs)) / 2;
+    var ext = Math.max((Math.max.apply(null, xs) - Math.min.apply(null, xs)) / 1.7, Math.max.apply(null, zs) - Math.min.apply(null, zs)) + 9;
+    var d = ext * 1.4;
+    return { pos: [cx, d * 0.85, cz + d * 0.55], target: [cx, 0, cz] };
+  }
+
+  // ---- 各ボタンの説明(ラベルから絵文字を除いたもので引く) ----
+  var DESC = {
+    'アナウンス追加': '宛先・日時・本文を入れて予約する(入力画面)。時刻になると自動で届く',
+    'アナウンス削除': '予約中のアナウンスをチェックして取り消す(選択画面)',
+    'アナウンス一覧': '予約中のアナウンスを、トークに返信で表示する',
+    'ヘッダ設定': '案内文の先頭に付く固定文を編集する(今の設定が入った入力画面)',
+    'フッタ設定': '案内文の末尾に付く固定文を編集する(入力画面)',
+    'テンプレ設定': '案内文の形を編集する。初期化ボタンで既定に戻せる(入力画面)',
+    'プレビュー表示': '予定をラジオボタンで選ぶと、開催案内の文面が出る(選択画面)',
+    'グループ追加': 'グループの中で@メンションして送ると、送信先に登録される(1:1では案内だけ返る)',
+    'グループ削除': 'グループの中で@メンションして送ると、送信先から外れる',
+    'グループ一覧': '登録済みの送信先グループを、トークに返信で表示する',
+    'カブ8取り込み': 'PDFの受付を5分間開く。続けて送ったカブ8通信のPDFから予定を取り込む',
+    '予定削除': '取り込み済みの予定をチェックして削除する(選択画面)',
+    '予定一覧': '取り込み済みの予定を、トークに返信で表示する',
+    '管理者追加': 'ユーザーIDを入力して、管理者に追加する(入力画面)',
+    '管理者削除': '管理者をチェックして外す(選択画面)。削除できるのはオーナーだけ',
+    '管理者一覧': '今の管理者を、トークに返信で表示する',
+    'マイID': '自分のユーザーIDを返信する(管理者に追加してもらうときに伝える)',
+    'ヘルプ': '管理者にはコマンド一覧、一般の人には「今後実装予定です」を返す',
+  };
+  function kindMark(n) { return n.kind === 'liff' ? '📱' : n.kind === 'message' ? '💬' : ''; }
+  function table(n) {
+    var rows = leaves(n).map(function (l) {
+      return '<tr><td>' + pathOf(l) + ' ' + kindMark(l) + '</td><td>' + (DESC[l.name] || '') + '</td></tr>';
+    }).join('');
+    return '<table><tr><th>押す順番</th><th>できること</th></tr>' + rows + '</table>';
+  }
+  var LEGEND = '<p>📱 = 入力・選択の<b>画面</b>が開く　💬 = <b>チャット</b>に送信して返事が返る</p>';
+
+  function branchStep(path, title, lead, note) {
+    var n = find(path);
+    return { title: title, focus: focusOf(n), camera: camFor(n), html: '<p>' + lead + '</p>' + LEGEND + table(n) + (note ? '<div class="gg-note">' + note + '</div>' : '') };
+  }
+
+  GameGuide.start({
+    title: 'カブナビ8ちゃん メニューの階層',
+    subtitle: '管理者がどのボタンを、どの順番で押すと、何ができるか',
+    camera: camList(all),
+    build: function (g) {
+      // 全体を引きで見るため、霧と最大ズームアウト距離を広げる(共通の初期値は 霧40〜90 / 距離60)
+      g.scene.fog.near = 160; g.scene.fog.far = 400; g.controls.maxDistance = 160;
+      all.forEach(function (n) {
+        var internal = n.children.length > 0;
+        g.box({
+          id: n.id, size: [BOX.w, BOX.h, BOX.d], pos: [n.x, BOX.h / 2, n.z], color: n.color, radius: 0.18, edges: false,
+          label: n.label + (kindMark(n) ? ' ' + kindMark(n) : ''), labelSize: internal ? 0.62 : 0.52, labelColor: '#222222', labelOffset: [0, 0.55, 0.0],
+        });
+        if (n.parent) {
+          var p = n.parent, mx = (p.x + n.x) / 2;
+          g.line([[p.x + BOX.w / 2, 0.35, p.z], [mx, 0.35, p.z], [mx, 0.35, n.z], [n.x - BOX.w / 2, 0.35, n.z]], { id: 'e:' + n.id, color: '#cfc9ee', opacity: 0.9 });
+        }
+      });
+    },
+    steps: [
+      {
+        title: '全体像：メニューは階層になっています',
+        html:
+          '<p>カブナビ8ちゃんのリッチメニューは、<b>押すたびに1つ奥のメニューへ進む階層</b>になっています。左(根)から右(葉)へ、押す順番に並べました。</p>' +
+          '<p>たとえば、アナウンスを予約するには <b>管理者 → 管理者用 → 保護者連絡 → アナウンス → アナウンス追加</b> と進みます。</p>' +
+          LEGEND +
+          '<ul><li>箱の色は、<b>実際のメニューのボタンの色</b>と同じです。</li>' +
+          '<li>どのメニューにも<b>「◀ 戻る」</b>があり、1つ前に戻れます(図では省略)。</li>' +
+          '<li>管理者には「管理者のメニュー」、そうでない人には「一般のメニュー(ヘルプだけ)」が出ます。</li></ul>' +
+          '<p>次のステップから、<b>枝ごと</b>に見ていきます。ドラッグで回せます。</p>'
+      },
+      {
+        title: '管理者のメニュー：入口は2つ',
+        focus: focusOf(find('a/管理者用')).filter(function (id) { return id === 'a' || id === 'a/管理者用' || id === 'e:a/管理者用' || id === 'a/その他' || id === 'e:a/その他'; }),
+        camera: camFor(find('a/管理者用')),
+        html:
+          '<p>管理者に出るメニューの1段目は、<b>🔧 管理者用</b>と<b>その他</b>の2つです。</p>' +
+          '<ul><li><b>管理者用</b>: 保護者連絡・管理者編集・活動予定(下に続く)</li>' +
+          '<li><b>その他</b>: マイID・ヘルプ</li></ul>'
+      },
+      branchStep('a/管理者用/保護者連絡/アナウンス', '保護者連絡 → アナウンス', '日時を決めて、登録したグループへ<b>自動で送る</b>機能です。', '追加・削除は画面、一覧はトークへの返信です。'),
+      branchStep('a/管理者用/保護者連絡/案内文設定', '保護者連絡 → 案内文設定', '開催案内の<b>文面</b>(ヘッダ・フッタ・テンプレ)の設定と、出来上がりの確認です。', '設定は一度決めれば使い回せます。確認は「プレビュー表示」で。'),
+      branchStep('a/管理者用/保護者連絡/グループ', '保護者連絡 → グループ', '開催案内・アナウンスの<b>送信先グループ</b>の管理です。', '追加・削除は<b>そのグループの中で</b>行います(1:1のボタンは使い方の案内だけ返ります)。'),
+      branchStep('a/管理者用/活動予定', '管理者用 → 活動予定', 'カブ8通信のPDFから取り込んだ<b>予定</b>の管理です。', '取り込めるのは、合図をした本人が5分以内に同じトークへ送ったPDFだけです。'),
+      branchStep('a/管理者用/管理者編集', '管理者用 → 管理者編集', '<b>管理者</b>を増やす・減らす機能です。', '追加は管理者なら誰でも、削除はオーナーだけです。'),
+      branchStep('a/その他', 'その他', '管理者の機能に分類されない、小さな機能です。', '「マイID」は、管理者以外の人も1:1で使えます(管理者に追加してもらうときのIDの確認用)。'),
+      {
+        title: '一般(保護者)のメニュー',
+        focus: focusOf(find('m/ヘルプ')),
+        camera: camFor(find('m/ヘルプ')),
+        html:
+          '<p>管理者でない人には、<b>ヘルプだけ</b>のメニューが出ます。今は「今後実装予定です」と返ります。</p>' + LEGEND + table(find('m')) +
+          '<div class="gg-note">保護者に届くお知らせ(開催案内・アナウンス)は、メニューではなく<b>LINEグループ</b>に届きます。仕組みは<a href="overview.html">しくみ図</a>、手順は<a href="usecase.html">ユースケース</a>を見てください。</div>' +
+          '<p class="gg-files">この図は menus-data.js(rich-menu-config.js から自動生成)で組み立てています。メニューを変えたら <code>node scripts/build-tutorial-data.js</code> で作り直します。</p>'
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>
