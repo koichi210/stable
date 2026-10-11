@@ -1,8 +1,8 @@
 # ユースケース: カブナビ8ちゃんの使い方（役割別）
 
 カブ隊用LINEボット「カブナビ8ちゃん」を、**誰が・いつ・何をするか**で整理したもの。
-機能どうしのつながりは、[しくみ図（overview.html）](./overview.html)で見られます。
-メニューを押しながらの手順は、[管理者向けチュートリアル](./tutorial-admin.html)を参照してください。
+機能どうしのつながりは、[しくみ図（overview.html）](https://koichi210.github.io/stable/doc/line-bot-s8-cub/overview.html)で見られます。
+メニューを押しながらの手順は、[管理者向けチュートリアル](https://koichi210.github.io/stable/doc/line-bot-s8-cub/tutorial-admin.html)を参照してください。
 
 > 掲載している人名・グループ名・IDは、すべてダミーです。
 
