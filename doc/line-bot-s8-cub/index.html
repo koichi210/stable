@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>line-bot-s8-cub 使い方チュートリアル</title>
+<link rel="stylesheet" href="lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>line-bot-s8-cub 使い方チュートリアル</h1>
+  <p class="lead">カブ隊用LINEボット「カブ8ちゃん」の使い方を、リッチメニューの立体図で1歩ずつ解説します。<br>
+  PCのブラウザで開いて、画面共有や説明会で見せる用です。人名・ID・グループ名は<b>すべてダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="tutorial-admin.html">
+      <div class="t">🔧 管理者向け</div>
+      <div class="tech">Three.js / 全20ステップ</div>
+      <div class="d">初回の準備（グループ登録・案内文設定）と、毎月の流れ（PDF取り込み → プレビュー → アナウンス予約）、管理者の追加・削除。</div>
+    </a>
+    <a class="gg-card" href="tutorial-parent.html">
+      <div class="t">👪 保護者向け</div>
+      <div class="tech">Three.js / 全6ステップ</div>
+      <div class="d">保護者に届くお知らせと、カブ8ちゃんにできること・できないこと。管理者になる手順も。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    メニューの立体図は、Bot本体の <code>scripts/rich-menu-config.js</code> から自動生成した
+    <code>menus-data.js</code> を読んで組み立てています。メニューを変えたら、Bot側のリポジトリで
+    <code>node scripts/build-tutorial-data.js</code> を実行して <code>menus-data.js</code> を更新します。<br>
+    3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は
+    line-bot-mirai のドキュメントからのコピーです。
+  </p>
+</div>
+</body>
+</html>
