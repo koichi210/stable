@@ -26,3 +26,7 @@
 .tu-c.on { border-color: #06c755; background: #06c755; }
 .tu-btn { margin-top: 12px; text-align: center; background: #06c755; color: #fff; font-weight: bold; border-radius: 8px; padding: 8px; }
 .tu-btn.danger { background: #e53935; }
+
+/* デモ再生: data-at を持つ要素は、時間が来るまで隠しておく(ページ側のスクリプトが .tu-hid を外す) */
+[data-at] { transition: opacity .45s, transform .45s; }
+[data-at].tu-hid { opacity: 0; transform: translateY(8px); }

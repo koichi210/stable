@@ -10,15 +10,24 @@
 
   // ---- 右パネルのモック ----
 
-  // トーク画面。msgs: { who: 'me' | 'bot' | 'file' | 'sys', text }
+  // at(ms, html): デモ再生用。ステップに入ってから ms ミリ秒後にふわっと現れる(data-at を持つ要素は、ページ側で時間差表示する)
+  function at(ms, html) { return '<div data-at="' + ms + '">' + html + '</div>'; }
+
+  // トーク画面。msgs: { who: 'me' | 'bot' | 'file' | 'sys', text, at(任意: 現れる時刻ms) }
   function chat(msgs, title) {
     return '<div class="tu-chat">' +
       (title ? '<div class="tu-chat-title">' + esc(title) + '</div>' : '') +
       msgs.map(function (m) {
+        var h = bubble(m);
+        return m.at == null ? h : at(m.at, h);
+      }).join('') + '</div>';
+  }
+  function bubble(m) {
+    {
         if (m.who === 'sys') return '<div class="tu-sys">' + br(m.text) + '</div>';
         if (m.who === 'file') return '<div class="tu-b me"><div class="tu-file">📎 ' + esc(m.text) + '</div></div>';
         return '<div class="tu-b ' + m.who + '">' + (m.who === 'bot' ? '<span class="tu-n">カブナビ8ちゃん</span>' : '') + '<div>' + br(m.text) + '</div></div>';
-      }).join('') + '</div>';
+    }
   }
 
   // LIFF画面(スマホで開く入力画面)。parts は下のfield/ta/radios/checks/btn で作ったHTML
@@ -40,6 +49,6 @@
   function btn(text, danger) { return '<div class="tu-btn' + (danger ? ' danger' : '') + '">' + esc(text) + '</div>'; }
 
   window.CubMenu = {
-    ui: { chat: chat, liff: liff, field: field, ta: ta, radios: radios, checks: checks, btn: btn },
+    ui: { at: at, chat: chat, liff: liff, field: field, ta: ta, radios: radios, checks: checks, btn: btn },
   };
 })();
