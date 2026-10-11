@@ -106,6 +106,17 @@
     return { title: title, focus: focusOf(n), camera: camFor(n), html: '<p>' + lead + '</p>' + LEGEND + table(n) + (note ? '<div class="gg-note">' + note + '</div>' : '') };
   }
 
+  // 根(管理者・一般の人)は、人の形(頭の球 + 体の円柱)で表す。ラベルは頭の上
+  function person(g, n) {
+    g.group(n.id, { pos: [n.x, 0, n.z] });
+    g.cylinder({ id: n.id + ':body', parent: n.id, radiusTop: 0.75, radius: 0.85, height: 2.2, pos: [0, 1.1, 0], color: n.color, roughness: 0.6 });
+    [-1, 1].forEach(function (side, i) {
+      g.cylinder({ id: n.id + ':arm' + i, parent: n.id, radius: 0.22, height: 1.9, pos: [side * 1.25, 1.15, 0], rot: [0, 0, side * 0.3], color: n.color, roughness: 0.6 });
+    });
+    g.sphere({ id: n.id + ':head', parent: n.id, radius: 0.72, pos: [0, 2.95, 0], color: n.color, roughness: 0.5 });
+    g.label(n.label, [0, 4.7, 0], { id: n.id + ':label', parent: n.id, size: 0.62, color: '#ffffff', bg: '#1b1830ee', border: n.color });
+  }
+
   GameGuide.start({
     title: 'カブナビ8ちゃん メニューの階層',
     subtitle: '管理者がどのボタンを、どの順番で押すと、何ができるか',
@@ -115,13 +126,13 @@
       g.scene.fog.near = 160; g.scene.fog.far = 400; g.controls.maxDistance = 160;
       all.forEach(function (n) {
         var internal = n.children.length > 0;
-        g.box({
+        if (n.kind === 'root') { person(g, n); } else g.box({
           id: n.id, size: [BOX.w, BOX.h, BOX.d], pos: [n.x, BOX.h / 2, n.z], color: n.color, radius: 0.18, edges: false,
           label: n.label + (kindMark(n) ? ' ' + kindMark(n) : ''), labelSize: internal ? 0.62 : 0.52, labelColor: '#222222', labelOffset: [0, 0.55, 0.0],
         });
         if (n.parent) {
-          var p = n.parent, mx = (p.x + n.x) / 2;
-          g.line([[p.x + BOX.w / 2, 0.35, p.z], [mx, 0.35, p.z], [mx, 0.35, n.z], [n.x - BOX.w / 2, 0.35, n.z]], { id: 'e:' + n.id, color: '#cfc9ee', opacity: 0.9 });
+          var p = n.parent, mx = (p.x + n.x) / 2, px = p.x + (p.kind === 'root' ? 1.3 : BOX.w / 2);
+          g.line([[px, 0.35, p.z], [mx, 0.35, p.z], [mx, 0.35, n.z], [n.x - BOX.w / 2, 0.35, n.z]], { id: 'e:' + n.id, color: '#cfc9ee', opacity: 0.9 });
         }
       });
     },
@@ -134,30 +145,30 @@
           LEGEND +
           '<ul><li>箱の色は、<b>実際のメニューのボタンの色</b>と同じです。</li>' +
           '<li>どのメニューにも<b>「◀ 戻る」</b>があり、1つ前に戻れます(図では省略)。</li>' +
-          '<li>管理者には「管理者のメニュー」、そうでない人には「一般のメニュー(ヘルプだけ)」が出ます。</li></ul>' +
+          '<li>管理者には「管理者のメニュー」、そうでない人には「一般のメニュー(その他 → マイID / ヘルプ)」が出ます。</li></ul>' +
           '<p>次のステップから、<b>枝ごと</b>に見ていきます。ドラッグで回せます。</p>'
       },
       {
         title: '管理者のメニュー：入口は2つ',
-        focus: focusOf(find('a/管理者用')).filter(function (id) { return id === 'a' || id === 'a/管理者用' || id === 'e:a/管理者用' || id === 'a/その他' || id === 'e:a/その他'; }),
+        focus: ['a', 'a/管理者用', 'e:a/管理者用', 'a/その他', 'e:a/その他'],
         camera: camFor(find('a/管理者用')),
         html:
           '<p>管理者に出るメニューの1段目は、<b>🔧 管理者用</b>と<b>その他</b>の2つです。</p>' +
-          '<ul><li><b>管理者用</b>: 保護者連絡・管理者編集・活動予定(下に続く)</li>' +
+          '<ul><li><b>管理者用</b>: 保護者連絡・管理者編集・活動予定・グループ(下に続く)</li>' +
           '<li><b>その他</b>: マイID・ヘルプ</li></ul>'
       },
       branchStep('a/管理者用/保護者連絡/アナウンス', '保護者連絡 → アナウンス', '日時を決めて、登録したグループへ<b>自動で送る</b>機能です。', '追加・削除は画面、一覧はトークへの返信です。'),
       branchStep('a/管理者用/保護者連絡/案内文設定', '保護者連絡 → 案内文設定', '開催案内の<b>文面</b>(ヘッダ・フッタ・テンプレ)の設定と、出来上がりの確認です。', '設定は一度決めれば使い回せます。確認は「プレビュー表示」で。'),
-      branchStep('a/管理者用/保護者連絡/グループ', '保護者連絡 → グループ', '開催案内・アナウンスの<b>送信先グループ</b>の管理です。', '追加・削除は<b>そのグループの中で</b>行います(1:1のボタンは使い方の案内だけ返ります)。'),
+      branchStep('a/管理者用/グループ', '管理者用 → グループ', '開催案内・アナウンスの<b>送信先グループ</b>の管理です。', '追加・削除は<b>そのグループの中で</b>行います(1:1のボタンは使い方の案内だけ返ります)。'),
       branchStep('a/管理者用/活動予定', '管理者用 → 活動予定', 'カブ8通信のPDFから取り込んだ<b>予定</b>の管理です。', '取り込めるのは、合図をした本人が5分以内に同じトークへ送ったPDFだけです。'),
       branchStep('a/管理者用/管理者編集', '管理者用 → 管理者編集', '<b>管理者</b>を増やす・減らす機能です。', '追加は管理者なら誰でも、削除はオーナーだけです。'),
       branchStep('a/その他', 'その他', '管理者の機能に分類されない、小さな機能です。', '「マイID」は、管理者以外の人も1:1で使えます(管理者に追加してもらうときのIDの確認用)。'),
       {
         title: '一般(保護者)のメニュー',
-        focus: focusOf(find('m/ヘルプ')),
-        camera: camFor(find('m/ヘルプ')),
+        focus: focusOf(find('m/その他')),
+        camera: camFor(find('m/その他')),
         html:
-          '<p>管理者でない人には、<b>ヘルプだけ</b>のメニューが出ます。今は「今後実装予定です」と返ります。</p>' + LEGEND + table(find('m')) +
+          '<p>管理者でない人には、<b>その他</b>だけのメニューが出ます。その中の<b>マイID</b>と<b>ヘルプ</b>が使えます。ヘルプは今は「今後実装予定です」と返ります。</p>' + LEGEND + table(find('m/その他')) +
           '<div class="gg-note">保護者に届くお知らせ(開催案内・アナウンス)は、メニューではなく<b>LINEグループ</b>に届きます。仕組みは<a href="overview.html">しくみ図</a>、手順は<a href="usecase.html">ユースケース</a>を見てください。</div>' +
           '<p class="gg-files">この図は menus-data.js(rich-menu-config.js から自動生成)で組み立てています。メニューを変えたら <code>node scripts/build-tutorial-data.js</code> で作り直します。</p>'
       },

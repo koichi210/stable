@@ -6,10 +6,36 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
-     "label": "ヘルプ",
+     "label": "その他",
+     "color": "#EDE7F6",
+     "kind": "switch",
+     "target": "other-main"
+    }
+   ]
+  ]
+ },
+ "other-main": {
+  "name": "s8-cub その他サブメニュー(一般用)",
+  "rowHeight": null,
+  "layout": [
+   [
+    {
+     "label": "🆔 マイID",
      "color": "#EDE7F6",
      "kind": "message",
+     "text": "マイID"
+    },
+    {
+     "label": "ヘルプ",
+     "color": "#D1C4E9",
+     "kind": "message",
      "text": "ヘルプ"
+    },
+    {
+     "label": "◀ 戻る",
+     "color": "#CFD8DC",
+     "kind": "switch",
+     "target": "main"
     }
    ]
   ]
@@ -50,14 +76,6 @@ window.CUB_MENUS = {
      "color": "#FFF9C4",
      "kind": "switch",
      "target": "notice"
-    }
-   ],
-   [
-    {
-     "label": "👥 グループ",
-     "color": "#B3E5FC",
-     "kind": "switch",
-     "target": "groups"
     },
     {
      "label": "◀ 戻る",
@@ -110,14 +128,20 @@ window.CUB_MENUS = {
      "color": "#FFE0B2",
      "kind": "switch",
      "target": "admins"
-    }
-   ],
-   [
+    },
     {
      "label": "📄 活動予定",
      "color": "#DCEDC8",
      "kind": "switch",
      "target": "events"
+    }
+   ],
+   [
+    {
+     "label": "👥 グループ",
+     "color": "#B3E5FC",
+     "kind": "switch",
+     "target": "groups"
     },
     {
      "label": "◀ 戻る",
@@ -299,7 +323,7 @@ window.CUB_MENUS = {
      "label": "◀ 戻る",
      "color": "#CFD8DC",
      "kind": "switch",
-     "target": "parents"
+     "target": "admin"
     }
    ]
   ]
