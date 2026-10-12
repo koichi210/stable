@@ -44,10 +44,10 @@
   };
   // 画像を出す場所。y=画像の下端の高さ(箱の目印・ラベルと重ならないよう、箱より十分上に置く)
   var SHOTS = [
-    { id: 'img-newsletter', key: 'newsletter', node: 'pdf', y: 9.5, width: 5.6, caption: '📄 カブ8通信(PDF)' },
-    { id: 'img-preview', key: 'announce', node: 'preview', y: 9.5, width: 5.6, dx: 5.5, caption: '👀 開催案内(プレビュー)' },
-    { id: 'img-template', key: 'template', node: 'notice', y: 9.5, width: 5.6, dx: -5.5, caption: '✏️ 案内文設定' },
-    { id: 'img-announce', key: 'announce', node: 'line', y: 9.5, width: 6.8, caption: '💬 保護者に届いた開催案内' },
+    { id: 'img-newsletter', key: 'newsletter', iw: 520, ih: 590, node: 'pdf', y: 9.5, width: 5.6, caption: '📄 カブ8通信(PDF)' },
+    { id: 'img-preview', key: 'announce', iw: 500, ih: 504, node: 'preview', y: 9.5, width: 5.6, dx: 5.5, caption: '👀 開催案内(プレビュー)' },
+    { id: 'img-template', key: 'template', iw: 500, ih: 680, node: 'notice', y: 9.5, width: 5.6, dx: -5.5, caption: '✏️ 案内文設定' },
+    { id: 'img-announce', key: 'announce', iw: 500, ih: 504, node: 'line', y: 9.5, width: 6.8, caption: '💬 保護者に届いた開催案内' },
   ];
   STAKE.register.shots = ['img-newsletter', 'img-preview', 'img-template'];
   STAKE.receive.shots = ['img-announce'];
@@ -167,29 +167,32 @@
         });
       });
       // 人が見る画面のサンプル画像(カメラの方を向く)。見る人のステップでだけ表示する。
-      // 画像の下に、どの箱の画面かを示す名前(キャプション)の帯を描き足したテクスチャにする
+      // 画像の下に、どの箱の画面かを示す名前(キャプション)の帯を付けたテクスチャにする。
+      // ※共通部品はステップを切り替えるたびに「build直後の状態」へ戻すので、大きさ・位置・テクスチャ・透明度は
+      //   build時に確定させる。画像の読み込みが終わったら、同じキャンバスに絵を描き足すだけにする(スプライトは触らない)
       SHOTS.forEach(function (sh) {
-        var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, opacity: 0 }));
-        sprite.scale.set(sh.width, sh.width, 1);
-        sprite.position.set(s.N[sh.node].x + (sh.dx || 0), sh.y + sh.width / 2, s.N[sh.node].z + (sh.dz || 0));
+        var bar = Math.round(sh.iw * 0.11);                 // キャプションの帯の高さ(px)
+        var c = document.createElement('canvas');
+        c.width = sh.iw; c.height = sh.ih + bar;
+        var ctx = c.getContext('2d');
+        function paint(img) {
+          ctx.clearRect(0, 0, c.width, c.height);
+          if (img) ctx.drawImage(img, 0, 0);
+          ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, sh.ih, c.width, bar);
+          ctx.fillStyle = '#1b1830'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.font = 'bold ' + Math.round(bar * 0.55) + 'px "Yu Gothic UI","Hiragino Sans","Meiryo",sans-serif';
+          ctx.fillText(sh.caption, c.width / 2, sh.ih + bar / 2);
+        }
+        paint(null);
+        var tex = new THREE.CanvasTexture(c);
+        var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+        var h = sh.width * c.height / c.width;
+        sprite.scale.set(sh.width, h, 1);
+        sprite.position.set(s.N[sh.node].x + (sh.dx || 0), sh.y + h / 2, s.N[sh.node].z + (sh.dz || 0));
         sprite.renderOrder = 20;
         g.add(sh.id, sprite);
         var img = new Image();
-        img.onload = function () {
-          var bar = Math.round(img.width * 0.11), c = document.createElement('canvas'), ctx;
-          c.width = img.width; c.height = img.height + bar;
-          ctx = c.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, img.height, c.width, bar);
-          ctx.fillStyle = '#1b1830'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.font = 'bold ' + Math.round(bar * 0.55) + 'px "Yu Gothic UI","Hiragino Sans","Meiryo",sans-serif';
-          ctx.fillText(sh.caption, c.width / 2, img.height + bar / 2);
-          sprite.material.map = new THREE.CanvasTexture(c);
-          sprite.material.opacity = 1;
-          sprite.material.needsUpdate = true;
-          sprite.scale.set(sh.width, sh.width * c.height / c.width, 1);
-          sprite.position.y = sh.y + sprite.scale.y / 2;
-        };
+        img.onload = function () { paint(img); tex.needsUpdate = true; };
         img.src = window.CUB_IMGS[sh.key];
       });
       buildOverlay(g);
