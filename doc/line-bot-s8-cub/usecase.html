@@ -16,6 +16,10 @@
   .demo-bar button.on { background: #06c755; border-color: #06c755; }
   .demo-prog { flex: 1; height: 6px; background: #ffffff30; border-radius: 3px; overflow: hidden; }
   .demo-prog i { display: block; height: 100%; width: 0; background: #06c755; }
+  /* 見る人(ステークホルダー)の切り替え。3Dの左上に重ねる */
+  .demo-tog { position: absolute; left: 12px; top: 12px; display: flex; align-items: center; gap: 6px; background: #000000a0; padding: 6px 8px; border-radius: 10px; color: #fff; font-size: 13px; }
+  .demo-tog button { border: 1px solid #ffffff55; background: #ffffff14; color: #fff; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .demo-tog button.on { background: #f59e0b; border-color: #f59e0b; color: #1b1830; font-weight: bold; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -29,6 +33,13 @@
   var C = GameGuide.colors, U = CubMenu.ui, at = U.at;
   var WIDE = { pos: [0, 30, 24], target: [0, 0, -2] };
   var PACKETS = ['pk0', 'pk1', 'pk2', 'pdfdoc'];
+  // 見る人ごとの「フロント」(人が触る・意識する場所)。ここだけ明るくして、裏側(保存先・cron・管理者リストなど)は少し暗くする
+  var STAKE = {
+    register: { nodes: ['admin', 'pdf', 'notice', 'preview', 'resv'], links: ['pdf', 'set-nt', 'pv-ad', 'add-rs'], tag: '👆 触る' },
+    receive: { nodes: ['line'], links: ['send', 'rs-ln'], tag: '👀 ここに届く' },
+  };
+  function tagId(kind, node) { return 'tag-' + kind + '-' + node; }
+  function tagIds(kind) { return STAKE[kind].nodes.map(function (n) { return tagId(kind, n); }); }
 
   var ANNOUNCE =
     'カブ隊保護者のみなさま\n副長の〇〇です。次回の活動についてご連絡致します。\n\n' +
@@ -64,12 +75,15 @@
   function glow(g, id, t, from) { if (t >= from) g.pulse(g.get(id), t, 0.07); }
 
   function restartStep(i) { guide.stepIndex = -1; guide.go(i); lastIndex = i; t0 = Date.now(); }
-  function setPlaying(on) {
+  function lastDemoIndex() { var i = STEPS.length - 1; while (i > 0 && STEPS[i].stake) i--; return i; }
+  function stakeIndex(kind) { for (var i = 0; i < STEPS.length; i++) if (STEPS[i].stake === kind) return i; return -1; }
+  function setPlaying(on, keepStep) {
     playing = on;
     playBtn.textContent = on ? '⏸ 一時停止' : '▶ 自動で再生';
     playBtn.classList.toggle('on', on);
-    if (on) {
-      if (guide.stepIndex >= STEPS.length - 1) restartStep(0); else restartStep(guide.stepIndex < 0 ? 0 : guide.stepIndex);
+    if (on && !keepStep) {
+      var cur = STEPS[guide.stepIndex];
+      if (!cur || cur.stake || guide.stepIndex >= lastDemoIndex()) restartStep(0); else restartStep(guide.stepIndex < 0 ? 0 : guide.stepIndex);
     }
   }
 
@@ -79,6 +93,27 @@
     ov.innerHTML = '<div class="demo-cap"></div><div class="demo-bar"><button data-k="play">▶ 自動で再生</button><button data-k="restart">⏮ 最初から</button><div class="demo-prog"><i></i></div></div>';
     g.stage.appendChild(ov);
     capEl = ov.querySelector('.demo-cap'); playBtn = ov.querySelector('[data-k=play]'); progEl = ov.querySelector('.demo-prog i');
+    // 見る人の切り替え(デモ / 開催案内登録 / 開催案内受信)。選んでいるものをもう一度押すと、デモに戻る
+    var tog = document.createElement('div');
+    tog.className = 'demo-tog';
+    tog.innerHTML = '見る人: <button data-k="demo">デモ</button><button data-k="register">開催案内登録(管理者)</button><button data-k="receive">開催案内受信(保護者)</button>';
+    g.stage.appendChild(tog);
+    function syncToggle() {
+      var cur = g.stepIndex >= 0 && STEPS[g.stepIndex] ? STEPS[g.stepIndex].stake : null;
+      Array.prototype.forEach.call(tog.querySelectorAll('button'), function (b) {
+        var k = b.getAttribute('data-k');
+        b.classList.toggle('on', k === 'demo' ? !cur : k === cur);
+      });
+    }
+    tog.onclick = function (e) {
+      var k = e.target.getAttribute && e.target.getAttribute('data-k');
+      if (!k) return;
+      var cur = STEPS[g.stepIndex] && STEPS[g.stepIndex].stake;
+      setPlaying(false, true);
+      if (k === 'demo' || k === cur) { g.stepIndex = -1; g.go(0); } else g.go(stakeIndex(k));
+      syncToggle();
+    };
+    setInterval(syncToggle, 200);
     playBtn.onclick = function () { setPlaying(!playing); };
     ov.querySelector('[data-k=restart]').onclick = function () { restartStep(0); setPlaying(true); };
     // 自動再生: いまの章が dur 秒たったら次の章へ。手でステップを変えたら、その章から数え直す
@@ -88,8 +123,9 @@
       if (i !== lastIndex) { lastIndex = i; t0 = Date.now(); }
       var dur = STEPS[i].dur * 1000, el = Date.now() - t0;
       progEl.style.width = playing ? Math.min(100, el / dur * 100) + '%' : '0';
+      if (STEPS[i].stake) { if (playing) setPlaying(false, true); return; }
       if (playing && el >= dur) {
-        if (i < STEPS.length - 1) g.go(i + 1); else setPlaying(false);
+        if (i < lastDemoIndex()) g.go(i + 1); else setPlaying(false);
       }
     }, 150);
   }
@@ -110,6 +146,13 @@
         g.sphere({ id: id, radius: 0.42, pos: [0, -50, 0], color: '#ffffff', emissive: '#7ef0ff', emissiveIntensity: 0.9 });
       });
       g.box({ id: 'pdfdoc', size: [1.5, 0.25, 1.9], pos: [0, -50, 0], color: '#ffffff', edges: false, label: '📄 PDF', labelSize: 0.5, labelBg: '#1b1830ee' });
+      // フロントの目印(その見る人のステップでだけ表示する)
+      Object.keys(STAKE).forEach(function (kind) {
+        STAKE[kind].nodes.forEach(function (n) {
+          var pos = s.N[n];
+          g.label(STAKE[kind].tag, [pos.x, 3.6, pos.z], { id: tagId(kind, n), size: 0.55, color: '#1b1830', bg: '#f59e0b' });
+        });
+      });
       buildOverlay(g);
     },
     steps: STEPS = [
@@ -276,6 +319,50 @@
             '<tr><td>PDFが取り込まれない</td><td>「カブ8取り込み」の後、<b>5分以内</b>に<b>同じトーク</b>へ送ったか</td></tr>' +
             '<tr><td>予約できない</td><td>日時が<b>2分以上先</b>か、送信先グループがあるか</td></tr></table>') +
           at(8000, '<p>しくみは<a href="overview.html">アーキテクチャ</a>、ボタンの順番は<a href="structure.html">メニュー階層</a>で見られます。</p><p class="gg-files">人名・ID・グループ名は、すべてダミーです。</p>')
+      },
+      {
+        title: '👤 見る人: 開催案内登録(管理者)',
+        stake: 'register',
+        dur: 9999,
+        focus: F(STAKE.register.nodes, STAKE.register.links),
+        show: tagIds('register'),
+        camera: WIDE,
+        enter: function (g) {
+          reveal(g); capEl.textContent = '管理者が触るところだけ明るくしています。ほかは、Botが裏で自動でやることです。';
+          // フロント以外は「少し暗く」(共通の初期値より明るめ(0.3)にして、位置関係は見えるまま)
+          Object.keys(g.dim).forEach(function (id) { if (g.dim[id].target < 1) g.dim[id].target = 0.3; });
+        },
+        update: function (g, t) { STAKE.register.nodes.forEach(function (n) { glow(g, n, t, 0.2); }); },
+        html: 
+          '<p>🔆 <b>明るい場所</b>が、管理者が<b>自分で触る・見る</b>ところです。暗い場所は<b>裏側</b>(Botが自動でやること)なので、意識しなくて大丈夫です。</p>' +
+          '<table><tr><th>触るところ</th><th>やること</th></tr>' +
+          '<tr><td>📄 PDFを送る</td><td>管理者用 → 活動予定 →「カブ8取り込み」→ PDFを送る</td></tr>' +
+          '<tr><td>✏️ 案内文設定</td><td>管理者用 → 保護者連絡 → 案内文設定(ヘッダ・フッタ・テンプレ。初回だけ)</td></tr>' +
+          '<tr><td>👀 プレビュー</td><td>案内文設定 → プレビュー表示で、送る文面を確認</td></tr>' +
+          '<tr><td>📢 送る</td><td>「次回を送信」(今すぐ) / アナウンス追加(日時を決めて予約)</td></tr></table>' +
+          '<div class="gg-note"><b>意識しなくていいこと</b>(暗い場所): 活動予定の保存、送信先グループの登録リスト、管理者リスト、cron-job.org の呼び出し。どれも自動です。</div>' +
+          '<p class="gg-files">他のステップと同じ図ですが、このモードは<b>人が意識する場所だけ</b>を明るくしています。上の「見る人」を押すと切り替わります。</p>'
+      },
+      {
+        title: '👤 見る人: 開催案内受信(保護者)',
+        stake: 'receive',
+        dur: 9999,
+        focus: F(STAKE.receive.nodes, STAKE.receive.links),
+        show: tagIds('receive'),
+        camera: WIDE,
+        enter: function (g) {
+          reveal(g); capEl.textContent = '保護者が意識するのは、LINEグループに届くお知らせだけです。';
+          // フロント以外は「少し暗く」(共通の初期値より明るめ(0.3)にして、位置関係は見えるまま)
+          Object.keys(g.dim).forEach(function (id) { if (g.dim[id].target < 1) g.dim[id].target = 0.3; });
+        },
+        update: function (g, t) { STAKE.receive.nodes.forEach(function (n) { glow(g, n, t, 0.2); }); },
+        html: 
+          '<p>🔆 <b>明るい場所</b>が、保護者が<b>意識する</b>ところです。保護者が見るのは、<b>LINEグループに届くお知らせ</b>だけです。</p>' +
+          '<table><tr><th>意識するところ</th><th>内容</th></tr>' +
+          '<tr><td>💬 LINEグループ</td><td>開催案内(集合・解散・場所・もちもの)と、アナウンス(前日のお知らせなど)が届く</td></tr></table>' +
+          U.chat([{ who: 'bot', text: ANNOUNCE }], '保護者グループ') +
+          '<div class="gg-note"><b>保護者がやること</b>: 届いたお知らせを見る。<b>操作は不要</b>です。カブナビ8ちゃんに話しかけても反応しません(質問は指導者に直接)。</div>' +
+          '<p class="gg-files">他のすべて(PDFの取り込み・予定・案内文・予約・cron)は、管理者とBotの裏側です。</p>'
       },
     ],
   });
