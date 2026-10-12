@@ -50,7 +50,7 @@
       node('preview', 0, -4, '👀 開催案内\n(プレビュー)', C.data);
       node('notice', 0, -11, '✏️ 案内文設定\nヘッダ・フッタ・テンプレ', C.gold);
       node('resv', 9, 3, '📢 アナウンス予約\n(日時・宛先・本文)', '#ff8fb1');
-      node('groups', 9, -11, '👥 送信先グループ\nの登録リスト', C.third);
+      node('groups', 9, -11, '👥 登録グループ\n(保護者用・指導者用…)', C.third);
       node('admins', -9, -11, '👑 管理者リスト\n(オーナー＋追加分)', C.server);
       // 外
       node('admin', -17, -4, '🧑‍💼 管理者\n(LINEの1:1トーク)', C.me, 4.4, 2.4);
@@ -71,7 +71,7 @@
       link('gr-rs', 'groups', 'resv', '宛先を選ぶ', C.third, 1.2);
       link('cr-rs', 'cron', 'resv', '毎分確認', C.enemy, 0.8);
       link('rs-ln', 'resv', 'line', '時刻になったら\n自動で送信', '#ff8fb1', 1.6);
-      link('ad-ls', 'admin', 'admins', '管理者の追加・削除\n(削除はオーナーだけ)', C.me, 1.2);
+      link('ad-ls', 'admin', 'admins', '管理者の追加・削除\n(オーナーは外せない)', C.me, 1.2);
 
     }
     return { N: N, node: node, link: link, buildBase: buildBase };
