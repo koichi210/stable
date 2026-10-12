@@ -26,7 +26,7 @@
 <script src="lib/guide.js"></script>
 <script src="lib/cub-scene.js"></script>
 <script src="lib/cub-menu.js"></script>
-<script src="lib/announce-img.js"></script>
+<script src="lib/cub-images.js"></script>
 </head>
 <body>
 <script>
@@ -42,6 +42,15 @@
       tags: { resv: '📢 予約した時刻に', cron: '⏰ 毎分チェック' }, // ノードごとの目印(無ければ tag)
     },
   };
+  // 画像を出す場所。y=画像の下端の高さ(箱の目印・ラベルと重ならないよう、箱より十分上に置く)
+  var SHOTS = [
+    { id: 'img-newsletter', key: 'newsletter', node: 'pdf', y: 9.5, width: 5.6, caption: '📄 カブ8通信(PDF)' },
+    { id: 'img-preview', key: 'announce', node: 'preview', y: 9.5, width: 5.6, dx: 5.5, caption: '👀 開催案内(プレビュー)' },
+    { id: 'img-template', key: 'template', node: 'notice', y: 9.5, width: 5.6, dx: -5.5, caption: '✏️ 案内文設定' },
+    { id: 'img-announce', key: 'announce', node: 'line', y: 9.5, width: 6.8, caption: '💬 保護者に届いた開催案内' },
+  ];
+  STAKE.register.shots = ['img-newsletter', 'img-preview', 'img-template'];
+  STAKE.receive.shots = ['img-announce'];
   function tagId(kind, node) { return 'tag-' + kind + '-' + node; }
   function tagIds(kind) { return STAKE[kind].nodes.map(function (n) { return tagId(kind, n); }); }
 
@@ -157,13 +166,32 @@
           g.label((STAKE[kind].tags && STAKE[kind].tags[n]) || STAKE[kind].tag, [pos.x, 3.6, pos.z], { id: tagId(kind, n), size: 0.55, color: '#1b1830', bg: '#f59e0b' });
         });
       });
-      // 保護者LINEグループの上に、届いた開催案内の画面(サンプル画像)。「開催案内受信」のステップでだけ表示する
-      var texture = new THREE.TextureLoader().load(window.CUB_ANNOUNCE_IMG);
-      var shot = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
-      shot.scale.set(7.2, 7.2 * 504 / 500, 1);
-      shot.position.set(s.N.line.x, 12, s.N.line.z);   // 目印・ラベルと重ならない高さ
-      shot.renderOrder = 20;
-      g.add('announce-img', shot);
+      // 人が見る画面のサンプル画像(カメラの方を向く)。見る人のステップでだけ表示する。
+      // 画像の下に、どの箱の画面かを示す名前(キャプション)の帯を描き足したテクスチャにする
+      SHOTS.forEach(function (sh) {
+        var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, opacity: 0 }));
+        sprite.scale.set(sh.width, sh.width, 1);
+        sprite.position.set(s.N[sh.node].x + (sh.dx || 0), sh.y + sh.width / 2, s.N[sh.node].z + (sh.dz || 0));
+        sprite.renderOrder = 20;
+        g.add(sh.id, sprite);
+        var img = new Image();
+        img.onload = function () {
+          var bar = Math.round(img.width * 0.11), c = document.createElement('canvas'), ctx;
+          c.width = img.width; c.height = img.height + bar;
+          ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, img.height, c.width, bar);
+          ctx.fillStyle = '#1b1830'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.font = 'bold ' + Math.round(bar * 0.55) + 'px "Yu Gothic UI","Hiragino Sans","Meiryo",sans-serif';
+          ctx.fillText(sh.caption, c.width / 2, img.height + bar / 2);
+          sprite.material.map = new THREE.CanvasTexture(c);
+          sprite.material.opacity = 1;
+          sprite.material.needsUpdate = true;
+          sprite.scale.set(sh.width, sh.width * c.height / c.width, 1);
+          sprite.position.y = sh.y + sprite.scale.y / 2;
+        };
+        img.src = window.CUB_IMGS[sh.key];
+      });
       buildOverlay(g);
     },
     steps: STEPS = [
@@ -335,9 +363,9 @@
         title: '👤 見る人: 開催案内登録(管理者)',
         stake: 'register',
         dur: 9999,
-        focus: F(STAKE.register.nodes, STAKE.register.links),
-        show: tagIds('register'),
-        camera: WIDE,
+        focus: F(STAKE.register.nodes, STAKE.register.links).concat(STAKE.register.shots),
+        show: tagIds('register').concat(STAKE.register.shots),
+        camera: { pos: [-2, 38, 30], target: [-2, 4, -2] },
         enter: function (g) {
           reveal(g); capEl.textContent = '管理者が触るところだけ明るくしています。ほかは、Botが裏で自動でやることです。';
           // フロント以外は「少し暗く」(共通の初期値より明るめ(0.3)にして、位置関係は見えるまま)
@@ -347,7 +375,7 @@
         html: 
           '<p>🔆 <b>明るい場所</b>が、管理者が<b>自分で触る・見る</b>ところです。暗い場所は<b>裏側</b>(Botが自動でやること)なので、意識しなくて大丈夫です。</p>' +
           '<table><tr><th>触るところ</th><th>やること</th></tr>' +
-          '<tr><td>📄 PDFを送る</td><td>管理者用 → 活動予定 →「カブ8取り込み」→ PDFを送る</td></tr>' +
+          '<tr><td>📄 PDFを送る(カブ8通信)</td><td>管理者用 → 活動予定 →「カブ8取り込み」→ PDFを送る</td></tr>' +
           '<tr><td>✏️ 案内文設定</td><td>管理者用 → 保護者連絡 → 案内文設定(ヘッダ・フッタ・テンプレ。初回だけ)</td></tr>' +
           '<tr><td>👀 プレビュー</td><td>案内文設定 → プレビュー表示で、送る文面を確認</td></tr>' +
           '<tr><td>📢 送る</td><td>「次回を送信」(今すぐ) / アナウンス追加(日時を決めて予約)</td></tr></table>' +
@@ -358,8 +386,8 @@
         title: '👤 見る人: 開催案内受信(保護者)',
         stake: 'receive',
         dur: 9999,
-        focus: F(STAKE.receive.nodes, STAKE.receive.links).concat(['announce-img']),
-        show: tagIds('receive').concat(['announce-img']),
+        focus: F(STAKE.receive.nodes, STAKE.receive.links).concat(STAKE.receive.shots),
+        show: tagIds('receive').concat(STAKE.receive.shots),
         camera: { pos: [8, 36, 32], target: [8, 4, 0] },
         enter: function (g) {
           reveal(g); capEl.textContent = '保護者が意識するのは、LINEグループに届くお知らせだけです。';
