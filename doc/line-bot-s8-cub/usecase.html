@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>line-bot-s8-cub ユースケース(デモ)</title>
+<title>line-bot-s8-cub ユースケース</title>
 <link rel="stylesheet" href="lib/guide.css">
 <link rel="stylesheet" href="lib/cub-tutorial.css">
 <style>
@@ -95,12 +95,12 @@
   }
 
   GameGuide.start({
-    title: 'カブナビ8ちゃん ユースケース(デモ)',
+    title: 'カブナビ8ちゃん ユースケース',
     subtitle: '「▶ 自動で再生」を押すと、最初の準備から毎月の流れまで、デモ動画のように流れます',
     camera: WIDE,
     build: function (g) {
       guide = g;
-      // 舞台はしくみ図と同じ。デモ用に、新しい管理者の箱・案内文を設定する矢印・流れるパケットを足す
+      // 舞台はアーキテクチャと同じ。デモ用に、新しい管理者の箱・案内文を設定する矢印・流れるパケットを足す
       var s = CubScene.create(g);
       s.buildBase();
       s.node('newadmin', -17, -11, '🙋 新しい管理者\n(これから手伝う人)', '#9ad0ff', 4.4, 2.2);
@@ -275,7 +275,7 @@
             '<tr><td>グループに届かない</td><td>そのグループの中で「グループ追加」したか(グループ一覧)</td></tr>' +
             '<tr><td>PDFが取り込まれない</td><td>「カブ8取り込み」の後、<b>5分以内</b>に<b>同じトーク</b>へ送ったか</td></tr>' +
             '<tr><td>予約できない</td><td>日時が<b>2分以上先</b>か、送信先グループがあるか</td></tr></table>') +
-          at(8000, '<p>しくみは<a href="overview.html">しくみ図</a>、ボタンの順番は<a href="structure.html">メニューの階層</a>で見られます。</p><p class="gg-files">人名・ID・グループ名は、すべてダミーです。</p>')
+          at(8000, '<p>しくみは<a href="overview.html">アーキテクチャ</a>、ボタンの順番は<a href="structure.html">メニュー階層</a>で見られます。</p><p class="gg-files">人名・ID・グループ名は、すべてダミーです。</p>')
       },
     ],
   });

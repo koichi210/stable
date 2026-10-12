@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>line-bot-s8-cub メニューの階層</title>
+<title>line-bot-s8-cub メニュー階層</title>
 <link rel="stylesheet" href="lib/guide.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -118,7 +118,7 @@
   }
 
   GameGuide.start({
-    title: 'カブナビ8ちゃん メニューの階層',
+    title: 'カブナビ8ちゃん メニュー階層',
     subtitle: '管理者がどのボタンを、どの順番で押すと、何ができるか',
     camera: camList(all),
     build: function (g) {
@@ -169,7 +169,7 @@
         camera: camFor(find('m/その他')),
         html:
           '<p>管理者でない人には、<b>その他</b>だけのメニューが出ます。その中の<b>マイID</b>と<b>ヘルプ</b>が使えます。ヘルプは今は「今後実装予定です」と返ります。</p>' + LEGEND + table(find('m/その他')) +
-          '<div class="gg-note">保護者に届くお知らせ(開催案内・アナウンス)は、メニューではなく<b>LINEグループ</b>に届きます。仕組みは<a href="overview.html">しくみ図</a>、手順は<a href="usecase.html">ユースケース</a>を見てください。</div>' +
+          '<div class="gg-note">保護者に届くお知らせ(開催案内・アナウンス)は、メニューではなく<b>LINEグループ</b>に届きます。仕組みは<a href="overview.html">アーキテクチャ</a>、手順は<a href="usecase.html">ユースケース</a>を見てください。</div>' +
           '<p class="gg-files">この図は menus-data.js(rich-menu-config.js から自動生成)で組み立てています。メニューを変えたら <code>node scripts/build-tutorial-data.js</code> で作り直します。</p>'
       },
     ],

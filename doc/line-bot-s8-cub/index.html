@@ -3,35 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>line-bot-s8-cub 図解ドキュメント</title>
+<title>line-bot-s8-cub ドキュメント</title>
 <link rel="stylesheet" href="lib/guide.css">
 </head>
 <body>
 <div class="gg-hub">
-  <h1>line-bot-s8-cub 図解ドキュメント</h1>
+  <h1>line-bot-s8-cub ドキュメント</h1>
   <p class="lead">カブ隊用LINEボット「カブナビ8ちゃん」の仕組みと使い方を、Three.jsの立体図で1歩ずつ解説します。<br>
   PCのブラウザで開いて、画面共有や説明会で見せる用です。人名・ID・グループ名は<b>すべてダミー</b>です。</p>
 
   <div class="gg-grid">
     <a class="gg-card" href="structure.html">
-      <div class="t">🌳 メニューの階層</div>
+      <div class="t">🌳 メニュー階層</div>
       <div class="tech">Three.js / 全9ステップ</div>
       <div class="d">管理者 → 管理者用 → 保護者連絡 → アナウンス → 追加／削除… と、ボタンを押す順番を階層(ツリー)で表示。各ボタンでできることの表付き。</div>
     </a>
     <a class="gg-card" href="overview.html">
-      <div class="t">🗺️ 機能のつながり（しくみ図）</div>
+      <div class="t">🗺️ アーキテクチャ</div>
       <div class="tech">Three.js / 全8ステップ</div>
       <div class="d">グループ・アナウンス・案内文設定・活動予定・管理者が、どうつながっているかを図で。データの流れを矢印で追えます。</div>
     </a>
     <a class="gg-card" href="usecase.html">
-      <div class="t">🎬 ユースケース（デモ）</div>
+      <div class="t">🎬 ユースケース</div>
       <div class="tech">Three.js / 自動再生 / 全10章</div>
       <div class="d">デモ動画のように、役割別の使い方が流れます。「▶ 自動で再生」で、最初の準備 → 毎月の開催案内 → 保護者が見る画面まで。字幕付き。</div>
     </a>
   </div>
 
   <p class="lead" style="margin-top:28px">
-    「メニューの階層」は、Bot本体の <code>scripts/rich-menu-config.js</code> から自動生成した
+    「メニュー階層」は、Bot本体の <code>scripts/rich-menu-config.js</code> から自動生成した
     <code>menus-data.js</code> を読んで組み立てています。メニューを変えたら、Bot側のリポジトリで
     <code>node scripts/build-tutorial-data.js</code> を実行して <code>menus-data.js</code> を更新します。<br>
     3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は

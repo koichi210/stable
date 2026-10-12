@@ -1,5 +1,5 @@
 /*
- * s8-cub 機能のつながり図の舞台(overview.html と usecase.html で共有)。
+ * s8-cub アーキテクチャ図の舞台(overview.html と usecase.html で共有)。
  * 「カブナビ8ちゃんの中(保存しているもの)」と「外(人・LINEグループ・cron)」の箱と矢印を並べる。
  * 読み込み順: three.min.js → OrbitControls.js → lib/guide.js → lib/cub-scene.js
  */
