@@ -49,8 +49,10 @@
     { id: 'img-template', key: 'template', iw: 500, ih: 680, node: 'notice', y: 9.5, width: 5.6, dx: -5.5, caption: '✏️ 案内文設定' },
     { id: 'img-announce', key: 'announce', iw: 500, ih: 504, node: 'line', y: 9.5, width: 6.8, caption: '💬 保護者に届いた開催案内' },
   ];
-  STAKE.register.shots = ['img-newsletter', 'img-preview', 'img-template'];
-  STAKE.receive.shots = ['img-announce'];
+  // 画像と、その画像から下の箱へ引く破線(id は 'link-' + 画像のid)
+  function withLinks(ids) { return ids.reduce(function (r, id) { return r.concat([id, 'link-' + id]); }, []); }
+  STAKE.register.shots = withLinks(['img-newsletter', 'img-preview', 'img-template']);
+  STAKE.receive.shots = withLinks(['img-announce']);
   function tagId(kind, node) { return 'tag-' + kind + '-' + node; }
   function tagIds(kind) { return STAKE[kind].nodes.map(function (n) { return tagId(kind, n); }); }
 
@@ -191,6 +193,9 @@
         sprite.position.set(s.N[sh.node].x + (sh.dx || 0), sh.y + h / 2, s.N[sh.node].z + (sh.dz || 0));
         sprite.renderOrder = 20;
         g.add(sh.id, sprite);
+        // 画像と、その下の箱をつなぐ破線(オレンジ)。画像の中心まで伸ばして、画像の裏に隠す
+        var node = s.N[sh.node];
+        g.line([[node.x, 0.9, node.z], [sprite.position.x, sprite.position.y, sprite.position.z]], { id: 'link-' + sh.id, color: '#f59e0b', dashed: true, opacity: 1 });
         var img = new Image();
         img.onload = function () { paint(img); tex.needsUpdate = true; };
         img.src = window.CUB_IMGS[sh.key];
