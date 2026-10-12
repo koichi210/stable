@@ -26,6 +26,7 @@
 <script src="lib/guide.js"></script>
 <script src="lib/cub-scene.js"></script>
 <script src="lib/cub-menu.js"></script>
+<script src="lib/announce-img.js"></script>
 </head>
 <body>
 <script>
@@ -36,7 +37,10 @@
   // 見る人ごとの「フロント」(人が触る・意識する場所)。ここだけ明るくして、裏側(保存先・cron・管理者リストなど)は少し暗くする
   var STAKE = {
     register: { nodes: ['admin', 'pdf', 'notice', 'preview', 'resv'], links: ['pdf', 'set-nt', 'pv-ad', 'add-rs'], tag: '👆 触る' },
-    receive: { nodes: ['line'], links: ['send', 'rs-ln'], tag: '👀 ここに届く' },
+    receive: {
+      nodes: ['line', 'resv', 'cron'], links: ['cr-rs', 'rs-ln'], tag: '👀 ここに届く',
+      tags: { resv: '📢 予約した時刻に', cron: '⏰ 毎分チェック' }, // ノードごとの目印(無ければ tag)
+    },
   };
   function tagId(kind, node) { return 'tag-' + kind + '-' + node; }
   function tagIds(kind) { return STAKE[kind].nodes.map(function (n) { return tagId(kind, n); }); }
@@ -150,9 +154,16 @@
       Object.keys(STAKE).forEach(function (kind) {
         STAKE[kind].nodes.forEach(function (n) {
           var pos = s.N[n];
-          g.label(STAKE[kind].tag, [pos.x, 3.6, pos.z], { id: tagId(kind, n), size: 0.55, color: '#1b1830', bg: '#f59e0b' });
+          g.label((STAKE[kind].tags && STAKE[kind].tags[n]) || STAKE[kind].tag, [pos.x, 3.6, pos.z], { id: tagId(kind, n), size: 0.55, color: '#1b1830', bg: '#f59e0b' });
         });
       });
+      // 保護者LINEグループの上に、届いた開催案内の画面(サンプル画像)。「開催案内受信」のステップでだけ表示する
+      var texture = new THREE.TextureLoader().load(window.CUB_ANNOUNCE_IMG);
+      var shot = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+      shot.scale.set(7.2, 7.2 * 504 / 500, 1);
+      shot.position.set(s.N.line.x, 12, s.N.line.z);   // 目印・ラベルと重ならない高さ
+      shot.renderOrder = 20;
+      g.add('announce-img', shot);
       buildOverlay(g);
     },
     steps: STEPS = [
@@ -347,9 +358,9 @@
         title: '👤 見る人: 開催案内受信(保護者)',
         stake: 'receive',
         dur: 9999,
-        focus: F(STAKE.receive.nodes, STAKE.receive.links),
-        show: tagIds('receive'),
-        camera: WIDE,
+        focus: F(STAKE.receive.nodes, STAKE.receive.links).concat(['announce-img']),
+        show: tagIds('receive').concat(['announce-img']),
+        camera: { pos: [8, 36, 32], target: [8, 4, 0] },
         enter: function (g) {
           reveal(g); capEl.textContent = '保護者が意識するのは、LINEグループに届くお知らせだけです。';
           // フロント以外は「少し暗く」(共通の初期値より明るめ(0.3)にして、位置関係は見えるまま)
@@ -359,10 +370,12 @@
         html: 
           '<p>🔆 <b>明るい場所</b>が、保護者が<b>意識する</b>ところです。保護者が見るのは、<b>LINEグループに届くお知らせ</b>だけです。</p>' +
           '<table><tr><th>意識するところ</th><th>内容</th></tr>' +
-          '<tr><td>💬 LINEグループ</td><td>開催案内(集合・解散・場所・もちもの)と、アナウンス(前日のお知らせなど)が届く</td></tr></table>' +
+          '<tr><td>💬 LINEグループ</td><td>開催案内(集合・解散・場所・もちもの)と、アナウンス(前日のお知らせなど)が届く</td></tr>' +
+          '<tr><td>📢 アナウンス予約</td><td>管理者が決めた<b>日時</b>に、自動でグループへ届く(届く時刻は、ここで決まっている)</td></tr>' +
+          '<tr><td>⏰ cron-job.org</td><td>毎分Botを呼び出して、予約の時刻になったかを確認する(時刻どおりに届くための目覚まし役)</td></tr></table>' +
           U.chat([{ who: 'bot', text: ANNOUNCE }], '保護者グループ') +
           '<div class="gg-note"><b>保護者がやること</b>: 届いたお知らせを見る。<b>操作は不要</b>です。カブナビ8ちゃんに話しかけても反応しません(質問は指導者に直接)。</div>' +
-          '<p class="gg-files">他のすべて(PDFの取り込み・予定・案内文・予約・cron)は、管理者とBotの裏側です。</p>'
+          '<p class="gg-files">他のすべて(PDFの取り込み・予定・案内文・送信先リスト・管理者リスト)は、管理者とBotの裏側です。</p>'
       },
     ],
   });
