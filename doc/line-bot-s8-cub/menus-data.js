@@ -130,18 +130,18 @@ window.CUB_MENUS = {
      "target": "admins"
     },
     {
-     "label": "📄 活動予定",
-     "color": "#DCEDC8",
+     "label": "👥 グループ編集",
+     "color": "#B3E5FC",
      "kind": "switch",
-     "target": "events"
+     "target": "groups"
     }
    ],
    [
     {
-     "label": "👥 グループ",
-     "color": "#B3E5FC",
+     "label": "📄 活動予定",
+     "color": "#DCEDC8",
      "kind": "switch",
-     "target": "groups"
+     "target": "events"
     },
     {
      "label": "◀ 戻る",
@@ -295,7 +295,7 @@ window.CUB_MENUS = {
   ]
  },
  "groups": {
-  "name": "s8-cub グループサブメニュー",
+  "name": "s8-cub グループ編集サブメニュー",
   "rowHeight": null,
   "layout": [
    [
@@ -308,8 +308,8 @@ window.CUB_MENUS = {
     {
      "label": "グループ削除",
      "color": "#4FC3F7",
-     "kind": "message",
-     "text": "グループ削除"
+     "kind": "liff",
+     "view": "group-delete"
     }
    ],
    [
