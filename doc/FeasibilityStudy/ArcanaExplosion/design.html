@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcanaExplosion 設計図</title>
+<link rel="stylesheet" href="./guide.css">
+<style>
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.7; }
+  .ds-wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  .ds-top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; font-size: 13px; }
+  .ds-top a { color: var(--accent); text-decoration: none; }
+  .ds-top a:hover { text-decoration: underline; }
+  h1 { font-size: 26px; margin: 12px 0 4px; line-height: 1.35; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  h2 { font-size: 21px; margin: 48px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 16.5px; margin: 28px 0 6px; }
+  p { margin: 0 0 10px; }
+  ul, ol { margin: 0 0 10px; padding-left: 1.4em; }
+  code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px;
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.88em; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 12px; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); }
+  .tbl { overflow-x: auto; }
+  .toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 18px; margin: 0 0 8px; }
+  .toc ol { margin: 0; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+  .dg { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; margin: 8px 0 14px; overflow-x: auto; }
+  .dg .mermaid { min-width: 560px; text-align: center; }
+  .note { border-left: 3px solid var(--accent); background: var(--panel-2);
+    padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 0 0 12px; font-size: 14px; }
+  .src { color: var(--muted); font-size: 12.5px; margin: -6px 0 14px; }
+  .foot { margin-top: 48px; color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 820px) {
+    h1 { font-size: 22px; }
+    .dg .mermaid { min-width: 520px; }
+  }
+</style>
+</head>
+<body>
+<div class="ds-wrap">
+
+<div class="ds-top">
+  <a href="../index.html">← 図解の一覧へ</a>
+  <a href="./game-guide.html">🎴 ゲームの仕組み図解（3D）</a>
+</div>
+
+<h1>ArcanaExplosion 設計図</h1>
+<p class="lead">トランプ52枚がキャラクターとアイテムに化けるカードバトル（Python＋Flask＋HTML/JS）の内部設計。<br>
+アーキテクチャ・シーケンス図・ステートマシン図・ER図を、ソースコードの実装に合わせて描いています。</p>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#arch">アーキテクチャ</a>（全体構成・動かし方の3パターン）</li>
+    <li><a href="#seq">シーケンス図</a>（CPU対戦／LAN対戦／攻撃1回の内部処理）</li>
+    <li><a href="#state">ステートマシン図</a>（部屋の一生／ターン進行／画面遷移）</li>
+    <li><a href="#er">ER図</a>（メモリ上のデータモデル）</li>
+    <li><a href="#maint">この設計図の育て方</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================ 1 -->
+<h2 id="arch">1. アーキテクチャ</h2>
+
+<p>ルール本体（<code>engine/</code>）・HTTPの入り口（<code>server/</code>）・画面（<code>web/</code>）の3層に分かれていて、
+<b>ルールを知っているのは engine だけ</b>。画面は「今できる操作」をサーバーから <code>actions</code> 配列で受け取り、ボタンに変えるだけです。</p>
+
+<div class="dg"><pre class="mermaid">
+flowchart TB
+  subgraph BR["🌐 ブラウザ（web/）"]
+    direction LR
+    HTML["index.html<br/>script を順番に読み込む"]
+    JS["core → audio → cards → fx<br/>→ board → flow → app.js"]
+    LS[("localStorage<br/>arcana.session<br/>arcana.name")]
+    HTML --> JS
+    JS <--> LS
+  end
+
+  subgraph SV["🐍 Flask サーバー（server/）"]
+    direction LR
+    APP["app.py<br/>URLの入り口・入力チェック<br/>PUBLIC_MODE の門番"]
+    REG["rooms.py · RoomRegistry<br/>部屋の置き場（最大50）<br/>放置部屋の掃除"]
+    ROOM["rooms.py · Room<br/>席・トークン・rev<br/>部屋ごとの鍵"]
+    APP --> REG --> ROOM
+  end
+
+  subgraph EN["⚙️ ルール本体（engine/）　UIを知らない"]
+    direction LR
+    AI["ai.py<br/>CPUの思考"]
+    GAME["game.py · Game<br/>準備・ターン進行<br/>行動候補・view()"]
+    MIX["combat.py<br/>items.py<br/>（Mixin）"]
+    STATE["state.py<br/>Player・Character<br/>ThirdForce・LogEntry"]
+    CARDS["cards.py<br/>トランプ→カード<br/>スキン別マスタ"]
+    SKINS["skins.py<br/>スキン読み込み"]
+    REF["reference.py<br/>カード図鑑"]
+    AI --> GAME
+    GAME --- MIX
+    GAME --> STATE
+    GAME --> CARDS
+    CARDS --> SKINS
+    REF --> CARDS
+  end
+
+  subgraph FS["📁 ファイル"]
+    direction LR
+    OPT[("user_options.json<br/>skin_config.json")]
+    BAL[("balance.json<br/>数値パラメータ")]
+    SKJ[("skins/*/*.json<br/>名前・技名・口上")]
+  end
+
+  SIM["🧪 simulate.py<br/>CPU同士の自動対戦"]
+
+  JS -- "fetch（JSON）<br/>LANは1.2秒ポーリング" --> APP
+  ROOM --> GAME
+  ROOM --> AI
+  APP --> REF
+  APP <--> OPT
+  CARDS --> BAL
+  SKINS --> SKJ
+  SIM --> GAME
+  SIM --> AI
+</pre></div>
+<p class="src">対応ソース：<code>server/app.py</code>・<code>server/rooms.py</code>・<code>engine/*.py</code>・<code>web/index.html</code>・<code>web/js/*.js</code>・<code>simulate.py</code></p>
+
+<h3>設計の約束ごと</h3>
+<div class="tbl"><table>
+  <tr><th>約束</th><th>どう実現しているか</th><th>うれしいこと</th></tr>
+  <tr><td>ルールとUIを分ける</td><td><code>engine/</code> は Flask もブラウザも import しない。<code>simulate.py</code> と <code>server/</code> が同じ <code>Game</code> を使う</td><td>画面を作り直してもルールは無傷。CPU同士を何百戦も回してバランス検証できる</td></tr>
+  <tr><td>相手の手札はサーバーで落とす</td><td>返す盤面は必ず <code>Game.view(seat)</code> を通す。相手側は <code>hand_count</code> だけ、伏せ札のログは <code>LogEntry.private_to</code> で絞る</td><td>通信を覗いてもカンニングできない</td></tr>
+  <tr><td>画面はルールを知らない</td><td>「今できる操作」は <code>legal_actions()</code> が作り、<code>actions</code> 配列で画面に届く</td><td>ルールを変えてもJSを直さなくていい</td></tr>
+  <tr><td>数値はコードに書かない</td><td>すべて <code>balance.json</code>。スキンごとの例外だけ <code>balance_overrides</code></td><td>Pythonを読まずにバランス調整できる</td></tr>
+  <tr><td>CPU戦もLAN戦も同じ「部屋」</td><td>違いは席1に座るのがCPUか人間かだけ（<code>Room.mode</code>）</td><td>通信・再接続・再戦の仕組みが1つで済む</td></tr>
+</table></div>
+
+<h3>動かし方の3パターン（配置図）</h3>
+<div class="dg"><pre class="mermaid">
+flowchart TB
+  subgraph L3["☁️ インターネット公開　Render 無料プラン"]
+    direction LR
+    P3["どこからでもブラウザ"] -- "https://…onrender.com" --> S3["Flask<br/>0.0.0.0:環境変数PORT<br/>PUBLIC_MODE=ON"]
+  end
+  subgraph L2["📱 みんなで遊ぶ　py -3 run.py --lan"]
+    direction LR
+    P2a["PC"] -- "http://PC名/" --> S2["Flask<br/>0.0.0.0:80<br/>（80が埋まっていたら5000）"]
+    P2b["スマホ（Wi-Fi）"] -- "http://PC名.local/" --> S2
+  end
+  subgraph L1["🖥️ ひとりで遊ぶ　py -3 run.py"]
+    direction LR
+    P1["このPCのブラウザ"] -- "localhost:5000" --> S1["Flask<br/>127.0.0.1:5000"]
+  end
+</pre></div>
+<div class="tbl"><table>
+  <tr><th></th><th>ひとり</th><th>LAN</th><th>Render</th></tr>
+  <tr><td>待ち受け</td><td>127.0.0.1:5000</td><td>0.0.0.0:80（空いてなければ5000）</td><td>0.0.0.0:<code>$PORT</code></td></tr>
+  <tr><td>ブラウザ自動オープン</td><td>あり</td><td>あり</td><td>なし</td></tr>
+  <tr><td>非公開スキン（legacy）</td><td>見える</td><td>見える</td><td><b>見えない</b>（一覧・図鑑・素材配信すべて404）</td></tr>
+  <tr><td>部屋のデータ</td><td colspan="3">すべてサーバーのメモリ上。再起動・Renderのスリープ（15分無アクセス）・再デプロイで消える</td></tr>
+</table></div>
+<div class="note">💡 Vercel のようなサーバーレスでは動かせません。部屋の状態をプロセスのメモリ（<code>REGISTRY</code>）に持ち続け、ブラウザが同じプロセスへポーリングする設計だからです。</div>
+
+<!-- ================================================================ 2 -->
+<h2 id="seq">2. シーケンス図</h2>
+
+<h3>2-1. CPU対戦：部屋を作って1手指すまで</h3>
+<p>CPUの手は<b>1手ずつ</b>画面が取りに行きます（<code>cpu_step</code>）。まとめて1ターン進めると、届くのは終わった後の盤面だけになり、攻撃モーションを出せないからです。</p>
+<div class="dg"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as プレイヤー
+  participant B as ブラウザ（flow.js）
+  participant A as app.py
+  participant R as Room
+  participant G as Game
+  participant AI as ai.py
+
+  U->>B: スキン → CPU対戦<br/>→ 強さを選ぶ
+  B->>A: POST /api/room/create<br/>（mode=cpu, cpu_level, skin）
+  A->>R: REGISTRY.create()
+  R->>R: CPU席のルールを強さから決める<br/>（初級は技・魔王・アイテムなし）
+  R->>G: Game(...) → start()
+  G-->>R: 山札を組み、初期配置して<br/>ターン1開始
+  A-->>B: code・token・seat=0<br/>state（= room.view(0)）
+  B->>B: localStorage にセッション保存<br/>→ 盤面を描画
+
+  U->>B: ⚔️ 攻撃ボタン
+  B->>A: POST /api/room/action<br/>（type=attack）
+  A->>R: authed(code, token)<br/>→ apply(seat 0, action)
+  R->>G: apply_action()
+  G-->>R: OK（rev+1）
+  A-->>B: view(0)（accepted=true）
+  B->>B: 演出を再生してから描画<br/>（renderAfterFx）
+
+  U->>B: ⏭️ ターン終了
+  B->>A: POST /api/room/action<br/>（type=end_turn）
+  A-->>B: view(0)<br/>（room.cpu_thinking=true）
+
+  loop cpu_thinking が true の間（最大80回）
+    B->>A: POST /api/room/action<br/>（type=cpu_step）
+    A->>R: apply → cpu_step()
+    R->>AI: choose_action(game, level)
+    AI-->>R: 行動1つ
+    R->>G: apply_action()<br/>（失敗なら end_turn）
+    A-->>B: view(0)
+    B->>B: その1手の演出を見せる
+  end
+</pre></div>
+<p class="src">対応ソース：<code>web/js/flow.js</code>（<code>createRoom</code>・<code>send</code>・<code>pumpCpu</code>）、<code>server/rooms.py</code>（<code>Room.apply</code>・<code>cpu_step</code>）</p>
+
+<h3>2-2. LAN対戦：部屋作成 → 参加 → 対戦中の同期</h3>
+<p>WebSocket は使わず、<b>1.2秒ごとのポーリング</b>で相手の操作を拾います。盤面に変化が無ければ <code>rev</code> を比べて小さな返事（<code>unchanged: true</code>）だけ返します。</p>
+<div class="dg"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as ホストのブラウザ（席0）
+  participant S as サーバー（app.py＋Room）
+  participant J as 参加者のブラウザ（席1）
+
+  H->>S: POST /api/room/create（mode=lan, name, skin, options）
+  S-->>H: 合言葉4文字・token0（ゲームはまだ無い）
+  H->>H: 待機画面に合言葉を表示
+
+  loop 1.2秒ごと（相手待ち）
+    H->>S: GET /api/room/state?code&token
+    S-->>H: room.waiting = true
+  end
+
+  loop 2秒ごと（部屋さがし画面）
+    J->>S: GET /api/room/list
+    S-->>J: 相手待ちのLAN部屋の一覧
+  end
+
+  J->>S: POST /api/room/join（code, name, skin, options）
+  S->>S: token1 を発行 → 2人そろったので _start_game()（rev+1）
+  S-->>J: token1・seat=1・view(1)
+  J->>J: 対戦画面へ
+
+  H->>S: GET /api/room/state（次のポーリング）
+  S-->>H: waiting = false の盤面
+  H->>H: 対戦画面へ（enterGame）
+
+  Note over H,J: ここから対戦。どちらも1.2秒ごとに ?rev=今の番号 を付けて聞く
+
+  H->>S: POST /api/room/action（自分の番の操作）
+  S->>S: 部屋の鍵（RLock）を取って Game を更新、rev+1
+  S-->>H: view(0)
+
+  J->>S: GET /api/room/state?rev=古い番号
+  S-->>J: 新しい盤面 view(1)（相手の手札は枚数だけ）
+  J->>J: 演出を再生して描画
+
+  J->>S: GET /api/room/state?rev=最新
+  S-->>J: unchanged = true（部屋情報だけ）
+
+  Note over S: 15秒アクセスが無い席は「切断中」と表示<br/>部屋が404を4回続けたらロビーへ戻す
+</pre></div>
+<p class="src">対応ソース：<code>web/js/flow.js</code>（<code>poll</code>・<code>joinRoom</code>・<code>refreshRoomList</code>）、<code>server/rooms.py</code>（<code>join</code>・<code>view</code>・<code>opponent_online</code>）</p>
+
+<h3>2-3. サーバー内部：攻撃1回で起きること</h3>
+<p>攻撃1回が、撃破 → トレーナーへのダメージ → 勝敗判定 → 繰り上げ待ち まで連鎖します。トレーナーHPを減らすのは必ず <code>_damage_trainer</code> で、減らした直後に勝敗を見るので「相打ち」は起きません。</p>
+<div class="dg"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant R as Room.apply
+  participant G as Game
+  participant C as CombatMixin
+
+  R->>G: apply_action(attack, seat)
+  G->>G: pending_choice / pending_promote / 手番 をチェック
+  G->>C: _act_attack → _do_attack(p, o)
+  alt 相手のバトル場が空
+    C->>C: _damage_trainer（直接攻撃）
+  else 相手キャラがいる
+    C->>C: ダメージ = max(最低ダメージ, 攻撃 − 防御)
+    C->>C: 攻撃時の技（毒・疲労・範囲攻撃 など）
+    C->>C: _damage_character（シールドで軽減 → HPを減らす）
+    opt HP が 0 以下
+      C->>C: _defeat（不死鳥なら1回だけ復活）
+      C->>C: _damage_trainer（撃破ダメージ30）→ _check_end
+      C->>G: _remove → _refill_field
+      G->>G: ベンチがいれば pending_promote に席を積む（人間は選ぶまで停止）
+    end
+  end
+  opt まだ決着していない
+    C->>C: 反動 → 疲労・攻撃回数カウント（3回で強制退場）
+  end
+  G->>G: _check_end → _trim_bench → _snapshot（リプレイ用に両者の view を保存）
+  G-->>R: true
+  R->>R: rev += 1、決着なら finished_at を記録
+</pre></div>
+<p class="src">対応ソース：<code>engine/game.py</code>（<code>apply_action</code>・<code>_act_attack</code>・<code>_refill_field</code>）、<code>engine/combat.py</code>（<code>_do_attack</code>・<code>_damage_character</code>・<code>_defeat</code>・<code>_post_attack_upkeep</code>）</p>
+
+<!-- ================================================================ 3 -->
+<h2 id="state">3. ステートマシン図</h2>
+
+<h3>3-1. 部屋（Room）の一生</h3>
+<p>部屋の掃除は「作ってからの時間」ではなく<b>「最後に誰かが見に来てからの時間」</b>で判定します。長い対戦の途中で部屋が消えないようにするためです。</p>
+<div class="dg"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> 相手待ち: create（mode=lan）
+  [*] --> 対戦中: create（mode=cpu）<br/>すぐ start_game
+
+  相手待ち --> 対戦中: join（2人目が入る）
+  相手待ち --> 削除: やめる（ホストが leave）
+  相手待ち --> 削除: ホストが5分来ない（WAITING_TTL）
+
+  対戦中 --> 決着: winner が決まる<br/>finished_at を記録
+  対戦中 --> 削除: 誰も3時間来ない（ROOM_TTL）
+
+  決着 --> 対戦中: rematch（もう1試合）<br/>game_no+1
+  決着 --> 削除: 決着から30分（FINISHED_TTL）
+  決着 --> 削除: 誰も3時間来ない
+
+  削除 --> [*]
+
+  note right of 対戦中
+    サーバーの再起動・Renderのスリープでも
+    すべての部屋は消える（メモリ上だけ）
+  end note
+</pre></div>
+<p class="src">対応ソース：<code>server/rooms.py</code>（<code>RoomRegistry._cleanup</code>・<code>close</code>・<code>Room.join</code>・<code>rematch</code>）。掃除は部屋の作成時と一覧取得時に走ります。</p>
+
+<h3>3-2. ゲームの進行（ターン）</h3>
+<p>1ターンは「ターン開始の自動処理」→「行動フェーズ」→「ターン終了処理」の繰り返し。行動フェーズの途中で、<b>めくって選ぶ待ち</b>と<b>バトル場の繰り上げ待ち</b>が割り込みます。</p>
+<div class="dg"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> 準備: start()
+  準備 --> ターン開始: 山札を組む・アイテム3枚・初期配置<br/>ターン1・先攻は席0
+
+  state ターン開始 {
+    direction LR
+    [*] --> 第三勢力の登場判定
+    第三勢力の登場判定 --> 疲労回復
+    疲労回復 --> 毒と呪い
+    毒と呪い --> 期限付き増減を進める
+    期限付き増減を進める --> 開始時の技
+    開始時の技 --> 滞在上限で退場
+    滞在上限で退場 --> 繰り上げとドロー
+    繰り上げとドロー --> [*]
+  }
+
+  ターン開始 --> 行動フェーズ
+  ターン開始 --> 決着: 毒などでトレーナーHPが0
+
+  state 行動フェーズ {
+    [*] --> 操作待ち
+    操作待ち --> 操作待ち: 攻撃（1回）／配置／交代（1回）／アイテム（1回）
+    操作待ち --> 選択待ち: 蘇生・号令などのアイテム
+    選択待ち --> 操作待ち: pick で選び終わる
+    操作待ち --> 繰り上げ待ち: バトル場が空いた（人間の席）
+    繰り上げ待ち --> 操作待ち: promote
+  }
+
+  行動フェーズ --> 決着: トレーナーHPが0
+  行動フェーズ --> ターン終了: end_turn
+
+  ターン終了 --> 決着: 第三勢力の攻撃で0
+  ターン終了 --> 決着: 200ターンを超えた<br/>残りHPで判定（同点は引き分け）
+  ターン終了 --> ターン開始: turn+1・手番交代<br/>呪縛と攻撃封じを解除
+
+  決着 --> [*]
+</pre></div>
+<div class="note">⚠️ 繰り上げ待ちは<b>相手のターン中にも</b>起きます（相手の攻撃で自分のバトル場が空いたとき）。両者同時に待つこともあるので <code>pending_promote</code> は席番号のリストです。CPUは待たせず一番元気なキャラを自動で出します。</div>
+<p class="src">対応ソース：<code>engine/game.py</code>（<code>start</code>・<code>_begin_turn</code>・<code>end_turn</code>・<code>legal_actions</code>・<code>_begin_choice</code>・<code>_do_promote</code>・<code>_check_end</code>・<code>_finish_by_hp</code>）</p>
+
+<h3>3-3. 画面の遷移（ブラウザ側）</h3>
+<p>セッション（合言葉＋トークン）を <code>localStorage</code> に保存しているので、F5で再読み込みしても席を失いません。「モード選択へ」で戻っても対戦は捨てず、<b>中断</b>として続きから戻れます。</p>
+<div class="dg"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> 起動
+  起動 --> スキン選択: セッション無し
+  起動 --> 対戦画面: セッション復帰（対戦中）
+  起動 --> 待機画面: セッション復帰（相手待ち）
+  起動 --> モード選択: 部屋が消えていた
+
+  スキン選択 --> モード選択: スキンを選ぶ
+  モード選択 --> スキン選択: 選びなおす
+  モード選択 --> CPUの強さ: CPU対戦
+  モード選択 --> LANメニュー: LAN対戦
+  CPUの強さ --> 対戦画面: 初級／中級／上級
+
+  LANメニュー --> 待機画面: 部屋を作る
+  LANメニュー --> 部屋さがし: 部屋に入る
+  待機画面 --> 対戦画面: 相手が来た（ポーリングで検知）
+  待機画面 --> LANメニュー: やめる
+  部屋さがし --> 対戦画面: 一覧から選ぶ／合言葉を入力
+
+  対戦画面 --> 決着オーバーレイ: winner が届く
+  決着オーバーレイ --> 対戦画面: もう1試合
+  決着オーバーレイ --> リプレイ: 見返す
+  リプレイ --> 決着オーバーレイ: 閉じる
+
+  対戦画面 --> モード選択: 中断（RESUMABLE に保持）
+  対戦画面 --> スキン選択: 中断（RESUMABLE に保持）
+  モード選択 --> 対戦画面: 続きから
+</pre></div>
+<p class="src">対応ソース：<code>web/app.js</code>（<code>boot</code>・ボタンの紐付け）、<code>web/js/flow.js</code>（<code>showLobby</code>・<code>enterGame</code>・<code>leaveRoom</code>・<code>resumeGame</code>）、画面IDは <code>web/index.html</code> の <code>lb-skin / lb-mode / lb-cpulevel / lb-lan / lb-wait / lb-join</code></p>
+
+<!-- ================================================================ 4 -->
+<h2 id="er">4. ER図（メモリ上のデータモデル）</h2>
+<p>データベースは使っていません。下の図はサーバーのメモリ上にあるオブジェクトの関係です（Pythonの <code>dataclass</code> とクラス）。
+永続化されるのは個人設定のJSON 2つだけです。</p>
+<h3>4-1. 部屋とゲーム</h3>
+<div class="dg"><pre class="mermaid">
+erDiagram
+  RoomRegistry ||--o{ Room : "最大50部屋"
+  Room ||--o| Game : "相手待ちの間は無し"
+  Game ||--|{ Player : "2人（席0・席1）"
+  Game ||--|| ThirdForce : "三つ巴の第三勢力"
+  Game ||--o{ LogEntry : "ログ"
+  Game ||--o{ HistoryStep : "リプレイ用の盤面"
+
+  RoomRegistry {
+    dict rooms "合言葉 → Room"
+    Lock lock "一覧全体の鍵"
+  }
+  Room {
+    string code PK "合言葉4文字（0/O・1/I/L除外）"
+    string mode "cpu または lan"
+    string tokens "席ごとのトークン×2"
+    string names "席ごとの名前×2"
+    string skins "席ごとのスキン×2"
+    dict options "席ごとのルール×2（技・魔王・アイテム不使用）"
+    string cpu_level "easy / normal / hard"
+    int rev "盤面が変わるたびに+1"
+    int game_no "何試合目か"
+    float last_seen "席ごとの最終アクセス×2"
+    float finished_at "決着した時刻"
+    RLock lock "部屋ごとの鍵"
+  }
+  Game {
+    int turn "1〜200"
+    int current "手番の席"
+    int winner "0 / 1 / -1引き分け / null"
+    list pending_promote "繰り上げを選ぶ席"
+    dict pending_choice "めくって選ぶ待ち"
+    dict fx "攻撃演出（seq付き）"
+    dict defeat_fx "撃破ポップアップ"
+  }
+  Player {
+    int idx PK "席番号"
+    string name
+    bool is_cpu
+    int trainer_hp "初期200"
+    bool item_used "1ターン1回"
+    int swaps_left "1ターン1回"
+    bool attacked "1ターン1回"
+    bool stunned "呪縛"
+    string skin_id
+  }
+  ThirdForce {
+    bool active
+    int next_turn "次に登場するターン"
+    bool defeated "山札切れ"
+  }
+  LogEntry {
+    string text
+    int private_to "その席にだけ見せる"
+    int actor "誰の行動か"
+  }
+  HistoryStep {
+    dict view0 "席0から見た盤面"
+    dict view1 "席1から見た盤面"
+  }
+</pre></div>
+<h3>4-2. 盤面とカード</h3>
+<div class="dg"><pre class="mermaid">
+erDiagram
+  Player ||--o| Character : "バトル場"
+  Player ||--o{ Character : "ベンチ（3枠＋特別枠）"
+  Player ||--o{ Card : "山札・手札・捨て札"
+  ThirdForce ||--o| Character : "場に1体だけ"
+  ThirdForce ||--o{ Card : "専用山札"
+  Game ||--o{ Card : "共有アイテム山札"
+  Character }o--|| Card : "元になったカード"
+  Card |o--o| Ability : "キャラの技"
+  Card |o--o| ItemEffect : "アイテム効果"
+  Skin ||--o{ Card : "名前・口上を供給"
+
+  Character {
+    int uid PK
+    int hp
+    int base_atk
+    int base_def
+    int attacks_used "3回で強制退場"
+    int fatigue "攻撃後2ターン"
+    int poison
+    int battle_turns "バトル場の滞在3ターンまで"
+    bool revealed "相手に見られたか"
+    bool is_demon "魔王化"
+  }
+  Card {
+    string suit "S H D C"
+    int rank "1〜13"
+    string kind "character または item"
+    string name
+    int atk
+    int dfn
+    string skin "どのスキンで作ったか"
+  }
+  Ability {
+    string id PK "例 S_K_tyrant"
+    string name
+    string text
+  }
+  ItemEffect {
+    string type "items.py の _item_type に対応"
+    int value
+    int extra
+    string text
+  }
+  Skin {
+    string id PK
+    string category "common / original / legacy"
+    dict balance_overrides "数値の上書き"
+  }
+</pre></div>
+<p class="src">Player・ThirdForce・Game の中身は 4-1 を参照。</p>
+<p class="src">対応ソース：<code>server/rooms.py</code>（<code>Room</code>・<code>RoomRegistry</code>）、<code>engine/state.py</code>（<code>Player</code>・<code>Character</code>・<code>ThirdForce</code>・<code>LogEntry</code>）、<code>engine/cards.py</code>（<code>Card</code>・<code>Ability</code>・<code>ItemEffect</code>）、<code>engine/skins.py</code></p>
+
+<h3>カードの持ち主とスキン</h3>
+<ul>
+  <li>🃏 キャラクターの山札は<b>1人1箱</b>。持ち主のスキンで作るので、相手と違うスキンでも自分のカードは自分の見た目のまま。</li>
+  <li>🎒 アイテムの山札は<b>2人で共有の1箱</b>。手札に入った瞬間（<code>_draw_item</code>）に引いた人のスキンで作り直す。</li>
+  <li>🌩️ 第三勢力の山札は各スキンの魔神軍を混ぜた専用山札。公開時は非公開スキンの代わりにオリジナル版を使う。</li>
+</ul>
+
+<h3>ファイルに残るもの</h3>
+<div class="tbl"><table>
+  <tr><th>ファイル</th><th>中身</th><th>git管理</th></tr>
+  <tr><td><code>balance.json</code></td><td>HP・ダメージ・手札上限・技とアイテムの数値・CPUの強さ</td><td>する</td></tr>
+  <tr><td><code>skins/&lt;category&gt;/*.json</code></td><td>スキンごとのカード名・技名・口上・数値の上書き</td><td>する（legacy は公開しない運用）</td></tr>
+  <tr><td><code>user_options.json</code></td><td>前回選んだルール・CPUの強さ（部屋を作る画面の初期値）</td><td>しない（個人設定）</td></tr>
+  <tr><td><code>skin_config.json</code></td><td>サーバーのデフォルトスキン</td><td>しない（個人設定）</td></tr>
+  <tr><td>ブラウザの <code>localStorage</code></td><td><code>arcana.session</code>（合言葉・トークン・席・モード）、<code>arcana.name</code></td><td>—</td></tr>
+</table></div>
+
+<!-- ================================================================ 5 -->
+<h2 id="maint">5. この設計図の育て方</h2>
+<ul>
+  <li>図はすべて <a href="https://mermaid.js.org/" target="_blank" rel="noopener">Mermaid</a> のテキストで書いてあります。このHTMLの <code>&lt;pre class="mermaid"&gt;</code> の中を直せば図が変わります。</li>
+  <li>各図の下の「対応ソース」が、図の元になった関数です。そこを変えたら図も見直してください。</li>
+  <li>ルールの数値（HP・ダメージなど）は <code>balance.json</code> が正本です。図の数字とずれたら <code>balance.json</code> のほうが正しいです。</li>
+  <li>この図はゲーム本体から自動では更新されません。ゲーム側のリファクタのあとは手で合わせます。</li>
+</ul>
+
+<p class="foot">ソースとの突き合わせ：2026-10-17 時点（engine を game / combat / items / state に分割した後の構成）。</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  var root = document.documentElement;
+  var forced = root.getAttribute('data-theme');
+  var dark = forced ? forced === 'dark'
+    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: dark ? 'dark' : 'default',
+    securityLevel: 'strict',
+    fontFamily: '"Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", sans-serif',
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    sequence: { mirrorActors: false, wrap: false, noteAlign: 'left', useMaxWidth: true, actorMargin: 30 },
+    er: { useMaxWidth: true }
+  });
+})();
+</script>
+</body>
+</html>
