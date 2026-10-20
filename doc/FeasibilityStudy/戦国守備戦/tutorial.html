@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>戦国守備戦 | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // ---------- 日本地図（src/data/prefectures.json を写したもの） ----------
+  // [id, 名前, x, y, 持ち主(1=P1 2=P2 3=秦 4=漢), troops(JSON), 京なら1, 隣接県]
+  var PREFS = [
+    [1,'北海道',760,70,1,25000,1,[2]],
+    [2,'青森県',760,130,1,8000,0,[1,3,5]],
+    [3,'岩手県',760,180,1,7000,0,[2,4,5,6]],
+    [4,'宮城県',760,230,1,7500,0,[3,5,7,8]],
+    [5,'秋田県',710,180,1,6500,0,[2,3,4,6]],
+    [6,'山形県',710,230,1,6800,0,[3,5,4,7,9]],
+    [7,'福島県',735,280,1,7200,0,[4,6,8,9,10,11]],
+    [8,'茨城県',785,330,1,7800,0,[4,7,9,10,12,13]],
+    [9,'栃木県',735,330,1,7500,0,[6,7,8,10,11,12]],
+    [10,'群馬県',685,330,1,7000,0,[7,8,9,11,12,14,15]],
+    [11,'埼玉県',710,380,1,8000,0,[7,9,10,12,13,14]],
+    [12,'千葉県',810,380,1,8200,0,[8,9,10,11,13]],
+    [13,'東京都',760,380,1,8500,0,[8,11,12,14]],
+    [14,'神奈川県',760,430,1,8300,0,[10,11,13,15,22]],
+    [15,'山梨県',660,410,1,6500,0,[10,14,16,22,23]],
+    [16,'長野県',635,360,1,7200,0,[10,15,17,18,23,24]],
+    [17,'岐阜県',610,410,1,7000,0,[16,18,19,23,24,25,31]],
+    [18,'愛知県',635,460,1,8800,0,[16,17,19,23,24,25,26,31]],
+    [19,'秦',150,150,3,20000,1,[5,20,21,23,24,29,32,33,34]],
+    [20,'滋賀県',560,420,2,6800,0,[21,25,27,28,31]],
+    [21,'京都府',510,400,2,7500,0,[20,22,25,27,28,29,30,31]],
+    [22,'静岡県',710,450,1,7800,0,[14,15,16,23,24,26]],
+    [23,'石川県',610,300,1,6500,0,[15,16,17,18,24]],
+    [24,'福井県',585,350,1,6200,0,[16,17,18,23,25]],
+    [25,'大阪府',520,470,2,8200,0,[17,18,19,20,21,27,28,29]],
+    [26,'和歌山県',550,520,2,6000,0,[18,19,25,27,28,31]],
+    [27,'兵庫県',460,430,2,7600,0,[20,21,25,26,28,29,30]],
+    [28,'奈良県',570,470,2,6800,0,[19,20,21,25,26,27,29,31]],
+    [29,'岡山県',430,500,2,7200,0,[21,27,28,30,32]],
+    [30,'広島県',380,500,2,7400,0,[27,29,32,33]],
+    [31,'三重県',610,520,2,7000,0,[18,17,20,21,28,26]],
+    [32,'島根県',360,400,2,6300,0,[29,30,33,34]],
+    [33,'山口県',330,500,2,6800,0,[30,32,34]],
+    [34,'鳥取県',410,400,2,5900,0,[32,33,35]],
+    [35,'香川県',440,570,2,6100,0,[34,36,37,38]],
+    [36,'徳島県',490,570,2,6200,0,[35,37,26,28]],
+    [37,'愛媛県',390,570,2,6600,0,[35,36,38,39]],
+    [38,'高知県',440,620,2,6200,0,[35,36,37,39]],
+    [39,'福岡県',290,560,2,7800,0,[37,38,40,41,42]],
+    [40,'佐賀県',240,590,2,6400,0,[39,41,42]],
+    [41,'長崎県',190,620,2,6100,0,[39,40,42]],
+    [42,'熊本県',290,610,2,6900,0,[39,40,41,43,44]],
+    [43,'大分県',340,610,2,6500,0,[42,44,45]],
+    [44,'宮崎県',340,660,2,6600,0,[42,43,45]],
+    [45,'鹿児島県',290,710,2,6400,0,[43,44,46]],
+    [46,'沖縄県',240,810,2,25000,1,[45]],
+    [50,'漢',560,640,4,15000,1,[14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45]],
+  ];
+
+  var OWNER_COL = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffa500', 4: '#00aa00' }; // Prefect.getColor() と同じ色
+  var P = {};
+  function MX(x) { return (x - 480) / 32; }
+  function MZ(y) { return (y - 440) / 32; }
+  function top(id, dy) { var p = P[id]; return [p.x, p.h + (dy == null ? 0.15 : dy), p.z]; }
+  // 県の位置と柱の高さ（ステップのカメラ位置でも使うので、build より先に計算しておく）
+  PREFS.forEach(function (r) {
+    var troops = r[5] + 10000; // ゲームで読み込むとき +10000 される
+    P[r[0]] = { x: MX(r[2]), z: MZ(r[3]), h: 0.25 + (troops / 35000) * 1.1, owner: r[4], name: r[1], nb: r[7] };
+  });
+
+  // ---------- 舞台の置き場所 ----------
+  var SX = -36;           // 画面の見方（ゲーム画面の模型）
+  var JX = 34;            // じゃんけん
+  var BZ = -16;           // 合戦の流れ（JX の奥）
+  var AZ = 16;            // 攻撃回数（JX の手前）
+  var CZ = 34;            // アイテムカード（地図の手前）
+  var IX = -36, IZ = 30;  // 改革・兵糧Lv・砦
+  var LX = 34, LZ = 36;   // LAN対戦
+  function HP(x, y, h) { return [SX + (x - 700) / 100, h == null ? 0.12 : h, (y - 450) / 100]; } // ゲーム画面 1400×900 → 模型
+
+  var HANDS = {
+    spear: { name: '歩兵', icon: '🗡️', col: '#e8b04a' },
+    cavalry: { name: '騎兵', icon: '🐴', col: '#c0784a' },
+    bow: { name: '弓兵', icon: '🏹', col: '#7aa6e0' },
+  };
+
+  var CARDS = [
+    ['奇襲の札', '⚡', '戦闘力\n+30%'],
+    ['鉄壁の札', '🛡️', '敵の戦闘力\n-20%'],
+    ['伏兵の札', '🥷', '不利な相性も\n引き分けに'],
+    ['撤退の札', '🏳️', '負けても将軍は\n討ち取られない'],
+    ['渡河の札', '🌊', 'このターン\nもう1回出撃'],
+    ['伏兵返し', '🔄', '相性の効果を\n半分にする'],
+    ['急襲の札', '💨', '隣でない県にも\n1回出撃できる'],
+    ['軍師の札', '📜', '改革の待ちが\n2ターン減る'],
+  ];
+
+  var CFG = {
+    title: '戦国守備戦 遊び方',
+    back: '../index.html',
+    subtitle: '県ごとの軍で日本を取り合う、じゃんけん合戦の陣取りゲーム。はじめての人向けのチュートリアル',
+    camera: { pos: [0, 30, 17], target: [0, 0, 0.5] },
+
+    build: function (g) {
+      // ======================= 日本地図 =======================
+      PREFS.forEach(function (r) {
+        var h = P[r[0]].h;
+        if (r[6]) g.cylinder({ id: 'cap' + r[0], radius: 0.6, height: 0.08, segments: 6, pos: [MX(r[2]), 0.04, MZ(r[3])], color: '#ffe066', emissive: '#ffcc00', emissiveIntensity: 0.45 });
+        g.cylinder({ id: 'p' + r[0], radius: 0.6, height: h, segments: 6, pos: [MX(r[2]), h / 2 + 0.02, MZ(r[3])], color: OWNER_COL[r[4]] });
+      });
+      g.group('adj', {});
+      var seen = {};
+      PREFS.forEach(function (r) {
+        r[7].forEach(function (n) {
+          var k = Math.min(r[0], n) + '-' + Math.max(r[0], n);
+          if (seen[k] || !P[n] || r[0] === 19 || r[0] === 50 || n === 19 || n === 50) return;
+          seen[k] = true;
+          g.line([[P[r[0]].x, 0.06, P[r[0]].z], [P[n].x, 0.06, P[n].z]], { parent: 'adj', color: '#ffffff', opacity: 0.35 });
+        });
+      });
+      [[1, '北海道（京）'], [46, '沖縄県（京）'], [19, '秦'], [50, '漢']].forEach(function (a) {
+        g.label(a[1], top(a[0], 0.7), { id: 'nm' + a[0], size: 0.7, bg: '#000000aa' });
+      });
+      g.label('赤：プレイヤー1（北海道が京）\n青緑：プレイヤー2（沖縄が京）\nオレンジ：秦　緑：漢', [8.5, 0.8, 7.5], { id: 'legend', size: 0.6, bg: '#000000aa' });
+
+      // STEP4〜5・8：出撃のアップで使う県名
+      g.group('chubu', {});
+      [[17, '岐阜県'], [18, '愛知県'], [31, '三重県'], [25, '大阪府']].forEach(function (a) {
+        g.label(a[1], top(a[0], 0.55), { id: 'cn' + a[0], parent: 'chubu', size: 0.42, bg: '#000000cc' });
+      });
+
+      // STEP4〜5：出撃（柱のてっぺんを光らせる）
+      function cap(id, parent, pid, color) {
+        g.cylinder({ id: id, parent: parent, radius: 0.64, height: 0.1, segments: 6, pos: [P[pid].x, P[pid].h + 0.07, P[pid].z], color: color, emissive: color, emissiveIntensity: 0.4 });
+      }
+      g.group('sel', {});
+      [17, 18].forEach(function (id) { cap('sel' + id, 'sel', id, '#22cc22'); });
+      g.label('Shift＋左クリック\n＝出撃元（緑）', [P[17].x + 3.2, 2.4, P[17].z - 1.6], { id: 'sel-lbl', size: 0.42, bg: '#000000aa' });
+      g.group('tgt', {});
+      [25, 31].forEach(function (id) { cap('tgt' + id, 'tgt', id, '#ffee33'); });
+      g.group('atk', {});
+      [17, 18].forEach(function (id) {
+        g.arrow(top(id), top(31, 0.3), { id: 'atk' + id, parent: 'atk', color: C.gold, lift: 1.4, radius: 0.07 });
+      });
+      g.label('右クリック\n＝この県へ出撃！', [P[31].x + 2.8, 2.6, P[31].z + 0.6], { id: 'atk-lbl', size: 0.45, color: C.gold, bg: '#000000aa' });
+      g.label('出撃できる県（黄）', [P[25].x - 2.2, 1.6, P[25].z + 1.6], { id: 'tgt-lbl', size: 0.38, color: '#ffee33', bg: '#000000aa' });
+
+      // STEP8：勝ったら
+      g.label('三重県を支配！\nレベルアップ\n30%でアイテムカード', [P[31].x + 3, 2.6, P[31].z + 0.6], { id: 'win-lbl', size: 0.42, color: C.good, bg: '#000000aa' });
+
+      // STEP11：県の政策
+      cap('pol-ring', null, 13, '#7ef0ff');
+      g.label('東京都の政策\n徴兵：兵力＋500\n訓練：兵力×1.1', [P[13].x - 3.2, 3.2, P[13].z - 1.2], { id: 'pol-lbl', size: 0.42, bg: '#000000cc' });
+
+      // STEP13：ターンが進む
+      g.group('pop', {});
+      [13, 4, 25, 30, 39, 42, 8, 21].forEach(function (id, i) {
+        g.label('人口＋', top(id, 0.5), { id: 'pop' + i, parent: 'pop', size: 0.5, color: C.good, bg: '#000000aa' });
+      });
+      g.group('auto', {});
+      g.arrow(top(18), top(26), { id: 'auto1', parent: 'auto', color: OWNER_COL[1], lift: 1.4, radius: 0.07 });
+      g.arrow(top(27), top(17), { id: 'auto2', parent: 'auto', color: OWNER_COL[2], lift: 1.6, radius: 0.07 });
+      g.arrow(top(19), top(34), { id: 'auto3', parent: 'auto', color: OWNER_COL[3], lift: 3, radius: 0.07 });
+      g.arrow(top(50), top(36), { id: 'auto4', parent: 'auto', color: OWNER_COL[4], lift: 2, radius: 0.07 });
+      g.label('自動出撃', [3, 3.4, 1.5], { id: 'auto-lbl', size: 0.5, color: C.gold, bg: '#000000aa' });
+
+      // ======================= 画面の見方（ゲーム画面の模型） =======================
+      g.plate({ id: 'scr', size: [14, 9], pos: [SX, 0.02, 0], color: '#dddddd', opacity: 1, radius: 0.1 });
+      g.group('scr-map', {});
+      [[560, 420, 1], [620, 380, 1], [680, 430, 1], [740, 390, 1], [800, 440, 1], [500, 500, 2], [560, 540, 2], [620, 500, 2], [680, 560, 2], [740, 520, 2], [440, 560, 2], [860, 360, 1]].forEach(function (c, i) {
+        g.box({ id: 'sm' + i, parent: 'scr-map', size: [0.42, 0.12, 0.42], pos: HP(c[0], c[1], 0.1), color: OWNER_COL[c[2]], edges: false });
+      });
+      function ui(id, x, y, w, h, col, label, lblOff) {
+        g.box({ id: id, size: [w / 100, 0.14, h / 100], pos: HP(x, y, 0.1), color: col, edges: false, label: label, labelSize: 0.3, labelBg: '#000000cc', labelOffset: lblOff || [0, 0.75, 0] });
+      }
+      ui('ui-info', 90, 45, 140, 50, '#ffffff', '県の情報\n（クリックした県）');
+      ui('ui-stats', 110, 160, 180, 70, '#ffffff', '両軍の県の数・兵力\n兵糧');
+      ui('ui-zenkoku', 700, 50, 120, 60, '#ffff99', '全国');
+      ui('ui-turn', 1265, 50, 70, 30, '#ffffff', 'ターン数', [-0.9, 0.6, 0]);
+      ui('ui-next', 1260, 85, 85, 22, '#666666', '次のターン\n（LANは「ターン終了」）', [-1.5, 0.6, 0.2]);
+      ui('ui-reform', 1280, 115, 45, 22, '#ff9800', '改革', [0.6, 0.55, 0.3]);
+      ui('ui-opt', 1265, 180, 70, 22, '#666666', 'オプション\n（ルールブック）', [-0.4, 0.6, 0.6]);
+      ui('ui-unit', 55, 860, 75, 24, '#ff9800', '将軍選択', [0, 0.6, -0.5]);
+      ui('ui-fort', 150, 860, 65, 24, '#9c27b0', '砦配置', [0.2, 1.2, -0.6]);
+      ui('ui-item', 240, 860, 70, 24, '#2e7d32', 'アイテム', [0.3, 0.6, -0.5]);
+      ui('ui-lv', 320, 860, 50, 24, '#ffff00', '兵糧Lv', [0.6, 1.2, -0.6]);
+      ui('ui-msg', 860, 860, 380, 24, '#ffffff', '案内メッセージ（次にすることが出る）', [0, 0.6, -0.5]);
+      g.label('ゲーム画面', [SX, 0.4, -5.2], { id: 'scr-title', size: 0.5, color: '#ffffff' });
+
+      // STEP3：将軍
+      g.group('gens', {});
+      [['⭐', '織田信長\nふつう', '#ff6b6b'], ['⭐⭐', '真田幸村\nレア', '#ff9f43'], ['⭐⭐', '伊達政宗\nレア', '#4ecdc4']].forEach(function (u, i) {
+        g.card({ id: 'gen' + i, parent: 'gens', pos: [SX - 4.6 + i * 1.7, 1.6, 2.4], lying: false, text: u[0], sub: u[1], color: u[2], w: 1.35 });
+      });
+      g.label('出撃する将軍を1人選ぶ', [SX - 2.9, 3.4, 2.4], { id: 'gen-lbl', size: 0.36, bg: '#000000aa' });
+
+      // ======================= じゃんけんの相性 =======================
+      g.plate({ id: 'j-floor', size: [12, 9], pos: [JX, 0.02, 0], color: '#1a1a2e', opacity: 0.95 });
+      var JP = { spear: [JX - 3.2, 0.5, -1.6], cavalry: [JX + 3.2, 0.5, -1.6], bow: [JX, 0.5, 2.6] };
+      Object.keys(JP).forEach(function (k) {
+        g.cylinder({ id: 'j-' + k, radius: 1.1, height: 0.8, pos: JP[k], color: HANDS[k].col, label: HANDS[k].icon + ' ' + HANDS[k].name, labelSize: 0.55, labelBg: '#000000cc', labelOffset: [0, 1.0, 0] });
+      });
+      function jA(a, b) { var A = JP[a], B = JP[b]; var d = [B[0] - A[0], B[2] - A[2]]; var n = Math.hypot(d[0], d[1]); return [[A[0] + d[0] / n * 1.4, 1.0, A[2] + d[1] / n * 1.4], [B[0] - d[0] / n * 1.4, 1.0, B[2] - d[1] / n * 1.4]]; }
+      [['spear', 'cavalry'], ['cavalry', 'bow'], ['bow', 'spear']].forEach(function (p, i) {
+        var e = jA(p[0], p[1]);
+        g.arrow(e[0], e[1], { id: 'ja' + i, color: C.gold, lift: 0.9, radius: 0.08, label: HANDS[p[0]].name + 'は' + HANDS[p[1]].name + 'に強い', labelSize: 0.36, labelBg: '#000000cc' });
+      });
+      g.label('相性で勝った側の兵力 ×1.5', [JX, 0.4, 4.9], { id: 'j-bonus', size: 0.5, color: C.good, bg: '#000000aa' });
+
+      // ======================= 合戦の流れ =======================
+      g.plate({ id: 'b-floor', size: [12, 8], pos: [JX, 0.02, BZ], color: '#1a1a2e', opacity: 0.95 });
+      g.label('あなた', [JX - 3.5, 0.5, BZ + 3.2], { id: 'b-me', size: 0.5, color: '#6fd06f' });
+      g.label('敵', [JX + 3.5, 0.5, BZ + 3.2], { id: 'b-en', size: 0.5, color: '#ff6b6b' });
+      g.cylinder({ id: 'b-hand-me', radius: 0.9, height: 0.6, pos: [JX - 3.5, 0.4, BZ + 1.4], color: HANDS.cavalry.col, label: '🐴 騎兵', labelSize: 0.5, labelBg: '#000000cc', labelOffset: [0, 0.8, 0] });
+      g.cylinder({ id: 'b-hand-en', radius: 0.9, height: 0.6, pos: [JX + 3.5, 0.4, BZ + 1.4], color: HANDS.bow.col, label: '🏹 弓兵', labelSize: 0.5, labelBg: '#000000cc', labelOffset: [0, 0.8, 0] });
+      g.label('VS', [JX, 1.0, BZ + 1.4], { id: 'b-vs', size: 0.7, color: '#ffffff' });
+      g.box({ id: 'bar-me', size: [1.4, 1, 1.2], pos: [JX - 3.5, 0.5, BZ - 1.8], color: '#ff6b6b' });
+      g.box({ id: 'bar-en', size: [1.4, 1, 1.2], pos: [JX + 3.5, 0.5, BZ - 1.8], color: '#4ecdc4' });
+      g.label('17000', [JX - 3.5, 1.4, BZ - 1.8], { id: 'bar-me-lbl', size: 0.42, bg: '#000000aa' });
+      g.label('18000', [JX + 3.5, 1.4, BZ - 1.8], { id: 'bar-en-lbl', size: 0.42, bg: '#000000aa' });
+      g.label('騎兵は弓兵に強い！ 17000 ×1.5 ＝ 25500', [JX, 0.5, BZ - 3.9], { id: 'b-adv', size: 0.42, color: C.gold, bg: '#000000aa' });
+      g.label('勝ち！', [JX - 3.5, 5.6, BZ - 1.8], { id: 'b-win', size: 0.8, color: C.good, bg: '#000000aa' });
+
+      // ======================= 攻撃は1ターン2回まで =======================
+      g.plate({ id: 'a-floor', size: [12, 6], pos: [JX, 0.02, AZ], color: '#231f33', opacity: 0.95 });
+      [0, 1].forEach(function (i) {
+        g.cylinder({ id: 'a-tok' + i, radius: 0.8, height: 0.5, pos: [JX - 4 + i * 2.4, 0.3, AZ], color: '#555066', label: (i + 1) + '回目の攻撃', labelSize: 0.36, labelBg: '#000000cc', labelOffset: [0, 0.8, 0] });
+      });
+      g.arrow([JX - 0.4, 0.5, AZ], [JX + 1.6, 0.5, AZ], { id: 'a-arrow', color: C.gold, lift: 0.5, radius: 0.07 });
+      g.box({ id: 'a-end', size: [3.2, 0.6, 1.6], pos: [JX + 3.6, 0.3, AZ], color: '#666666', label: '自動でターン終了\n→ 相手の番へ', labelSize: 0.38, labelBg: '#000000cc', labelOffset: [0, 1.0, 0] });
+
+      // ======================= アイテムカード =======================
+      g.plate({ id: 'c-floor', size: [10, 6], pos: [0, 0.02, CZ], color: '#231f33', opacity: 0.95 });
+      // カードには絵と名前だけ描き、効果はカードの下のラベルに出す（カードの中だと3行目が切れる）
+      CARDS.forEach(function (c, i) {
+        var col = i % 4, row = Math.floor(i / 4);
+        g.card({ id: 'card' + i, pos: [-3.3 + col * 2.2, 3.7 - row * 2.6, CZ], lying: false, text: c[1], sub: c[0], color: '#2e7d32', w: 1.2 });
+        g.label(c[2], [-3.3 + col * 2.2, 2.45 - row * 2.6, CZ + 0.1], { id: 'card-desc' + i, size: 0.24, bg: '#000000cc' });
+      });
+
+      // ======================= 改革・兵糧Lv・砦 =======================
+      g.plate({ id: 'i-floor', size: [15, 9], pos: [IX, 0.02, IZ], color: '#231f33', opacity: 0.95 });
+      [['十七条の憲法', '毎ターンの\n人口の伸びが増える', '#4ecdc4'], ['征夷大将軍', '毎ターン\n兵力＋10%', '#ff6b6b'], ['御成敗式目', '県を奪ったときの\n兵力が増える', '#a28bfa'], ['大化の改新', '自分の全県が\nすぐ人口・兵力＋1000', '#ffd700']].forEach(function (r, i) {
+        g.box({ id: 'rf' + i, size: [2.6, 0.5, 1.3], pos: [IX - 4.6 + (i % 2) * 3.1, 0.25, IZ - 2.4 + Math.floor(i / 2) * 3.0], color: r[2], label: r[0] + '\n' + r[1], labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.0, 0] });
+      });
+      g.label('改革（5ターンに1回・それぞれ1度だけ）', [IX - 3.05, 0.3, IZ + 2.6], { id: 'rf-title', size: 0.34, color: '#ffcf80', bg: '#000000aa' });
+      g.group('lv', {});
+      for (var lv = 1; lv <= 8; lv++) {
+        g.box({ id: 'lv' + lv, parent: 'lv', size: [1.4, 0.36, 1.4], pos: [IX + 2.4, 0.2 + (lv - 1) * 0.4, IZ], color: '#3a3555', edgeColor: '#ffd166' });
+      }
+      g.label('兵糧Lv\n（上限 500×Lv）', [IX + 2.4, 4.2, IZ], { id: 'lv-title', size: 0.34, bg: '#000000aa' });
+      g.box({ id: 'fort', size: [1.2, 1.2, 1.2], pos: [IX + 5.2, 0.6, IZ + 1], color: '#9c27b0', label: '砦\n兵糧500〜', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 1.3, 0] });
+
+      // ======================= LAN対戦 =======================
+      g.plate({ id: 'l-floor', size: [14, 8], pos: [LX, 0.02, LZ], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'l-host', size: [3, 1.6, 1.8], pos: [LX, 0.8, LZ - 2], color: C.server, label: 'ホスト役のPC\n「みんなで遊ぶ（LAN対戦）」', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.6, 0] });
+      g.box({ id: 'l-p1', size: [2.4, 1.2, 1.5], pos: [LX - 4.4, 0.6, LZ + 2], color: OWNER_COL[1], label: 'プレイヤー1\nルームを作る（北海道・先攻）', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.2, 0] });
+      g.box({ id: 'l-p2', size: [2.4, 1.2, 1.5], pos: [LX + 4.4, 0.6, LZ + 2], color: OWNER_COL[2], label: 'プレイヤー2\nルームに参加（沖縄）', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.2, 0] });
+      g.flow([LX - 1.4, 1.0, LZ - 1.4], [LX - 3.8, 1.0, LZ + 1.4], { id: 'l-f1', color: C.data, lift: 0.8, count: 5 });
+      g.flow([LX + 1.4, 1.0, LZ - 1.4], [LX + 3.8, 1.0, LZ + 1.4], { id: 'l-f2', color: C.data, lift: 0.8, count: 5 });
+      g.label('同じ Wi-Fi で\nブラウザから http://192.168.x.x/', [LX, 0.5, LZ + 3.4], { id: 'l-url', size: 0.36, color: C.data, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: '戦国守備戦へようこそ！',
+        html:
+          '<p>日本地図の上で、<b>県ごとの軍</b>が領土を取り合う陣取りゲームだよ。</p>' +
+          '<ul><li><b>赤＝プレイヤー1</b>：京（いちばん大事な県）は <b>北海道</b></li>' +
+          '<li><b>青緑＝プレイヤー2</b>：京は <b>沖縄県</b></li>' +
+          '<li>さらに <b>秦（オレンジ）</b>と <b>漢（緑）</b> という2つの国が、勝手に攻めてくる</li></ul>' +
+          '<p><b>勝ち負け</b>：自分の京を守りながら、<b>相手の京を奪えば勝ち</b>。自分の京を奪われたら負け。</p>' +
+          '<p>柱の高さは、その県の兵力。光っている六角形が京だよ。</p>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: { pos: [0, 30, 17], target: [0, 0, 0.5] },
+        show: ['legend', 'nm1', 'nm46', 'nm19', 'nm50'],
+        update: function (g, t) { g.pulse('cap1', t, 0.15); g.pulse('cap46', t + 1, 0.15); },
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<p>ゲームを始めると、こんな画面になるよ。</p>' +
+          '<table><tr><th>場所</th><th>なにがある？</th></tr>' +
+          '<tr><td>左上</td><td>クリックした県の情報、両軍の県の数・兵力、兵糧</td></tr>' +
+          '<tr><td>右上</td><td>ターン数、<b>次のターン</b>（LAN対戦では <b>ターン終了</b>）、<b>改革</b>、<b>オプション</b></td></tr>' +
+          '<tr><td>左下</td><td><b>将軍選択</b>・<b>砦配置</b>・<b>アイテム</b>・<b>兵糧Lv</b> のボタン</td></tr>' +
+          '<tr><td>下</td><td>案内メッセージ。困ったらここを見てね</td></tr></table>' +
+          '<p>地図は <b>マウスホイールで拡大・縮小</b>、<b>右ボタンを押したまま動かす</b>とつかんで動かせる。</p>' +
+          '<p>ルールを忘れたら、<b>オプション → ルールブック</b> でいつでも見られるよ。</p>',
+        camera: { pos: [SX, 15, 10.5], target: [SX, 0, 0.8] },
+        focus: ['scr', 'scr-map', 'ui-info', 'ui-stats', 'ui-zenkoku', 'ui-turn', 'ui-next', 'ui-reform', 'ui-opt', 'ui-unit', 'ui-fort', 'ui-item', 'ui-lv', 'ui-msg', 'scr-title'],
+      },
+      {
+        title: 'まずは将軍を選ぶ',
+        html:
+          '<p>出撃するには、先に <b>将軍</b> を1人選んでおく必要があるよ。左下の <b>将軍選択</b> を押してね。</p>' +
+          '<ul><li>将軍は全部で18人。今はみんな、最初から選べるよ</li>' +
+          '<li>一度選んだ将軍は、<b>討ち取られるまで次の出撃でもそのまま</b>。途中で変えてもOK</li></ul>' +
+          '<div class="gg-note">合戦に負けると、出撃した将軍は <b>討ち取られて</b> いなくなっちゃう。大事な将軍ほど慎重にね。</div>',
+        camera: { pos: [SX - 2.4, 6.5, 11.5], target: [SX - 2.4, 1.6, 2.4] },
+        focus: ['scr', 'ui-unit', 'gens', 'gen-lbl'],
+        show: ['gens', 'gen-lbl'],
+        update: function (g, t) {
+          var k = g.phase(t % 4, 0.5, 0.6) * (1 - g.phase(t % 4, 3.2, 0.6));
+          g.get('gen0').position.y = 1.6 + k * 0.6;
+          g.pulse('ui-unit', t, 0.12);
+        },
+      },
+      {
+        title: '出撃元を選ぶ：Shift＋左クリック',
+        html:
+          '<p>自分の県を <b>Shift を押しながら左クリック</b> すると、その県が <b>出撃元</b> になるよ（緑）。</p>' +
+          '<ul><li>出撃元は <b>何県でも</b> 選べる。選んだ県の兵力が <b>全部合わさって</b> 攻めこむ</li>' +
+          '<li>もう一度 Shift＋左クリックすると、選ぶのをやめられる</li></ul>' +
+          '<p>この例では、<b>岐阜県</b> と <b>愛知県</b> を出撃元にしてみたよ。</p>' +
+          '<div class="gg-note">Shift なしの左クリックは「県の政策」メニューが開くよ（あとで説明するね）。</div>',
+        camera: { pos: [3.4, 12.5, 12.5], target: [3.0, 0, 1.0] },
+        focus: ['p17', 'p18', 'sel', 'sel-lbl', 'chubu', 'p25', 'p31', 'p16', 'p24', 'p22', 'p23', 'p20', 'p26', 'p28', 'p21'],
+        show: ['sel', 'sel-lbl', 'chubu'],
+        update: function (g, t) {
+          g.get('sel17').visible = (t % 5) > 0.6;
+          g.get('sel18').visible = (t % 5) > 1.4;
+        },
+      },
+      {
+        title: '敵の県を右クリックで出撃！',
+        html:
+          '<p>出撃元を選んだら、<b>敵の県を右クリック</b>。合戦が始まるよ。</p>' +
+          '<ul><li>攻められるのは、<b>選んだ出撃元すべての隣にある県</b>だけ（黄色）</li>' +
+          '<li>攻める兵力は、出撃元の兵力の合計</li>' +
+          '<li>奪われたばかりの県は、<b>1ターンのあいだ攻められない</b></li></ul>' +
+          '<p>この例では、岐阜県＋愛知県から <b>三重県</b> に攻めこむよ。</p>' +
+          '<div class="gg-note">地図の白い線が「隣どうし」のしるし。秦と漢は遠くの県とも隣あつかいだよ。</div>',
+        camera: { pos: [3.4, 12.5, 12.5], target: [3.0, 0, 1.0] },
+        focus: ['p17', 'p18', 'sel', 'p25', 'p31', 'tgt', 'atk', 'atk-lbl', 'tgt-lbl', 'adj', 'chubu'],
+        show: ['sel', 'tgt', 'atk', 'atk-lbl', 'tgt-lbl', 'chubu'],
+        update: function (g, t) { g.pulse('tgt31', t, 0.2); },
+      },
+      {
+        title: 'じゃんけんの相性',
+        html:
+          '<p>合戦は <b>じゃんけん</b> で決まるよ。手は3つ。</p>' +
+          '<p style="font-size:18px;text-align:center"><b>🗡️歩兵 ＞ 🐴騎兵 ＞ 🏹弓兵 ＞ 🗡️歩兵</b></p>' +
+          '<ul><li><b>歩兵</b> は騎兵に強い</li><li><b>騎兵</b> は弓兵に強い</li><li><b>弓兵</b> は歩兵に強い</li></ul>' +
+          '<p>相性で勝った側は、<b>兵力が1.5倍</b>（＋50%）になる。あいこなら相性ボーナスはなし。</p>' +
+          '<div class="gg-note">合戦画面の上にも相性表が出ているから、迷ったら見てね。</div>',
+        camera: { pos: [JX, 10, 9.5], target: [JX, 0.5, 0.2] },
+        focus: ['j-floor', 'j-spear', 'j-cavalry', 'j-bow', 'ja0', 'ja1', 'ja2', 'j-bonus'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.5) % 3;
+          ['spear', 'cavalry', 'bow'].forEach(function (h, i) { if (i === k) g.pulse('j-' + h, t, 0.18); });
+        },
+      },
+      {
+        title: '合戦の流れ',
+        html:
+          '<ol><li>自分の手（歩兵・騎兵・弓兵）を選ぶ</li>' +
+          '<li>「じゃん・けん・ぽん！」で、お互いの手が出る（<b>自分は左</b>、敵は右）</li>' +
+          '<li>相性で勝った側の兵力が <b>×1.5</b></li>' +
+          '<li>最後に <b>兵力が多いほうの勝ち</b></li></ol>' +
+          '<p>この例では、あなた17000（騎兵）と敵18000（弓兵）。兵力では負けてるけど、<b>騎兵は弓兵に強い</b> から 17000×1.5＝<b>25500</b> で逆転勝ち！</p>' +
+          '<div class="gg-note">LAN対戦で自分の県が攻められたときは、守る側も手を選ぶよ。<b>20秒</b> 以内に選ばないと、自動で決まっちゃう。</div>',
+        camera: { pos: [JX, 8.5, BZ + 10], target: [JX, 1.4, BZ] },
+        focus: ['b-floor', 'b-me', 'b-en', 'b-hand-me', 'b-hand-en', 'b-vs', 'bar-me', 'bar-en', 'bar-me-lbl', 'bar-en-lbl', 'b-adv', 'b-win'],
+        show: ['b-adv', 'b-win'],
+        update: function (g, t) {
+          var tt = t % 8;
+          var reveal = g.phase(tt, 0.3, 0.6);
+          g.get('b-hand-me').scale.set(reveal || 0.001, reveal || 0.001, reveal || 0.001);
+          g.get('b-hand-en').scale.set(reveal || 0.001, reveal || 0.001, reveal || 0.001);
+          var bonus = g.phase(tt, 2.2, 1.2);
+          var me = (17000 * (1 + 0.5 * bonus)) / 6000, en = 18000 / 6000;
+          var bm = g.get('bar-me'), be = g.get('bar-en');
+          bm.scale.y = me; bm.position.y = me / 2;
+          be.scale.y = en; be.position.y = en / 2;
+          g.get('bar-me-lbl').position.y = me + 0.5;
+          g.get('bar-en-lbl').position.y = en + 0.5;
+          g.setLabel('bar-me-lbl', String(Math.round(17000 * (1 + 0.5 * bonus))), { size: 0.42, bg: '#000000aa' });
+          g.get('b-adv').visible = tt > 2.0;
+          g.get('b-win').visible = tt > 4.0;
+        },
+      },
+      {
+        title: '勝ったら／負けたら',
+        html:
+          '<p><b>勝ったら</b></p>' +
+          '<ul><li>攻めた県が <b>自分の県になる</b>（この例では三重県が赤に）</li>' +
+          '<li><b>兵糧Lv</b> が1つ上がる</li>' +
+          '<li><b>30%</b> の確率で <b>アイテムカード</b> がもらえる</li></ul>' +
+          '<p><b>負けたら</b></p>' +
+          '<ul><li>出撃した <b>将軍が討ち取られる</b> 🪦（その将軍はもう使えない）</li>' +
+          '<li>県は取れない。次の出撃の前に、将軍を選び直してね</li></ul>',
+        camera: { pos: [3.4, 12.5, 12.5], target: [3.0, 0, 1.0] },
+        focus: ['p17', 'p18', 'p31', 'win-lbl', 'p25', 'p26', 'p28', 'p20', 'p21', 'chubu'],
+        show: ['win-lbl', 'chubu'],
+        update: function (g, t) {
+          var won = (t % 5) > 1.2;
+          g.setColor('p31', won ? OWNER_COL[1] : OWNER_COL[2]);
+          g.get('win-lbl').visible = won;
+          if (won) g.pulse('p31', t, 0.1);
+        },
+      },
+      {
+        title: '攻撃は1ターンに2回まで',
+        html:
+          '<p>自分の番で攻撃できるのは <b>2回まで</b>。2回攻撃すると、<b>自動でターンが終わる</b> よ。</p>' +
+          '<ul><li>CPU対戦なら、そのまま次のターンへ進む</li>' +
+          '<li>LAN対戦なら、相手の番になる</li>' +
+          '<li>1回目のあとは、案内に「あと1回攻撃できます」と出る</li></ul>' +
+          '<p>攻撃しなくても、右上の <b>次のターン</b>（LAN対戦は <b>ターン終了</b>）で番を終えられるよ。</p>' +
+          '<div class="gg-note">アイテムカードの <b>渡河の札</b> を使うと、そのターンだけもう1回出撃できる。</div>',
+        camera: { pos: [JX, 8, AZ + 9], target: [JX, 0.6, AZ] },
+        focus: ['a-floor', 'a-tok0', 'a-tok1', 'a-arrow', 'a-end'],
+        update: function (g, t) {
+          var tt = t % 6;
+          g.setColor('a-tok0', tt > 0.8 ? '#ff6b6b' : '#555066');
+          g.setColor('a-tok1', tt > 2.0 ? '#ff6b6b' : '#555066');
+          g.get('a-arrow').visible = tt > 2.8;
+          g.setColor('a-end', tt > 3.4 ? '#ff9800' : '#666666');
+          if (tt > 3.4) g.pulse('a-end', t, 0.08);
+        },
+      },
+      {
+        title: 'アイテムカード',
+        html:
+          '<p>合戦に勝つと、<b>30%</b> の確率でアイテムカードが1枚もらえる。全部で <b>8種類</b>。</p>' +
+          '<ol><li>左下の <b>アイテム</b> ボタンで、持っているカードを見る</li>' +
+          '<li>使いたいカードを押すと <b>装備</b> される</li>' +
+          '<li><b>次の出撃</b> で自動で使われる（使ったら1枚減る）</li></ol>' +
+          '<ul><li><b>軍師の札</b> だけは、押した瞬間に効く（改革の待ちが2ターン減る）</li>' +
+          '<li>装備をやめたいときは、カード画面の <b>装備を外す</b></li>' +
+          '<li>カードの効果は、自分が攻めるときだけ</li></ul>',
+        camera: { pos: [0, 4.2, CZ + 10.5], target: [0, 2.4, CZ] },
+        focus: ['c-floor', 'card0', 'card1', 'card2', 'card3', 'card4', 'card5', 'card6', 'card7',
+          'card-desc0', 'card-desc1', 'card-desc2', 'card-desc3', 'card-desc4', 'card-desc5', 'card-desc6', 'card-desc7'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.6) % 8;
+          for (var i = 0; i < 8; i++) {
+            var base = 3.7 - Math.floor(i / 4) * 2.6;
+            g.get('card' + i).position.z = CZ + (i === k ? 0.6 : 0);
+            g.get('card' + i).position.y = base + (i === k ? 0.15 : 0);
+          }
+        },
+      },
+      {
+        title: '県の政策：左クリック',
+        html:
+          '<p>自分の県を <b>（Shift なしで）左クリック</b> すると、その県の <b>政策</b> メニューが開くよ。</p>' +
+          '<table><tr><th>政策</th><th>効果</th></tr>' +
+          '<tr><td>徴兵</td><td>兵力 ＋500</td></tr>' +
+          '<tr><td>訓練</td><td>兵力 ×1.1（＋10%）</td></tr></table>' +
+          '<ul><li>どちらも <b>1つの県で1ターンに1回</b> まで</li>' +
+          '<li>兵力の上限は <b>15000</b>（京は <b>20000</b>）。上限をこえている県では使えない</li></ul>',
+        camera: { pos: [P[13].x - 2, 9, P[13].z + 8], target: [P[13].x - 1, 0.5, P[13].z] },
+        focus: ['p13', 'pol-ring', 'pol-lbl', 'p8', 'p11', 'p12', 'p14'],
+        show: ['pol-ring', 'pol-lbl'],
+        update: function (g, t) { g.pulse('pol-ring', t, 0.15); },
+      },
+      {
+        title: '改革・兵糧Lv・砦',
+        html:
+          '<p><b>改革</b>（右上のボタン）：国全体を強くする。<b>5ターンに1回</b>、それぞれ1度だけ。</p>' +
+          '<ul><li>十七条の憲法：毎ターンの人口の伸びが増える</li>' +
+          '<li>征夷大将軍：毎ターン兵力＋10%</li>' +
+          '<li>御成敗式目：県を奪ったときの兵力が増える</li>' +
+          '<li>大化の改新：自分の全県の人口・兵力がすぐ＋1000</li></ul>' +
+          '<p><b>兵糧Lv</b>（左下の黄色いボタン）：兵糧の上限が500ずつ上がる（最大Lv8）。兵糧は毎ターン少しずつ回復して、砦を建てるのに使う。</p>' +
+          '<p><b>砦配置</b>：兵糧を使って、自分の県に砦を建てられる（木製500・石造1500・鉄造2500）。</p>',
+        camera: { pos: [IX, 9, IZ + 10.5], target: [IX, 0.8, IZ] },
+        focus: ['i-floor', 'rf0', 'rf1', 'rf2', 'rf3', 'rf-title', 'lv', 'lv-title', 'fort'],
+        update: function (g, t) {
+          var n = 1 + Math.floor(t / 0.7) % 8;
+          for (var i = 1; i <= 8; i++) g.setColor('lv' + i, i <= n ? '#c9a227' : '#3a3555');
+        },
+      },
+      {
+        title: 'ターンが進むと',
+        html:
+          '<p>右上の <b>次のターン</b>（LAN対戦は <b>ターン終了</b>）を押すと、ターンが進むよ。</p>' +
+          '<ul><li>県の <b>人口が増え</b>、兵糧が少し回復する</li>' +
+          '<li>各県が <b>自動で隣の敵県に攻めこむ</b> ことがある。<br>難易度でよく攻める度合いが変わる（初級30%・中級50%・上級70%・鬼級90%）</li>' +
+          '<li><b>秦と漢</b> も、決まった地方をねらって攻めてくる</li></ul>' +
+          '<div class="gg-note">LAN対戦の順番は、<b>プレイヤー1 → プレイヤー2 → ターン＋1</b>。相手の番のあいだは、地図を見ることしかできないよ。</div>',
+        camera: { pos: [0, 24, 17], target: [0, 0, 1] },
+        show: ['pop', 'auto', 'auto-lbl'],
+        update: function (g, t) {
+          var k = (t % 4) / 4;
+          g.get('pop').position.y = k * 1.2;
+          g.get('pop').visible = k < 0.9;
+        },
+      },
+      {
+        title: 'LAN対戦の始め方',
+        html:
+          '<p>同じ Wi-Fi につながっていれば、2人で対戦できるよ。</p>' +
+          '<ol><li><b>ホスト役のPC（1台だけ）</b>で、<code>戦国守備戦</code> フォルダの <b>みんなで遊ぶ（LAN対戦）</b> をダブルクリック</li>' +
+          '<li>黒い画面に出る <code>http://192.168.x.x/</code> を、相手のPC・スマホのブラウザで開く</li>' +
+          '<li>2人とも <b>LAN対戦</b> を押す</li>' +
+          '<li>片方が <b>ルームを作る</b>（プレイヤー1・北海道・先攻）、もう片方は一覧に出たルームを押して参加（プレイヤー2・沖縄）</li></ol>' +
+          '<div class="gg-note">つながらないときは、Windows の「アクセスを許可しますか？」で <b>許可</b> を押したか確認してね。黒い画面は、遊んでいるあいだ閉じないこと。</div>',
+        camera: { pos: [LX, 9.5, LZ + 11], target: [LX, 0.8, LZ] },
+        focus: ['l-floor', 'l-host', 'l-p1', 'l-p2', 'l-f1', 'l-f2', 'l-url'],
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li><b>将軍選択</b> で将軍を選ぶ</li>' +
+          '<li><b>Shift＋左クリック</b> で出撃元を選ぶ</li>' +
+          '<li>隣の敵県を <b>右クリック</b> して出撃</li>' +
+          '<li><b>じゃんけん</b>（歩兵＞騎兵＞弓兵＞歩兵）で相性勝ちを狙う</li>' +
+          '<li>攻撃は1ターン2回まで。<b>政策・改革・カード</b> で国を強くする</li>' +
+          '<li>相手の <b>京</b> を奪えば勝ち！</li></ol>' +
+          '<p>タイトル画面の <b>ワールド編</b> では、世界40か国を舞台に、政策を選んで国を広げる別の遊び方もできるよ。</p>' +
+          '<p>それじゃあ、天下統一めざしてがんばってね！🏯</p>',
+        camera: { pos: [0, 30, 17], target: [0, 0, 0.5] },
+        show: ['nm1', 'nm46'],
+        update: function (g, t) { g.pulse('cap1', t, 0.15); g.pulse('cap46', t + 1, 0.15); },
+      },
+    ],
+  };
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = '戦国守備戦 | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>
