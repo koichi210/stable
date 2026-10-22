@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrawlArena | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var T = THREE;
+
+  // ---------- アリーナ（src/data/maps.json）：1280×768px → 3D（64px = 1マス、中央が原点） ----------
+  function P(px, py, y) { return [px / 64 - 10, y || 0, py / 64 - 6]; }
+  function U(px) { return px / 64; }
+  // キャラの見た目の半径は「コードの半径 × 1.6」（小さすぎて見えないので。比率はコードどおり）
+  var R_ASSAULT = 20 * 1.6 / 64, R_TANK = 26 * 1.6 / 64, R_SNIPER = 16 * 1.6 / 64;
+  var SPAWN_ME = P(160, 618), SPAWN_BOT = P(1120, 150);
+  var OBST = [[460, 284, 100, 60], [820, 484, 100, 60], [460, 484, 60, 100], [820, 284, 60, 100]];
+  var BUSH = [[190, 190, 220, 200], [1090, 190, 220, 200], [190, 578, 220, 200], [1090, 578, 220, 200]];
+  var ME_COL = '#66ccff', BOT_COL = '#ff4444';
+
+  // ---------- 13体（characters.json の並び＝キャラ選択画面の並び）。名前は載せず、色とタイプで呼ぶ ----------
+  // [色, 色の呼び名, 攻撃, HP, 移動速度, 必殺技タイプ, 解放条件]
+  var ROSTER = [
+    ['#66ccff', '水色', '遠距離', 3400, 260, '吸込', '最初から'],
+    ['#ff6633', 'オレンジ', '近接', 5200, 200, '爆発', '最初から'],
+    ['#ffdd44', '黄色', '遠距離', 2800, 230, '必中', '最初から'],
+    ['#4a4a66', '紺', '遠距離', 3000, 300, '必中', 'Lv2・300'],
+    ['#9933cc', '紫', '近接', 5600, 190, '爆発', 'Lv3・450'],
+    ['#dddddd', '白', '近接', 3600, 250, '必中', 'Lv2・300'],
+    ['#ff3399', 'ピンク', '遠距離', 6000, 240, '爆発', 'Lv8・1400'],
+    ['#660022', 'えんじ', '遠距離', 3100, 210, '必中', 'Lv6・900'],
+    ['#ff99cc', 'うすピンク', '遠距離', 2400, 220, '吸込', 'Lv4・600'],
+    ['#33cc99', '青緑', '遠距離', 5800, 210, '爆発', 'Lv7・1100'],
+    ['#333333', '黒', '近接', 3300, 290, '必中', 'Lv3・450'],
+    ['#ff8899', 'ローズ', '遠距離', 2600, 220, '吸込', 'Lv3・450'],
+    ['#88aa33', '黄緑', '近接', 2900, 250, '爆発', 'Lv1・150'],
+  ];
+  var MULT = [1.0, 1.03, 1.06, 1.09, 1.12, 1.16, 1.20, 1.24, 1.28, 1.33]; // progression.json
+  var COST = [50, 80, 120, 170, 230, 300, 380, 470, 570];
+
+  var rosterHtml = '<table><tr><th>#</th><th>色</th><th>攻撃</th><th>HP</th><th>速さ</th><th>必殺技</th><th>解放</th></tr>' +
+    ROSTER.map(function (r, i) {
+      return '<tr><td>' + (i + 1) + '</td><td><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:' + r[0] +
+        ';border:1px solid #fff8;vertical-align:-1px"></span> ' + r[1] + '</td><td>' + (r[2] === '近接' ? '近' : '遠') + '</td><td>' + r[3] + '</td><td>' + r[4] +
+        '</td><td>' + r[5] + '</td><td>' + r[6] + '</td></tr>';
+    }).join('') + '</table>';
+
+  // ---------- 舞台の置き場所 ----------
+  // 舞台は横一列に離して置く（カメラの奥に別の舞台が映りこまないように）
+  var LX = -40, LZ = 0;    // 始め方
+  var SX = -80, SZ = 0;    // キャラ選択画面の模型
+  var KX = 40, KZ = 0;     // 操作（キー・マウス）
+  var GX = 80, GZ = 0;     // 必殺技ゲージ
+  var UX = 120, UZ = 0;    // 必殺技3タイプ
+  var RX = -120, RZ = 0;   // キャラ一覧
+  var VX = 160, VZ = 0;    // 育成
+  function HPm(x, y, h) { return [SX + (x - 640) / 100, h == null ? 0.1 : h, SZ + (y - 384) / 100]; } // 選択画面 1280×768 → 模型
+
+  // ---------- 小物 ----------
+  var shown = {};
+  function setL(g, id, text, o) {
+    if (shown[id] === text) return;
+    shown[id] = text;
+    g.setLabel(id, text, o);
+  }
+  function fighter(g, id, color, r, pos, o) {
+    o = o || {};
+    g.group(id, { pos: pos, parent: o.parent });
+    g.cylinder({ id: id + '-body', parent: id, radius: r, height: 0.42, pos: [0, 0.22, 0], color: color, emissive: color, emissiveIntensity: 0.18 });
+    g.group(id + '-aim', { parent: id });
+    g.box({ parent: id + '-aim', size: [0.42, 0.08, 0.12], pos: [r + 0.3, 0.3, 0], color: '#ffffff', edges: false });
+    g.box({ id: id + '-hpbg', parent: id, size: [1.0, 0.06, 0.16], pos: [0, 0.75, -r - 0.2], color: '#222222', edges: false });
+    g.box({ id: id + '-hp', parent: id, size: [1.0, 0.08, 0.17], pos: [0, 0.77, -r - 0.2], color: '#33dd55', edges: false });
+    if (o.label) g.label(o.label, [0, 0.9, r + 0.7], { id: id + '-lbl', parent: id, size: o.labelSize || 0.32, bg: '#000000aa', color: o.labelColor });
+  }
+  function setHp(g, id, ratio) {
+    ratio = Math.max(0, Math.min(1, ratio));
+    var fg = g.get(id + '-hp');
+    fg.scale.x = Math.max(ratio, 0.001);
+    fg.position.x = -(1 - ratio) * 0.5;
+    g.setColor(fg, ratio > 0.5 ? '#33dd55' : ratio > 0.25 ? '#dddd33' : '#dd3333');
+  }
+  function aimAt(g, id, a) { g.get(id + '-aim').rotation.y = -a; }
+  function aimTo(g, id, from, to) { aimAt(g, id, Math.atan2(to[2] - from[2], to[0] - from[0])); }
+  function ring(g, id, r, color, o) {
+    o = o || {};
+    var m = new T.Mesh(new T.RingGeometry(r - (o.w || 0.04), r + (o.w || 0.04), 96),
+      new T.MeshBasicMaterial({ color: color, transparent: true, opacity: o.opacity || 0.9, side: T.DoubleSide, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    var p = o.pos || [0, 0.06, 0];
+    m.position.set(p[0], p[1], p[2]);
+    return g.add(id, m, o.parent);
+  }
+  function disc(g, id, r, color, o) {
+    o = o || {};
+    var m = new T.Mesh(new T.CircleGeometry(r, 64),
+      new T.MeshBasicMaterial({ color: color, transparent: true, opacity: o.opacity || 0.3, side: T.DoubleSide, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    var p = o.pos || [0, 0.05, 0];
+    m.position.set(p[0], p[1], p[2]);
+    return g.add(id, m, o.parent);
+  }
+  // 扇形（+x 方向を中心に、全角 deg 度）
+  function sector(g, id, r, deg, color, o) {
+    o = o || {};
+    var h = deg * Math.PI / 360;
+    var m = new T.Mesh(new T.CircleGeometry(r, 48, -h, 2 * h),
+      new T.MeshBasicMaterial({ color: color, transparent: true, opacity: o.opacity || 0.35, side: T.DoubleSide, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = o.y || 0.05;
+    return g.add(id, m, o.parent);
+  }
+  function bullet(g, id, color) {
+    return g.sphere({ id: id, radius: 0.13, color: color, emissive: color, emissiveIntensity: 0.8 });
+  }
+  // 弾を from→to へ（t0 秒に発射、dur 秒で到着）。飛んでいる間だけ見せる
+  function shot(g, id, from, to, t0, dur, tt) {
+    var o = g.get(id), k = (tt - t0) / dur;
+    if (k < 0 || k > 1) { o.visible = false; return; }
+    o.visible = true;
+    g.lerpPos(o, [from[0], 0.3, from[2]], [to[0], 0.3, to[2]], k);
+  }
+  function L3(a, b, k) { return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
+  function ids(prefix, n) { var a = []; for (var i = 0; i < n; i++) a.push(prefix + i); return a; }
+
+  // ステップ1・15 で使う配置
+  var S1_ME = P(330, 384), S1_BOT = P(800, 384);
+  function duel(g, t) {
+    g.setPos('me', S1_ME); g.setPos('bot', S1_BOT);
+    aimAt(g, 'me', 0); aimAt(g, 'bot', Math.PI);
+    var tt = t % 3;
+    shot(g, 'b1-0', L3(S1_ME, S1_BOT, 0.06), L3(S1_ME, S1_BOT, 0.94), 0.2, 0.75, tt);
+    shot(g, 'b1-1', L3(S1_BOT, S1_ME, 0.06), L3(S1_BOT, S1_ME, 0.94), 1.5, 0.75, tt);
+    setHp(g, 'bot', 1 - 0.12 * Math.floor((t + 2.05) / 3));
+    setHp(g, 'me', 1 - 0.12 * Math.floor((t + 0.75) / 3));
+  }
+
+  var ARENA = ['arena', 'me', 'bot'];
+
+  var CFG = {
+    title: 'BrawlArena 遊び方',
+    back: '../index.html',
+    subtitle: '上から見下ろしたアリーナで、ボットと1対1で撃ち合う対戦アクション。はじめての人向けのチュートリアル',
+    camera: { pos: [0, 17, 10.5], target: [0, 0, 0.3] },
+
+    build: function (g) {
+      // ======================= アリーナ =======================
+      g.group('arena', {});
+      g.plate({ id: 'ar-floor', parent: 'arena', size: [20, 12], pos: [0, 0.02, 0], color: '#1e3a1e', opacity: 1, radius: 0.05 });
+      g.line([[-10, 0.08, -6], [10, 0.08, -6], [10, 0.08, 6], [-10, 0.08, 6], [-10, 0.08, -6]], { parent: 'arena', color: '#ffffff', opacity: 0.6 });
+      OBST.forEach(function (o, i) {
+        g.box({ id: 'obs' + i, parent: 'arena', size: [U(o[2]), 0.7, U(o[3])], pos: P(o[0], o[1], 0.35), color: '#6b6b55', edgeColor: '#ffffff' });
+      });
+      BUSH.forEach(function (b, i) {
+        g.box({ id: 'bush' + i, parent: 'arena', size: [U(b[2]), 0.3, U(b[3])], pos: P(b[0], b[1], 0.15), color: '#2f9a45', opacity: 0.5, edges: false });
+      });
+      ring(g, 'sp-me', 0.55, ME_COL, { parent: 'arena', pos: [SPAWN_ME[0], 0.07, SPAWN_ME[2]] });
+      ring(g, 'sp-bot', 0.55, BOT_COL, { parent: 'arena', pos: [SPAWN_BOT[0], 0.07, SPAWN_BOT[2]] });
+
+      fighter(g, 'me', ME_COL, R_ASSAULT, SPAWN_ME, { label: 'あなた' });
+      fighter(g, 'bot', BOT_COL, R_ASSAULT, SPAWN_BOT, { label: 'ボット' });
+      g.label('？ 見失った…', [0, 0.9, R_ASSAULT + 0.7], { id: 'bot-q', parent: 'bot', size: 0.32, bg: '#000000aa', color: '#ffd166' });
+      ['b1-0', 'b1-1'].forEach(function (id, i) { bullet(g, id, i ? BOT_COL : ME_COL); });
+
+      // STEP1・15
+      g.label('制限時間 2分 ／ キル数が多いほうが勝ち', [0, 1.0, -6.9], { id: 'l1-goal', size: 0.5, color: C.gold, bg: '#000000aa' });
+      g.label('あなたのスタート地点', [SPAWN_ME[0] + 0.4, 0.6, SPAWN_ME[2] + 1.0], { id: 'l1-spme', size: 0.3, color: ME_COL, bg: '#000000aa' });
+      g.label('ボットのスタート地点', [SPAWN_BOT[0] - 0.4, 0.6, SPAWN_BOT[2] - 1.0], { id: 'l1-spbot', size: 0.3, color: '#ff8888', bg: '#000000aa' });
+      g.label('壁', P(640, 384, 0.6), { id: 'l1-wall', size: 0.3, bg: '#000000aa' });
+      g.label('茂み', P(190, 190, 0.6), { id: 'l1-bush', size: 0.3, color: '#9be59b', bg: '#000000aa' });
+
+      // STEP4：画面の見方（ゲーム画面の左上と上の文字）
+      g.label('キャラ名  HP: 3400/3400\n弾: 2/3\n必殺技「技名」: 42%\nキル: あなた 1 - ボット(キャラ名) 0', P(250, 82, 0.3), { id: 'hud-tl', size: 0.36, bg: '#000000cc' });
+      g.label('残り 1:42', P(640, 40, 0.3), { id: 'hud-tm', size: 0.4, bg: '#000000cc' });
+      g.label('頭の上のバー＝HP\n緑 → 黄 → 赤', [S1_BOT[0] + 1.0, 0.6, S1_BOT[2] + 2.8], { id: 'hud-bar', size: 0.3, color: C.gold, bg: '#000000aa' });
+
+      // STEP6：遠距離
+      for (var i = 0; i < 6; i++) bullet(g, 'b6-' + i, ME_COL);
+      for (i = 0; i < 3; i++) g.box({ id: 'pip' + i, parent: 'me', size: [0.24, 0.1, 0.12], pos: [-0.3 + i * 0.3, 0.77, -R_ASSAULT - 0.5], color: '#ffdd44', edges: false });
+      g.label('弾: 3/3', [0, 1.6, -0.5], { id: 'l6-ammo', parent: 'me', size: 0.3, bg: '#000000aa' });
+      g.line([P(230, 384, 0.12), P(700, 384, 0.12)], { id: 'l6-line', color: '#ffffff', dashed: true, opacity: 0.8 });
+      g.box({ id: 'l6-end', size: [0.06, 0.4, 0.5], pos: P(700, 384, 0.2), color: '#ffffff', edges: false });
+      g.label('射程 500（ここで弾が消える）', P(700, 384, 0.5).map(function (v, k) { return k === 2 ? v + 1.5 : v; }), { id: 'l6-range', size: 0.28, bg: '#000000aa' });
+
+      // STEP7：近接（タンク型＝オレンジ）
+      fighter(g, 'tank', '#ff6633', R_TANK, P(330, 384), { label: 'あなた（近接タイプ）', labelSize: 0.28 });
+      sector(g, 'sec7', U(140), 100, '#ffd166', { parent: 'tank', opacity: 0.3, y: 0.09 });
+      sector(g, 'sec7f', U(140), 100, '#ffd166', { parent: 'tank', opacity: 0.7, y: 0.1 });
+      fighter(g, 'ghost7', '#aa6666', R_ASSAULT, P(560, 384), { label: '届かない', labelSize: 0.28 });
+      g.label('扇形 100°・距離 140まで', P(330, 384, 0.4).map(function (v, k) { return k === 2 ? v + 2.2 : v; }), { id: 'l7-a', size: 0.3, color: C.gold, bg: '#000000aa' });
+
+      // STEP8：壁
+      for (i = 0; i < 3; i++) bullet(g, 'b8-' + i, BOT_COL);
+      g.label('弾は壁に当たると消える', P(820, 484, 1.4), { id: 'l8-wall', size: 0.3, color: C.gold, bg: '#000000aa' });
+      g.label('ボット：壁があっても\nかまわず撃ってくる', [0.3, 0.9, 1.6], { id: 'l8-bot', parent: 'bot', size: 0.28, bg: '#000000aa' });
+      g.label('あなた：壁のかげで安全', [0, 0.9, 1.2], { id: 'l8-me', parent: 'me', size: 0.28, color: ME_COL, bg: '#000000aa' });
+
+      // STEP9：茂み
+      ring(g, 'ring9', U(110), '#ffd166', { parent: 'me', pos: [0, 0.4, 0], w: 0.05 });
+      g.label('この輪（110）の中まで\n近づかれると見つかる', [0, 0.5, -2.5], { id: 'l9-ring', parent: 'me', size: 0.26, color: C.gold, bg: '#000000aa' });
+
+      // STEP12：やられたら
+      for (i = 0; i < 3; i++) bullet(g, 'b12-' + i, ME_COL);
+      g.label('撃破！ キル +1', P(800, 384, 1.4), { id: 'l12-ko', size: 0.5, color: C.good, bg: '#000000aa' });
+      g.label('復活まで 3', [SPAWN_BOT[0] - 0.6, 1.0, SPAWN_BOT[2] + 2.4], { id: 'l12-cd', size: 0.44, bg: '#000000aa' });
+      g.label('1.5秒間 無敵（点滅）', [SPAWN_BOT[0] - 0.8, 1.0, SPAWN_BOT[2] + 2.4], { id: 'l12-inv', size: 0.42, color: C.gold, bg: '#000000aa' });
+      g.label('キル: あなた 0 - ボット 0', P(240, 50, 0.3), { id: 'l12-score', size: 0.42, bg: '#000000cc' });
+
+      // ======================= 始め方 =======================
+      g.plate({ id: 'la-floor', size: [15, 9], pos: [LX, 0.02, LZ], color: '#231f33', opacity: 0.95 });
+      g.plate({ id: 'la-folder', size: [3.6, 3.6], pos: [LX - 3.8, 0.05, LZ + 0.6], color: '#c9a227', opacity: 0.9, label: 'BrawlArena フォルダ', labelSize: 0.32, labelColor: '#ffe9a8', labelBg: '#000000aa', labelOffset: [0, 0.4, 2.2] });
+      g.card({ id: 'la-card', pos: [LX - 3.8, 1.3, LZ + 0.6], lying: false, text: '📄', sub: 'ダブル\nクリック', color: '#2e7d32', w: 1.3 });
+      g.label('play.html', [LX - 3.8, 2.75, LZ + 0.6], { id: 'la-name', size: 0.38, bg: '#000000cc' });
+      g.arrow([LX - 2.8, 1.3, LZ + 0.6], [LX + 0.2, 1.3, LZ + 0.6], { id: 'la-arrow', color: C.gold, lift: 0.8, radius: 0.07 });
+      g.box({ id: 'la-mon', size: [5, 3.2, 0.25], pos: [LX + 3.4, 1.9, LZ + 0.2], color: '#333344' });
+      g.box({ id: 'la-scr', size: [4.5, 2.7, 0.05], pos: [LX + 3.4, 1.95, LZ + 0.36], color: '#1e3a1e', emissive: '#1e3a1e', emissiveIntensity: 0.6, edges: false });
+      g.sphere({ id: 'la-p1', radius: 0.17, pos: [LX + 2.0, 1.4, LZ + 0.45], color: ME_COL, emissive: ME_COL, emissiveIntensity: 0.5 });
+      g.sphere({ id: 'la-p2', radius: 0.17, pos: [LX + 4.8, 2.5, LZ + 0.45], color: BOT_COL, emissive: BOT_COL, emissiveIntensity: 0.5 });
+      g.box({ id: 'la-stand', size: [0.4, 0.4, 0.4], pos: [LX + 3.4, 0.2, LZ + 0.2], color: '#333344' });
+      g.label('ブラウザでゲームが始まる', [LX + 3.4, 4.0, LZ + 0.2], { id: 'la-mlbl', size: 0.34, bg: '#000000aa' });
+      g.sphere({ id: 'la-net', radius: 0.8, pos: [LX - 0.6, 4.6, LZ - 3.2], color: '#7ea8ff', emissive: '#7ea8ff', emissiveIntensity: 0.25, label: 'インターネット', labelSize: 0.3, labelBg: '#000000aa' });
+      g.flow([LX - 0.2, 4.2, LZ - 2.8], [LX + 2.4, 3.3, LZ + 0.1], { id: 'la-flow', color: C.data, lift: 0.4, count: 5 });
+      g.label('ゲームの部品（Phaser）を\nネットから読みこむ', [LX - 3.4, 3.9, LZ - 2.6], { id: 'la-nlbl', size: 0.28, color: C.data, bg: '#000000aa' });
+      g.label('LAN対戦・2人対戦はまだ無いよ（あなた1人 vs ボット）', [LX, 0.3, LZ + 4.0], { id: 'la-solo', size: 0.32, color: '#ffcf80', bg: '#000000aa' });
+
+      // ======================= キャラ選択画面の模型 =======================
+      g.plate({ id: 'se-scr', size: [12.8, 7.68], pos: [SX, 0.02, SZ], color: '#12241a', opacity: 1, radius: 0.08 });
+      g.label('💎 魔素: 0', HPm(110, 26, 0.3), { id: 'se-stone', size: 0.3, color: '#ffdd44' });
+      g.label('プレイヤーLv1（XP 0/100）', HPm(1100, 26, 0.3), { id: 'se-plv', size: 0.3, color: '#99ccff' });
+      g.label('キャラを選択（クリック）', HPm(640, 72, 0.3), { id: 'se-title', size: 0.34 });
+      g.group('se-cells', {});
+      ROSTER.forEach(function (r, i) {
+        var x = 200 + (i % 4) * 280, y = 140 + Math.floor(i / 4) * 155;
+        var open = r[6] === '最初から';
+        g.cylinder({ id: 'se-c' + i, parent: 'se-cells', radius: 0.3, height: 0.12, pos: HPm(x, y, 0.1), color: open ? r[0] : '#333333', emissive: open ? r[0] : '#000000', emissiveIntensity: 0.2 });
+        if (open) {
+          g.label('Lv1', HPm(x, y - 46, 0.3), { id: 'se-lv' + i, parent: 'se-cells', size: 0.2, color: '#cccccc' });
+          g.label(r[2] + ' / HP' + r[3], HPm(x, y + 52, 0.12), { id: 'se-st' + i, parent: 'se-cells', size: 0.2, color: '#99cc99' });
+          g.box({ id: 'se-up' + i, parent: 'se-cells', size: [1.2, 0.06, 0.24], pos: HPm(x, y + 92, 0.08), color: '#1a1a1a', edges: false, label: '▲ Lvアップ (50)', labelSize: 0.19, labelColor: '#ffdd44', labelBg: '#000000aa', labelOffset: [0, 0.18, 0] });
+        } else {
+          g.label('🔒', HPm(x, y, 0.35), { id: 'se-lk' + i, parent: 'se-cells', size: 0.24, bg: null });
+          var lv = r[6].split('・');
+          g.label('プレイヤー' + lv[0] + '\n魔素' + lv[1], HPm(x, y + 60, 0.12), { id: 'se-rq' + i, parent: 'se-cells', size: 0.19, color: '#cc88cc' });
+        }
+      });
+      g.sphere({ id: 'se-cur', radius: 0.12, pos: HPm(640, 600, 0.5), color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6 });
+      g.label('丸をクリックすると、そのキャラで試合開始！', HPm(760, 640, 0.3), { id: 'se-go', size: 0.34, color: C.gold, bg: '#000000cc' });
+
+      // ======================= 操作（キー・マウス） =======================
+      g.plate({ id: 'k-floor', size: [15, 10], pos: [KX, 0.02, KZ - 1.2], color: '#231f33', opacity: 0.95 });
+      var KEYS = { W: [KX - 3.2, KZ - 1.0, 'W ↑'], A: [KX - 4.4, KZ + 0.2, 'A ←'], S: [KX - 3.2, KZ + 0.2, 'S ↓'], D: [KX - 2.0, KZ + 0.2, 'D →'] };
+      Object.keys(KEYS).forEach(function (k) {
+        var p = KEYS[k];
+        g.box({ id: 'k' + k, size: [1.05, 0.4, 1.05], pos: [p[0], 0.22, p[1]], color: '#3a3555', edgeColor: '#ffd166', label: p[2], labelSize: 0.36, labelBg: '#000000aa', labelOffset: [0, 0.55, 0] });
+      });
+      g.box({ id: 'kShift', size: [2.2, 0.4, 1.0], pos: [KX - 4.0, 0.22, KZ + 1.6], color: '#3a3555', edgeColor: '#ffd166', label: 'Shift ＝ 必殺技', labelSize: 0.3, labelBg: '#000000aa', labelOffset: [0, 0.55, 0] });
+      g.box({ id: 'k-mouse', size: [1.4, 0.55, 2.0], pos: [KX + 4.0, 0, KZ + 0.6], color: '#888899', radius: 0.5 });
+      g.box({ id: 'k-lbtn', size: [0.6, 0.12, 0.75], pos: [KX + 3.67, 0.6, KZ + 0.05], color: '#555566', edges: false });
+      g.label('左クリック＝攻撃\n押しっぱなしで連続', [KX + 4.0, 1.7, KZ - 1.3], { id: 'k-mlbl', size: 0.3, bg: '#000000aa' });
+      g.plate({ id: 'k-mini', size: [7, 3.4], pos: [KX + 0.6, 0.04, KZ - 4.1], color: '#1e3a1e', opacity: 1 });
+      fighter(g, 'k-me', ME_COL, R_ASSAULT, [KX - 0.6, 0, KZ - 3.2]);
+      g.sphere({ id: 'k-cur', radius: 0.14, pos: [KX + 2.8, 0.3, KZ - 4.1], color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6 });
+      g.label('マウスのほうを向く', [KX + 3.4, 0.6, KZ - 6.2], { id: 'k-clbl', size: 0.28, bg: '#000000aa' });
+      for (i = 0; i < 2; i++) bullet(g, 'kb' + i, ME_COL);
+
+      // ======================= 必殺技ゲージ =======================
+      g.plate({ id: 'g-floor', size: [12, 8.4], pos: [GX, 0.02, GZ + 0.6], color: '#231f33', opacity: 0.95 });
+      fighter(g, 'g-me', ME_COL, R_ASSAULT, [GX - 3.5, 0, GZ + 1.4], { label: 'あなた' });
+      fighter(g, 'g-bot', BOT_COL, R_ASSAULT, [GX + 3.5, 0, GZ + 1.4], { label: 'ボット' });
+      aimAt(g, 'g-bot', Math.PI);
+      g.box({ id: 'g-bg', size: [7, 0.35, 0.45], pos: [GX, 0.3, GZ - 1.6], color: '#3a3555' });
+      g.box({ id: 'g-fg', size: [7, 0.37, 0.47], pos: [GX, 0.3, GZ - 1.6], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.3, edges: false });
+      g.label('必殺技ゲージ 0 / 1000', [GX, 1.1, GZ - 1.6], { id: 'g-lbl', size: 0.34, bg: '#000000aa' });
+      g.label('+420（あてたダメージ ×1）', [GX + 2.8, 0.5, GZ + 3.6], { id: 'g-pop1', size: 0.28, color: C.good, bg: '#000000aa' });
+      g.label('+325（うけたダメージ 650 ×0.5）', [GX - 2.4, 0.5, GZ + 3.6], { id: 'g-pop2', size: 0.28, color: '#ffcf80', bg: '#000000aa' });
+      g.label('満タン！ Shift で発動', [GX, 2.0, GZ - 1.6], { id: 'g-full', size: 0.42, color: C.gold, bg: '#000000cc' });
+      g.label('使うとゲージは 0 に戻る', [GX, 2.0, GZ - 1.6], { id: 'g-used', size: 0.36, bg: '#000000cc' });
+      ring(g, 'g-ring', 2.0, '#ff9f43', { pos: [GX - 3.5, 0.1, GZ + 1.4], w: 0.08 });
+      for (i = 0; i < 3; i++) bullet(g, 'gb' + i, i === 1 ? BOT_COL : ME_COL);
+
+      // ======================= 必殺技3タイプ =======================
+      [-7.5, 0, 7.5].forEach(function (x0, i) {
+        g.plate({ id: 'u-floor' + i, size: [6.6, 6.6], pos: [UX + x0, 0.02, UZ], color: '#1e3a1e', opacity: 0.95 });
+        g.label(['① 吸い込み回復', '② 爆発＋やけど', '③ 必中＋スロー'][i], [UX + x0, 0.3, UZ - 3.7], { id: 'u-t' + i, size: 0.62, color: C.gold, bg: '#000000aa' });
+      });
+      // ① 吸い込み回復
+      var u1me = [UX - 8.7, 0, UZ + 0.8], u1en = [UX - 6.6, 0, UZ + 0.8];
+      fighter(g, 'u1-me', ME_COL, R_ASSAULT, u1me);
+      fighter(g, 'u1-en', BOT_COL, R_ASSAULT, u1en);
+      aimAt(g, 'u1-en', Math.PI);
+      disc(g, 'u1-area', 2.0, '#5ee6a8', { pos: [u1me[0], 0.09, u1me[2]], opacity: 0.18 });
+      ring(g, 'u1-ring', 2.0, '#5ee6a8', { pos: [u1me[0], 0.1, u1me[2]] });
+      g.flow([u1en[0], 0.4, u1en[2]], [u1me[0] + 0.3, 0.4, u1me[2]], { id: 'u1-flow', color: C.good, lift: 0.5, count: 5 });
+      g.label('近くの敵1人に\n大ダメージ', [u1en[0] + 0.4, 0.9, u1en[2] + 1.5], { id: 'u1-a', size: 0.4, bg: '#000000aa' });
+      g.label('自分のHP回復！', [u1me[0] - 0.2, 0.9, u1me[2] + 2.7], { id: 'u1-b', size: 0.4, color: C.good, bg: '#000000aa' });
+      // ② 爆発＋やけど
+      var u2me = [UX, 0, UZ + 0.6];
+      fighter(g, 'u2-me', '#ff6633', R_TANK, u2me);
+      fighter(g, 'u2-e1', BOT_COL, R_ASSAULT, [UX + 1.5, 0, UZ - 0.8]);
+      fighter(g, 'u2-e2', BOT_COL, R_ASSAULT, [UX - 1.6, 0, UZ + 1.6]);
+      fighter(g, 'u2-e3', '#aa6666', R_ASSAULT, [UX + 2.5, 0, UZ + 2.6]);
+      disc(g, 'u2-blast', 2.4, '#ff9f43', { pos: [UX, 0.09, UZ + 0.6], opacity: 0.35 });
+      ring(g, 'u2-ring', 2.4, '#ff9f43', { pos: [UX, 0.1, UZ + 0.6] });
+      g.label('🔥やけど', [UX + 1.5, 1.4, UZ - 1.6], { id: 'u2-f1', size: 0.4, color: '#ffcf80', bg: '#000000aa' });
+      g.label('🔥やけど', [UX - 1.6, 1.4, UZ + 0.8], { id: 'u2-f2', size: 0.4, color: '#ffcf80', bg: '#000000aa' });
+      g.label('とどかない', [UX + 2.0, 0.9, UZ + 3.4], { id: 'u2-f3', size: 0.36, bg: '#000000aa' });
+      // ③ 必中＋スロー
+      var u3me = [UX + 5.6, 0, UZ + 2.0], u3en = [UX + 9.3, 0, UZ - 1.4];
+      fighter(g, 'u3-me', '#ffdd44', R_SNIPER, u3me);
+      fighter(g, 'u3-en', BOT_COL, R_ASSAULT, u3en);
+      aimTo(g, 'u3-me', u3me, u3en);
+      g.arrow([u3me[0] + 0.3, 0.35, u3me[2] - 0.3], [u3en[0] - 0.3, 0.35, u3en[2] + 0.3], { id: 'u3-beam', color: '#ffdd44', lift: 0.2, radius: 0.08 });
+      g.label('遠くの敵1人に\n必ず当たる', [UX + 7.5, 0.9, UZ + 3.3], { id: 'u3-a', size: 0.4, bg: '#000000aa' });
+      g.label('🐢 スロー', [u3en[0], 1.5, u3en[2]], { id: 'u3-b', size: 0.4, color: '#99ccff', bg: '#000000aa' });
+
+      // ======================= キャラ一覧 =======================
+      g.plate({ id: 'r-floor', size: [18, 6], pos: [RX, 0.02, RZ], color: '#231f33', opacity: 0.95 });
+      g.plate({ id: 'r-start', size: [3.9, 1.6], pos: [RX - 6.25, 0.04, RZ], color: '#c9a227', opacity: 0.55, label: '最初から使える', labelSize: 0.3, labelColor: '#ffe9a8', labelBg: '#000000aa', labelOffset: [0, 0.3, 2.3] });
+      ROSTER.forEach(function (r, i) {
+        var x = RX - 7.5 + i * 1.25, h = r[3] / 1000;
+        g.cylinder({ id: 'r-b' + i, radius: 0.45, height: h, pos: [x, h / 2 + 0.05, RZ], color: r[0], emissive: r[0], emissiveIntensity: 0.25 });
+        g.label(String(r[3]), [x, h + 0.45, RZ], { id: 'r-hp' + i, size: 0.24, bg: '#000000aa' });
+        g.label((i + 1) + '\n' + (r[2] === '近接' ? '近' : '遠'), [x, 0.25, RZ + 1.2], { id: 'r-n' + i, size: 0.24, color: r[2] === '近接' ? '#ffcf80' : '#99ccff', bg: '#000000aa' });
+      });
+      g.label('柱の高さ＝HP', [RX + 5.5, 6.6, RZ], { id: 'r-title', size: 0.36, bg: '#000000aa' });
+
+      // ======================= 育成 =======================
+      g.plate({ id: 'v-floor', size: [16, 6], pos: [VX, 0.02, VZ], color: '#231f33', opacity: 0.95 });
+      MULT.forEach(function (m, i) {
+        var x = VX - 6.3 + i * 1.4, h = 0.5 + (m - 1) * 9;
+        g.box({ id: 'v-b' + i, size: [1.2, h, 1.2], pos: [x, h / 2, VZ], color: i >= 9 ? '#c9a227' : i >= 4 ? '#bfbfd6' : '#5a5480' });
+        g.label('Lv' + (i + 1), [x, 0.25, VZ + 1.1], { id: 'v-n' + i, size: 0.24, bg: '#000000aa' });
+      });
+      function vTop(i) { return 0.5 + (MULT[i] - 1) * 9; }
+      [[4, '#ffffff'], [9, '#ffd700']].forEach(function (a) {
+        var m = new T.Mesh(new T.TorusGeometry(0.62, 0.07, 10, 40), new T.MeshStandardMaterial({ color: a[1], emissive: a[1], emissiveIntensity: 0.5 }));
+        m.rotation.x = Math.PI / 2;
+        m.position.set(VX - 6.3 + a[0] * 1.4, vTop(a[0]) + 0.08, VZ);
+        g.add('v-ring' + a[0], m);
+      });
+      g.label('HP・攻撃 ×1.00', [VX - 6.3, vTop(0) + 0.6, VZ], { id: 'v-l0', size: 0.24, bg: '#000000aa' });
+      g.label('Lv5 ★進化（白い輪）\nHP・攻撃 ×1.12', [VX - 0.7, vTop(4) + 0.9, VZ], { id: 'v-l4', size: 0.26, bg: '#000000aa' });
+      g.label('Lv10 ★★進化（金の輪）\nHP・攻撃 ×1.33', [VX + 5.2, vTop(9) + 0.9, VZ], { id: 'v-l9', size: 0.26, color: '#ffe9a8', bg: '#000000aa' });
+      g.label('試合のたびに 💎魔素\n勝ち +80 ／ 負け +30\nキル1回 +8', [VX - 4.6, 3.7, VZ - 0.6], { id: 'v-rew', size: 0.28, color: '#ffdd44', bg: '#000000aa' });
+      g.sphere({ id: 'v-tok', radius: 0.25, pos: [VX - 6.3, vTop(0) + 0.3, VZ], color: ME_COL, emissive: ME_COL, emissiveIntensity: 0.4 });
+    },
+
+    steps: [
+      {
+        title: 'BrawlArenaへようこそ！',
+        html:
+          '<p>上から見下ろしたアリーナで、自分のキャラを動かして <b>ボット（コンピューター）と1対1で撃ち合う</b> 対戦アクションだよ。</p>' +
+          '<ul><li>あなたは <b>左下</b>、ボット（<b>赤い丸</b>）は <b>右上</b> からスタート</li>' +
+          '<li>試合は <b>2分間</b>。時間切れのとき、<b>相手を倒した回数（キル数）が多いほうの勝ち</b></li>' +
+          '<li>倒されても <b>3秒で復活</b> するから、何回でも戦える</li>' +
+          '<li>勝っても負けても <b>💎魔素</b> がもらえて、キャラを育てたり、新しいキャラを増やしたりできる</li></ul>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: { pos: [0, 17, 10.5], target: [0, 0, 0.3] },
+        focus: ARENA.concat(['b1-0', 'b1-1', 'l1-goal', 'l1-spme', 'l1-spbot', 'l1-wall', 'l1-bush']),
+        show: ['b1-0', 'b1-1', 'l1-goal', 'l1-spme', 'l1-spbot', 'l1-wall', 'l1-bush', 'me-lbl', 'bot-lbl'],
+        update: duel,
+      },
+      {
+        title: 'ゲームの始め方',
+        html:
+          '<ol><li><code>BrawlArena</code> フォルダの <b>play.html</b> をダブルクリック</li>' +
+          '<li>ブラウザ（Chrome や Edge）でゲームが開く</li>' +
+          '<li>キャラ選択画面が出たら、使うキャラをクリック → すぐ試合開始！</li></ol>' +
+          '<ul><li>ゲームの部品（Phaser）をネットから読みこむので、<b>インターネットにつながっている必要</b> があるよ</li>' +
+          '<li>今は <b>あなた1人 vs ボット1体</b> だけ。LAN対戦や、2人で遊ぶモードは <b>まだ無い</b> よ</li>' +
+          '<li>他のゲームみたいな「〇〇で遊ぶ.bat」は無いよ。play.html だけでOK</li></ul>' +
+          '<div class="gg-note">開発者向け：<code>src/</code> の本体は Vite（<code>npm run dev</code>）でも動くけど、中身は play.html と同じ。遊ぶだけなら play.html で十分だよ。</div>',
+        camera: { pos: [LX, 6.2, LZ + 13.5], target: [LX, 1.8, LZ] },
+        focus: ['la-floor', 'la-folder', 'la-card', 'la-name', 'la-arrow', 'la-mon', 'la-scr', 'la-p1', 'la-p2', 'la-stand', 'la-mlbl', 'la-net', 'la-flow', 'la-nlbl', 'la-solo'],
+        update: function (g, t) {
+          g.pulse('la-card', t, 0.06);
+          g.get('la-p1').position.x = LX + 2.0 + Math.sin(t) * 0.5;
+          g.get('la-p2').position.x = LX + 4.8 - Math.sin(t * 1.3) * 0.5;
+        },
+      },
+      {
+        title: 'キャラ選択画面',
+        html:
+          '<p>最初に出てくるのが、この画面だよ。<b>丸をクリックすると、そのキャラですぐ試合が始まる</b>。</p>' +
+          '<ul><li>キャラは全部で <b>13体</b>。最初に使えるのは <b>3体</b> だけ</li>' +
+          '<li>🔒 のキャラは、条件（プレイヤーLv と 💎魔素）がそろったらクリックで解放できる</li>' +
+          '<li>丸の下の <b>▲ Lvアップ</b> ボタンで、💎魔素を使ってキャラを強くできる（ボタンを押しても試合は始まらないよ）</li>' +
+          '<li>左上に持っている <b>💎魔素</b>、右上に <b>プレイヤーLv</b> が出る</li></ul>' +
+          '<div class="gg-note">ゲームの中では、キャラごとに名前と必殺技の名前がついてるよ。このページでは色とタイプで呼ぶね。</div>',
+        camera: { pos: [SX, 11.5, SZ + 6.5], target: [SX, 0, SZ + 0.3] },
+        focus: ['se-scr', 'se-stone', 'se-plv', 'se-title', 'se-cells', 'se-cur', 'se-go'],
+        show: ['se-cur', 'se-go'],
+        update: function (g, t) {
+          var tt = t % 5;
+          var k = g.phase(tt, 0.3, 1.4);
+          g.lerpPos('se-cur', HPm(640, 600, 0.5), HPm(215, 155, 0.5), k);
+          var clicked = tt > 1.9;
+          g.get('se-go').visible = clicked;
+          if (clicked) g.pulse('se-c0', t, 0.25);
+        },
+      },
+      {
+        title: '試合の画面の見方',
+        html:
+          '<table><tr><th>場所</th><th>なにが出る？</th></tr>' +
+          '<tr><td>左上 1行目</td><td>自分のキャラ名と <b>HP</b>（残り / 最大）</td></tr>' +
+          '<tr><td>左上 2行目</td><td><b>弾</b> の数（遠距離キャラだけ）</td></tr>' +
+          '<tr><td>左上 3行目</td><td><b>必殺技ゲージ</b>（%）。100% で「発動可！Shift」と出る</td></tr>' +
+          '<tr><td>左上 4行目</td><td><b>キル数</b>：あなた - ボット（ボットのキャラ名も出る）</td></tr>' +
+          '<tr><td>上のまん中</td><td><b>残り時間</b>（2:00 から減っていく）</td></tr></table>' +
+          '<p>キャラの <b>頭の上のバー</b> もHPだよ。半分より上は <b>緑</b>、4分の1より上は <b>黄</b>、それより少ないと <b>赤</b>。</p>' +
+          '<div class="gg-note">あなたのキャラは選んだキャラの色、ボットは何のキャラでも <b>赤</b> で表示されるよ。</div>',
+        camera: { pos: [0, 17, 10.5], target: [0, 0, 0.1] },
+        focus: ARENA.concat(['hud-tl', 'hud-tm', 'hud-bar']),
+        show: ['hud-tl', 'hud-tm', 'hud-bar', 'me-lbl', 'bot-lbl'],
+        update: function (g, t) {
+          g.setPos('me', S1_ME); g.setPos('bot', S1_BOT);
+          aimAt(g, 'me', 0); aimAt(g, 'bot', Math.PI);
+          var r = 1 - ((t % 6) / 5);
+          setHp(g, 'bot', r);
+        },
+      },
+      {
+        title: '操作方法',
+        html:
+          '<table><tr><th>操作</th><th>すること</th></tr>' +
+          '<tr><td><b>W A S D</b></td><td>移動（W上・A左・S下・D右。ななめもOK）</td></tr>' +
+          '<tr><td><b>マウスを動かす</b></td><td>ねらう向き（キャラの白い線がマウスのほうを向く）</td></tr>' +
+          '<tr><td><b>左クリック</b></td><td>攻撃。<b>押しっぱなし</b> で撃ち続ける</td></tr>' +
+          '<tr><td><b>Shift</b></td><td>必殺技（ゲージ100%のときだけ）</td></tr>' +
+          '<tr><td><b>スペース</b></td><td>試合が終わったあと、キャラ選択画面にもどる</td></tr></table>' +
+          '<div class="gg-note"><b>矢印キーでは動かないよ</b>（WASDだけ）。右クリックやスペースのダッシュもまだ無い。試合中にスペースを押しても何も起きないよ。</div>',
+        camera: { pos: [KX, 9.5, KZ + 8.5], target: [KX, 0, KZ - 1.4] },
+        focus: ['k-floor', 'kW', 'kA', 'kS', 'kD', 'kShift', 'k-mouse', 'k-lbtn', 'k-mlbl', 'k-mini', 'k-me', 'k-cur', 'k-clbl', 'kb0', 'kb1'],
+        show: ['kb0', 'kb1'],
+        update: function (g, t) {
+          var tt = t % 8, seg = Math.floor(tt / 2), k = g.phase(tt - seg * 2, 0.1, 1.6);
+          var c = [[KX - 0.6, 0, KZ - 3.2], [KX - 0.6, 0, KZ - 5.0], [KX + 1.4, 0, KZ - 5.0], [KX + 1.4, 0, KZ - 3.2]];
+          var path = [[0, 1], [1, 2], [2, 3], [3, 0]][seg];
+          var p = L3(c[path[0]], c[path[1]], k);
+          g.setPos('k-me', p);
+          ['W', 'D', 'S', 'A'].forEach(function (key, i) {
+            var on = i === seg;
+            g.setColor('k' + key, on ? '#c9a227' : '#3a3555');
+            g.get('k' + key).position.y = on ? 0.12 : 0.22;
+          });
+          var cur = [KX + 2.7 + Math.cos(t * 0.9) * 0.4, 0.3, KZ - 4.1 + Math.sin(t * 0.9) * 0.9];
+          g.setPos('k-cur', cur);
+          aimTo(g, 'k-me', p, cur);
+          var fire = (t % 1);
+          g.setColor('k-lbtn', fire < 0.25 ? '#ffd166' : '#555566');
+          for (var i = 0; i < 2; i++) {
+            var t0 = Math.floor(t) - i;
+            shot(g, 'kb' + i, p, cur, t0, 0.5, t);
+          }
+          g.pulse('kShift', t, 0.04);
+        },
+      },
+      {
+        title: '遠距離攻撃：弾の数とチャージ',
+        html:
+          '<p>遠距離キャラは、左クリックで <b>弾をまっすぐ撃つ</b>。弾には <b>数の制限</b> があるよ。</p>' +
+          '<ul><li>撃つと弾が1つ減る。0になると撃てない</li>' +
+          '<li>弾は <b>少し待つと1つずつ</b> もどる</li>' +
+          '<li>弾は <b>射程</b> まで飛ぶと消える。壁に当たっても消える</li></ul>' +
+          '<table><tr><th>最初の遠距離キャラ</th><th>水色</th><th>黄色</th></tr>' +
+          '<tr><td>1発のダメージ</td><td>420</td><td>650</td></tr>' +
+          '<tr><td>射程</td><td>500</td><td>800</td></tr>' +
+          '<tr><td>弾の数</td><td>3</td><td>2</td></tr>' +
+          '<tr><td>次の弾まで</td><td>0.5秒</td><td>1.3秒</td></tr>' +
+          '<tr><td>弾が1つもどる</td><td>1.5秒</td><td>3秒</td></tr></table>' +
+          '<p>この例は水色。3発撃ち切ったあとは、1.5秒ごとに1発ずつしか撃てなくなるよ。</p>',
+        camera: { pos: [-3, 9, 9.5], target: [-3, 0, 0.3] },
+        focus: ARENA.concat(ids('b6-', 6), ['l6-line', 'l6-end', 'l6-range']),
+        show: ids('b6-', 6).concat(ids('pip', 3), ['l6-ammo', 'l6-line', 'l6-end', 'l6-range']),
+        enter: function () { shown = {}; },
+        update: function (g, t) {
+          var me = P(200, 384), bot = P(660, 384);
+          g.setPos('me', me); g.setPos('bot', bot);
+          aimAt(g, 'me', 0); aimAt(g, 'bot', Math.PI);
+          var tt = t % 6.5;
+          var SHOTS = [0, 0.5, 1.0, 1.5, 3.0, 4.5], RECH = [1.5, 3.0, 4.5];
+          var hits = 0, fired = 0, rech = 0;
+          SHOTS.forEach(function (s, i) {
+            shot(g, 'b6-' + i, P(230, 384), P(640, 384), s, 0.68, tt);
+            if (tt >= s) fired++;
+            if (tt >= s + 0.68) hits++;
+          });
+          RECH.forEach(function (s) { if (tt >= s) rech++; });
+          var ammo = 3 - fired + rech;
+          for (var i = 0; i < 3; i++) g.setColor('pip' + i, i < ammo ? '#ffdd44' : '#444444');
+          setL(g, 'l6-ammo', '弾: ' + ammo + '/3', { size: 0.3, bg: '#000000aa' });
+          setHp(g, 'bot', 1 - hits * 420 / 3400);
+        },
+      },
+      {
+        title: '近接攻撃：扇形の範囲',
+        html:
+          '<p>近接キャラは、ねらった方向の <b>扇形の範囲</b> をまとめて攻撃するよ。</p>' +
+          '<ul><li>弾の数の制限は <b>なし</b>。押しっぱなしで攻撃し続けられる</li>' +
+          '<li>そのかわり、届く距離はとても <b>短い</b></li>' +
+          '<li>範囲に入っていれば、<b>壁のむこうにいても当たる</b></li></ul>' +
+          '<p>最初から使える近接キャラ（オレンジ）は：</p>' +
+          '<table><tr><th>ダメージ</th><th>届く距離</th><th>扇の広さ</th><th>次の攻撃まで</th></tr>' +
+          '<tr><td>560</td><td>140</td><td>100°</td><td>0.7秒</td></tr></table>' +
+          '<p>HPが <b>5200</b> と多いけど、足は遅め（200）。近づいて殴るタイプだよ。</p>',
+        camera: { pos: [-3.8, 7.5, 6], target: [-3.8, 0, 0.3] },
+        focus: ['arena', 'bot', 'tank', 'ghost7', 'l7-a'],
+        show: ['tank', 'ghost7', 'l7-a'],
+        update: function (g, t) {
+          g.get('me').visible = false;
+          g.setPos('bot', P(440, 384));
+          aimAt(g, 'bot', Math.PI);
+          aimAt(g, 'ghost7', Math.PI);
+          var tt = t % 4.5, swings = 0;
+          for (var i = 0; i < 5; i++) if (tt >= 0.3 + i * 0.7) swings++;
+          var since = (tt - 0.3) % 0.7;
+          g.get('sec7f').visible = tt >= 0.3 && tt < 0.3 + 5 * 0.7 && since < 0.22;
+          setHp(g, 'bot', 1 - swings * 560 / 3400);
+        },
+      },
+      {
+        title: '壁を使って身を守る',
+        html:
+          '<p>アリーナのまん中には <b>壁が4つ</b> あるよ。</p>' +
+          '<ul><li>キャラは壁を <b>通りぬけられない</b></li>' +
+          '<li>弾は壁に当たると <b>消える</b></li>' +
+          '<li>ボットは、あいだに壁があっても <b>かまわず撃ってくる</b>。だから壁のかげに入ると、ボットの弾は届かない</li></ul>' +
+          '<p>ボットのうごき方：あなたが見えていると近づいてきて、だいたい <b>距離350</b> で止まって撃ってくる（近接のボットはもっと近くまで来る）。壁をよけて回りこむことはしないよ。</p>' +
+          '<div class="gg-note">ただし <b>近接攻撃と必殺技は壁を無視して届く</b> から、相手が近いときは油断しないでね。</div>',
+        camera: { pos: [3.7, 7.2, 8.4], target: [3.7, 0, 1.0] },
+        focus: ARENA.concat(['b8-0', 'b8-1', 'b8-2', 'l8-wall']),
+        show: ['b8-0', 'b8-1', 'b8-2', 'l8-wall', 'l8-bot', 'l8-me'],
+        update: function (g, t) {
+          var me = P(700, 470), b0 = P(1160, 470), b1 = P(1050, 470);
+          g.setPos('me', me);
+          var tt = t % 5;
+          var bp = L3(b0, b1, g.phase(tt, 0, 1.2));
+          g.setPos('bot', bp);
+          aimAt(g, 'me', 0); aimAt(g, 'bot', Math.PI);
+          for (var i = 0; i < 3; i++) {
+            var s = 1.4 + i * 1.1;
+            shot(g, 'b8-' + i, [b1[0] - 0.45, 0, b1[2]], P(876, 470), s, 0.42, tt);
+          }
+        },
+      },
+      {
+        title: '茂みにかくれる',
+        html:
+          '<p>アリーナの四すみには <b>茂み</b>（明るい緑）があるよ。中を通りぬけられる。</p>' +
+          '<ul><li>あなたが茂みに入ると、<b>ボットはあなたを見失う</b>。追いかけるのも撃つのもやめて、その場で止まるよ</li>' +
+          '<li>でも <b>距離110</b> より近くに来られると見つかる</li>' +
+          '<li>ボットが茂みにいるときは、あなたの画面でボットが <b>うすく</b> 見える</li></ul>' +
+          '<div class="gg-note">スタート地点は、あなたもボットも <b>茂みの中</b>。だからボットは、あなたが茂みから出てくるまで動かないよ。どこから出るか、作戦を立ててね。</div>',
+        camera: { pos: [-2.6, 10.5, 13.5], target: [-2.6, 0, 2.4] },
+        focus: ARENA.concat(['bot-q']),
+        show: ['me-lbl', 'bot-q', 'ring9', 'l9-ring'],
+        enter: function () { shown = {}; },
+        update: function (g, t) {
+          var tt = t % 9;
+          var me;
+          if (tt < 3) me = L3(P(520, 620), P(190, 620), g.linear(tt, 0, 3));
+          else if (tt < 6) me = P(190, 620);
+          else me = L3(P(190, 620), P(400, 620), g.linear(tt, 6, 2));
+          var inBush = me[0] < P(300, 0)[0];
+          g.setPos('me', me);
+          var bot = L3(P(950, 600), P(720, 600), g.phase(tt, 0, 2.0));
+          g.setPos('bot', bot);
+          aimTo(g, 'bot', bot, me);
+          aimTo(g, 'me', me, bot);
+          g.get('ring9').visible = inBush;
+          g.get('l9-ring').visible = inBush;
+          g.get('bot-q').visible = tt > 1.5;
+          setL(g, 'bot-q', inBush ? '？ 見失った…' : (tt > 6 ? '！ 見つけた' : 'まてー！'), { size: 0.32, bg: '#000000aa', color: '#ffd166' });
+          setL(g, 'me-lbl', inBush ? 'あなた（茂みの中）' : 'あなた', { size: 0.32, bg: '#000000aa' });
+        },
+      },
+      {
+        title: '必殺技ゲージをためる',
+        html:
+          '<p>戦っていると <b>必殺技ゲージ</b> がたまっていくよ。ためかたは2つ。</p>' +
+          '<ul><li>相手に <b>ダメージをあてる</b>：あてたダメージと同じだけ（×1）</li>' +
+          '<li>相手から <b>ダメージをうける</b>：うけたダメージの半分（×0.5）</li></ul>' +
+          '<p>ゲージは <b>1000</b> で満タン。満タンになったら <b>Shift</b> で必殺技！</p>' +
+          '<ul><li>使うとゲージは <b>0</b> にもどる</li>' +
+          '<li>やられて復活したときも <b>0</b> にもどる</li>' +
+          '<li>ためる前に押したShiftは覚えておかれないので、満タンになってから押してね</li></ul>' +
+          '<p>この例：420あてる → 650うける（+325） → 420あてる → 満タン！</p>',
+        camera: { pos: [GX, 8, GZ + 10], target: [GX, 0.6, GZ + 0.3] },
+        focus: ['g-floor', 'g-me', 'g-bot', 'g-bg', 'g-fg', 'g-lbl', 'g-pop1', 'g-pop2', 'g-full', 'g-used', 'g-ring', 'gb0', 'gb1', 'gb2'],
+        show: ['g-pop1', 'g-pop2', 'g-full', 'g-used', 'g-ring', 'gb0', 'gb1', 'gb2'],
+        enter: function () { shown = {}; },
+        update: function (g, t) {
+          var tt = t % 9;
+          var A = [GX - 3.0, 0, GZ + 1.4], B = [GX + 3.0, 0, GZ + 1.4];
+          shot(g, 'gb0', A, B, 0.4, 0.7, tt);
+          shot(g, 'gb1', B, A, 1.9, 0.7, tt);
+          shot(g, 'gb2', A, B, 3.4, 0.7, tt);
+          var gauge = 0, botHp = 3400, meHp = 3400;
+          if (tt >= 1.1) { gauge = 420; botHp -= 420; }
+          if (tt >= 2.6) { gauge = 745; meHp -= 650; }
+          if (tt >= 4.1) { gauge = 1000; botHp -= 420; }
+          var used = tt >= 6.5;
+          if (used) { gauge = 0; botHp -= 1200; }
+          var k = gauge / 1000;
+          var fg = g.get('g-fg');
+          fg.scale.x = Math.max(k, 0.001);
+          fg.position.x = GX - 3.5 * (1 - k);
+          setL(g, 'g-lbl', '必殺技ゲージ ' + gauge + ' / 1000', { size: 0.34, bg: '#000000aa' });
+          setHp(g, 'g-bot', botHp / 3400);
+          setHp(g, 'g-me', meHp / 3400);
+          g.get('g-pop1').visible = (tt >= 1.1 && tt < 2.3) || (tt >= 4.1 && tt < 5.3);
+          g.get('g-pop2').visible = tt >= 2.6 && tt < 3.8;
+          g.get('g-full').visible = tt >= 4.1 && tt < 6.5;
+          if (tt >= 4.1 && tt < 6.5) g.pulse('g-full', t, 0.08);
+          g.get('g-used').visible = used;
+          var rk = g.linear(tt, 6.5, 0.5);
+          g.get('g-ring').visible = used && tt < 7.4;
+          g.get('g-ring').scale.set(0.2 + rk * 3.3, 0.2 + rk * 3.3, 1);
+        },
+      },
+      {
+        title: '必殺技は3タイプ',
+        html:
+          '<p>必殺技はキャラによって、この3タイプのどれかだよ。</p>' +
+          '<table><tr><th>タイプ</th><th>どうなる？</th></tr>' +
+          '<tr><td>① 吸い込み回復</td><td>近くの敵1人に大ダメージ＋自分のHPを回復</td></tr>' +
+          '<tr><td>② 爆発＋やけど</td><td>自分のまわりの敵全員にダメージ＋しばらくやけどダメージ</td></tr>' +
+          '<tr><td>③ 必中＋スロー</td><td>届く範囲でいちばん近い敵1人に必ず当たる＋少しのあいだ足が遅くなる</td></tr></table>' +
+          '<p>最初の3キャラの数字：</p>' +
+          '<ul><li><b>水色（①）</b>：範囲150・900ダメージ・最大HPの30%回復</li>' +
+          '<li><b>オレンジ（②）</b>：半径220・1200ダメージ＋やけど 毎秒200を3秒</li>' +
+          '<li><b>黄色（③）</b>：射程800・1300ダメージ＋1秒間 速さ半分</li></ul>' +
+          '<div class="gg-note">範囲に敵がいないと <b>空ぶり</b>（ゲージはなくなる。①の回復だけは空ぶりでも起きる）。必殺技は壁を通りぬけて届くよ。</div>',
+        camera: { pos: [UX, 20, UZ + 11.5], target: [UX, 0, UZ + 0.3] },
+        focus: ['u-floor0', 'u-floor1', 'u-floor2', 'u-t0', 'u-t1', 'u-t2', 'u1-me', 'u1-en', 'u1-area', 'u1-ring', 'u1-flow', 'u1-a', 'u1-b',
+          'u2-me', 'u2-e1', 'u2-e2', 'u2-e3', 'u2-blast', 'u2-ring', 'u2-f1', 'u2-f2', 'u2-f3', 'u3-me', 'u3-en', 'u3-beam', 'u3-a', 'u3-b'],
+        show: ['u2-blast', 'u2-f1', 'u2-f2', 'u3-beam', 'u3-b'],
+        update: function (g, t) {
+          var tt = t % 5;
+          // ①
+          setHp(g, 'u1-en', tt > 1 ? 1 - 900 / 3400 : 1);
+          setHp(g, 'u1-me', tt > 1 ? 0.75 : 0.45);
+          g.get('u1-flow').visible = tt > 0.6 && tt < 2.6;
+          if (tt > 1) g.pulse('u1-me', t, 0.08);
+          // ②
+          var bk = g.linear(tt, 1, 0.5);
+          var blast = g.get('u2-blast');
+          blast.visible = tt > 1 && tt < 2.2;
+          blast.scale.set(Math.max(bk, 0.01), Math.max(bk, 0.01), 1);
+          var burnt = tt > 1.5;
+          g.get('u2-f1').visible = burnt; g.get('u2-f2').visible = burnt;
+          var burn = burnt ? Math.min(tt - 1.5, 3) * 200 : 0;
+          ['u2-e1', 'u2-e2'].forEach(function (id) { setHp(g, id, tt > 1.5 ? 1 - (1200 + burn) / 3400 : 1); });
+          // ③
+          g.get('u3-beam').visible = tt > 1 && tt < 1.5;
+          var slow = tt > 1.2;
+          g.get('u3-b').visible = slow;
+          setHp(g, 'u3-en', slow ? 1 - 1300 / 3400 : 1);
+          var drift = tt < 1.2 ? tt * 0.5 : 0.6 + (tt - 1.2) * 0.12;
+          var p = [u3pos[0] - drift * 0.5, 0, u3pos[2] + drift * 0.3];
+          g.setPos('u3-en', p);
+          g.get('u3-b').position.set(p[0], 1.5, p[2]);
+        },
+      },
+      {
+        title: 'やられたら・勝ち負け',
+        html:
+          '<p><b>HPが0</b> になると、そのキャラは消えて、相手の <b>キル数が +1</b>。</p>' +
+          '<ul><li><b>3秒後</b>、自分のスタート地点で復活（HP・弾は満タン、必殺技ゲージは0）</li>' +
+          '<li>復活してから <b>1.5秒</b> は <b>無敵</b>（キャラがチカチカ点滅する）</li></ul>' +
+          '<p><b>勝ち負け</b></p>' +
+          '<ul><li>2分たった時点で <b>キル数が多いほうの勝ち</b></li>' +
+          '<li>同じ数なら <b>サドンデス</b>。画面に「サドンデス！ 次の1キルで決着」と出て、先に1キルしたほうが勝ち</li>' +
+          '<li>結果画面で <b>スペースキー</b> を押すと、キャラ選択にもどる</li></ul>' +
+          '<div class="gg-note">やけど（②の必殺技）でHPが0になっても、やけどをつけた側のキルになるよ。</div>',
+        camera: { pos: [0, 17, 10.5], target: [0, 0, 0.3] },
+        focus: ARENA.concat(['b12-0', 'b12-1', 'b12-2', 'l12-ko', 'l12-cd', 'l12-inv', 'l12-score']),
+        show: ['b12-0', 'b12-1', 'b12-2', 'l12-ko', 'l12-cd', 'l12-inv', 'l12-score', 'me-lbl', 'bot-lbl'],
+        enter: function () { shown = {}; },
+        update: function (g, t) {
+          var tt = t % 8.5;
+          var me = S1_ME, at = P(800, 384);
+          g.setPos('me', me);
+          aimAt(g, 'me', 0);
+          for (var i = 0; i < 3; i++) shot(g, 'b12-' + i, P(360, 384), P(780, 384), i * 0.5, 0.73, tt);
+          var hits = 0;
+          for (i = 0; i < 3; i++) if (tt >= i * 0.5 + 0.73) hits++;
+          var dead = tt >= 1.73, back = tt >= 4.73;
+          var bot = g.get('bot');
+          if (!dead) { g.setPos('bot', at); aimAt(g, 'bot', Math.PI); setHp(g, 'bot', (1260 - hits * 420) / 3400); bot.visible = true; }
+          else if (!back) { bot.visible = false; }
+          else {
+            g.setPos('bot', SPAWN_BOT); setHp(g, 'bot', 1); aimAt(g, 'bot', Math.PI * 0.8);
+            bot.visible = tt > 6.23 || Math.floor(tt * 10) % 2 === 0;
+          }
+          g.get('l12-ko').visible = dead && tt < 4;
+          g.get('l12-cd').visible = dead && !back;
+          if (dead && !back) setL(g, 'l12-cd', '復活まで ' + Math.ceil(4.73 - tt), { size: 0.44, bg: '#000000aa' });
+          g.get('l12-inv').visible = back && tt < 7;
+          setL(g, 'l12-score', 'キル: あなた ' + (dead ? 1 : 0) + ' - ボット 0', { size: 0.42, bg: '#000000cc' });
+        },
+      },
+      {
+        title: '13体のキャラ',
+        html:
+          '<p>キャラは13体。性能はそれぞれちがうよ（柱の高さがHP）。表の <b>#</b> は、キャラ選択画面の並び順（左上から右へ）。</p>' +
+          rosterHtml +
+          '<p style="font-size:12px">攻撃：遠＝遠距離、近＝近接。速さ＝移動の速さ。必殺技：吸込＝①吸い込み回復、爆発＝②爆発＋やけど、必中＝③必中＋スロー。解放：「Lv2・300」は <b>プレイヤーLv2以上</b> で <b>💎魔素300</b> を使う、という意味。</p>' +
+          '<div class="gg-note">ボットのキャラは、<b>あなたが選んだキャラ以外の12体からランダム</b>（まだ解放していないキャラも出てくる）。ボットは育成されない、ふつうの強さだよ。</div>',
+        camera: { pos: [RX, 7.2, RZ + 15.5], target: [RX, 2.6, RZ] },
+        focus: ['r-floor', 'r-start', 'r-title'].concat(ids('r-b', 13), ids('r-hp', 13), ids('r-n', 13)),
+        update: function (g, t) {
+          var k = Math.floor(t / 0.8) % 13;
+          g.pulse('r-b' + k, t, 0.06);
+        },
+      },
+      {
+        title: '💎魔素でキャラを育てる・増やす',
+        html:
+          '<p>試合が終わるたびに <b>💎魔素</b> と <b>プレイヤーXP</b> がもらえるよ。</p>' +
+          '<table><tr><th></th><th>勝ち</th><th>負け</th></tr>' +
+          '<tr><td>💎魔素</td><td>80</td><td>30</td></tr>' +
+          '<tr><td>キル1回ごと</td><td colspan="2">💎 +8</td></tr>' +
+          '<tr><td>プレイヤーXP</td><td>40</td><td>15</td></tr></table>' +
+          '<p><b>キャラLvアップ</b>（選択画面の ▲ボタン）：💎魔素を使って1つ上げる。最大 <b>Lv10</b>。<br>' +
+          '必要な魔素：50 → 80 → 120 → 170 → 230 → 300 → 380 → 470 → 570（Lv10まで合計2370）</p>' +
+          '<ul><li>HPと攻撃のダメージが少しずつ上がる（Lv10で <b>1.33倍</b>）</li>' +
+          '<li><b>Lv5</b> と <b>Lv10</b> で <b>進化</b>！ キャラに白／金の輪がつき、必殺技のダメージがさらに <b>+15%</b> ずつ</li></ul>' +
+          '<p><b>プレイヤーLv</b>：XPがたまると上がる（Lv2まで100、Lv3まで150、Lv4まで220…最大Lv10）。キャラの解放に必要だよ。</p>' +
+          '<div class="gg-note">セーブはブラウザの中に自動で保存されるよ。別のブラウザや別のPCでは、最初からになるので注意してね。</div>',
+        camera: { pos: [VX + 0.4, 7, VZ + 15], target: [VX + 0.4, 1.7, VZ] },
+        focus: ['v-floor', 'v-ring4', 'v-ring9', 'v-l0', 'v-l4', 'v-l9', 'v-rew', 'v-tok'].concat(ids('v-b', 10), ids('v-n', 10)),
+        update: function (g, t) {
+          var tt = t % 7, i = Math.min(9, Math.floor(tt / 0.6)), k = g.linear(tt - i * 0.6, 0, 0.45);
+          var j = Math.min(9, i + 1);
+          function top(n) { return [VX - 6.3 + n * 1.4, 0.5 + (MULT[n] - 1) * 9 + 0.3, VZ]; }
+          if (i >= 9) g.setPos('v-tok', top(9));
+          else g.arcPos('v-tok', top(i), top(j), k, 0.6);
+          if (i >= 9) g.pulse('v-ring9', t, 0.1);
+        },
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li><b>play.html</b> をダブルクリックして、キャラをクリック</li>' +
+          '<li><b>WASD</b> で動いて、<b>マウス</b> でねらって、<b>左クリック</b> で攻撃</li>' +
+          '<li>遠距離は <b>弾の数</b>、近接は <b>届く距離</b> に気をつける</li>' +
+          '<li><b>壁</b> のかげで弾をよけて、<b>茂み</b> でかくれる</li>' +
+          '<li>ゲージが満タンになったら <b>Shift</b> で必殺技</li>' +
+          '<li>2分で <b>キル数が多いほう</b> が勝ち。同点ならサドンデス</li>' +
+          '<li>もらった <b>💎魔素</b> でキャラを育てて、新しいキャラを解放しよう</li></ol>' +
+          '<p>それじゃあ、アリーナでがんばってね！🏆</p>',
+        camera: { pos: [0, 17, 10.5], target: [0, 0, 0.3] },
+        focus: ARENA.concat(['b1-0', 'b1-1', 'l1-goal']),
+        show: ['b1-0', 'b1-1', 'l1-goal', 'me-lbl', 'bot-lbl'],
+        update: duel,
+      },
+    ],
+  };
+  var u3pos = [UX + 9.3, 0, UZ - 1.4];
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = 'BrawlArena | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>

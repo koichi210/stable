@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トランプ三戦場バトル | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // ---------- 色（ゲームの game.css / style.css と同じ） ----------
+  var P1C = '#3b82f6';   // プレイヤー1（青）
+  var P2C = '#ef4444';   // プレイヤー2（赤）
+  var GOLD = '#fbbf24';  // 相打ち・選択中
+  var BF_COL = '#2b3a55';
+  function suitCol(s) { return (s === '♥' || s === '♦') ? '#dc2626' : '#1e293b'; }
+
+  // ---------- 舞台の置き場所（ステップのカメラでも使うので先に決めておく） ----------
+  var SX = 30, SZ = 0;      // 画面の見方
+  var VX = -30;             // 2つの遊び方
+  var JX = 0, JZ = 20;      // 勝ち負けの決まり方
+  var KX = -30, KZ = 20;    // 決着がつかないとき
+  var DX = 30, DZ = 20;     // 手札と山札
+  var HX = -30, HZ = -20;   // 1台版の交代プレイ
+  var CX = 30, CZ = -20;    // CPU の難易度
+  var LX = 0, LZ = -20;     // LAN対戦
+  var BX = 0, BZ = -40;     // カードの強さ
+
+  // ---------- メインの盤（3つの戦場） ----------
+  var BFX = [-4.6, 0, 4.6];
+  var P1Z = 1.5, P2Z = -1.5, HANDZ = 5.4, CY = 0.08;
+  function HXp(i) { return -4.5 + i * 1.8; }
+  var HAND = [['♣', '3'], ['♠', '9'], ['♦', '7'], ['♥', 'Q'], ['♦', 'A'], ['♠', '2']];
+  var PICK = [1, 3, 4];                               // 選んだ順に 戦場1・2・3
+  var ENEMY = [['♣', '5'], ['♦', 'Q'], ['♥', 'J']];   // 相手が戦場1・2・3に出したカード
+  var PILE = [[9.6, 1.7], [9.6, -1.7]];               // 獲得置き場（P1・P2）
+  function pilePos(p, k) { return [PILE[p][0] + k * 0.1, CY + k * 0.04, PILE[p][1] + k * 0.06]; }
+  function bfPos(b, side) { return [BFX[b], CY, side === 0 ? P1Z : P2Z]; }
+  // どのカードが、どちらの獲得置き場の何枚目に行くか
+  var TO_PILE = { mh1: [0, 0], me0: [0, 1], mh4: [0, 2], me2: [0, 3], mh3: [0, 4], me1: [1, 0] };
+  var CAM_MB = { pos: [2.4, 16.5, 16], target: [2.4, 0, 1.0] };
+
+  // CPU の手札（弱い順に並べたところ）と、難易度ごとに選ぶ3枚
+  var CPU_HAND = [['♣', '2'], ['♦', '4'], ['♠', '6'], ['♥', '9'], ['♠', 'J'], ['♦', 'A']];
+  var LEVELS = [
+    ['初級', '初級：ランダムに3枚', [0, 3, 4], '#22c55e'],
+    ['中級', '中級：いちばん弱い3枚', [0, 1, 2], '#3b82f6'],
+    ['上級', '上級：まん中くらいの3枚', [1, 2, 3], '#a855f7'],
+    ['鬼級', '鬼級：いちばん強い3枚', [3, 4, 5], '#ef4444'],
+  ];
+  var lastLv = -1, lastDeck = -1, lastSay = -1;
+
+  function placeField(g) {
+    PICK.forEach(function (h, b) { g.setPos('mh' + h, bfPos(b, 0)); });
+    ENEMY.forEach(function (e, b) { g.setPos('me' + b, bfPos(b, 1)); });
+  }
+  function toPile(g, id, k) {
+    var o = g.get(id), a = o.position.clone(), p = TO_PILE[id];
+    g.arcPos(id, [a.x, a.y, a.z], pilePos(p[0], p[1]), k, 1.2);
+  }
+
+  var CFG = {
+    title: 'トランプ三戦場バトル 遊び方',
+    back: '../index.html',
+    subtitle: '3つの戦場に同時に1枚ずつカードを出して、数字の大きさで勝負するトランプ対戦。はじめての人向けのチュートリアル',
+    camera: CAM_MB,
+
+    build: function (g) {
+      function pcard(id, parent, s, r, pos, o) {
+        o = o || {};
+        return g.card({ id: id, parent: parent, pos: pos, text: s + r, color: suitCol(s), w: o.w || 1.3, lying: o.lying, faceDown: o.faceDown, backColor: o.backColor, sub: o.sub });
+      }
+
+      // ======================= メインの盤 =======================
+      g.group('MB', {});
+      g.plate({ id: 'mb-floor', parent: 'MB', size: [16, 14], pos: [0, 0.01, 1.2], color: '#1d4d3a', opacity: 0.95 });
+      BFX.forEach(function (x, b) {
+        g.plate({ id: 'bf' + b, parent: 'MB', size: [3.8, 6.2], pos: [x, 0.03, 0], color: BF_COL, opacity: 1, label: '戦場' + (b + 1), labelSize: 0.45, labelBg: '#000000aa' });
+      });
+      g.label('プレイヤー2（相手）の札', [0, 0.3, -4.6], { id: 'side-p2', parent: 'MB', size: 0.42, color: '#fca5a5', bg: '#000000aa' });
+      g.label('プレイヤー1（あなた）の手札', [0, 0.3, 7.5], { id: 'side-p1', parent: 'MB', size: 0.42, color: '#93c5fd', bg: '#000000aa' });
+      HAND.forEach(function (c, i) { pcard('mh' + i, 'MB', c[0], c[1], [HXp(i), CY, HANDZ]); });
+      ENEMY.forEach(function (c, b) { pcard('me' + b, 'MB', c[0], c[1], bfPos(b, 1), { backColor: '#b91c1c' }); });
+      g.box({ id: 'btn-ok', parent: 'MB', size: [2.0, 0.3, 1.0], pos: [7.2, 0.15, HANDZ], color: GOLD, edges: false, label: '決定！', labelSize: 0.42, labelBg: '#000000cc', labelOffset: [0, 0.7, 0] });
+      [0, 1, 2].forEach(function (b) {
+        g.label(String(b + 1), [0, 0, 0], { id: 'ord' + b, size: 0.5, color: '#111111', bg: GOLD });
+      });
+      // 獲得置き場
+      g.group('piles', { parent: 'MB' });
+      g.plate({ id: 'pile-p1', parent: 'piles', size: [2.4, 3.0], pos: [PILE[0][0] + 0.2, 0.02, PILE[0][1]], color: '#1e3a8a', opacity: 1, label: 'プレイヤー1の獲得', labelSize: 0.36, labelBg: '#000000aa', labelOffset: [0, 0.4, 1.9] });
+      g.plate({ id: 'pile-p2', parent: 'piles', size: [2.4, 3.0], pos: [PILE[1][0] + 0.2, 0.02, PILE[1][1]], color: '#7f1d1d', opacity: 1, label: 'プレイヤー2の獲得', labelSize: 0.36, labelBg: '#000000aa' });
+      // STEP6・7 の判定ラベル
+      g.label('9 ＞ 5', [BFX[0], 0.15, 0], { id: 'cmp0', size: 0.5, color: '#93c5fd', bg: '#000000cc' });
+      g.label('Q ＝ Q', [BFX[1], 0.15, 0], { id: 'cmp1', size: 0.5, color: GOLD, bg: '#000000cc' });
+      g.label('A ＞ J', [BFX[2], 0.15, 0], { id: 'cmp2', size: 0.5, color: '#93c5fd', bg: '#000000cc' });
+      g.label('大きいほうが\n2枚とももらう！', [8.5, 0.4, 5.4], { id: 'get-lbl', size: 0.4, color: C.good, bg: '#000000cc' });
+      g.label('相打ち：自分のカードだけ\n自分の獲得になる', [0, 0.6, 3.7], { id: 'draw-lbl', size: 0.4, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 2つの遊び方 =======================
+      g.group('V', {});
+      g.plate({ id: 'v-floor', parent: 'V', size: [17, 9], pos: [VX, 0.01, 0.6], color: '#1a1a2e', opacity: 0.95 });
+      g.line([[VX, 0.05, -3.6], [VX, 0.05, 4.8]], { parent: 'V', color: '#ffffff', opacity: 0.4, dashed: true });
+      function laptop(id, parent, pos) {
+        g.group(id, { parent: parent, pos: pos });
+        g.box({ id: id + '-base', parent: id, size: [2.2, 0.12, 1.5], pos: [0, 0.06, 0], color: '#94a3b8' });
+        g.box({ id: id + '-scr', parent: id, size: [2.2, 1.4, 0.08], pos: [0, 0.8, -0.72], color: '#0f172a', edgeColor: '#7ef0ff' });
+      }
+      laptop('v-pc', 'V', [VX - 4.2, 0, -0.6]);
+      g.label('1台版\nindex.html をダブルクリック', [VX - 4.2, 2.7, -0.6], { id: 'v-pc-lbl', parent: 'V', size: 0.38, bg: '#000000cc' });
+      g.sphere({ id: 'v-p1', parent: 'V', radius: 0.45, pos: [VX - 6.0, 0.45, 1.6], color: P1C });
+      g.sphere({ id: 'v-p2', parent: 'V', radius: 0.45, pos: [VX - 2.4, 0.45, 1.6], color: P2C });
+      g.label('ひとつの画面を\n2人で交代して使う', [VX - 4.2, 0.3, 3.6], { id: 'v-l-sub', parent: 'V', size: 0.36, color: '#cbd5e1', bg: '#000000aa' });
+      g.box({ id: 'v-srv', parent: 'V', size: [2.0, 1.6, 1.4], pos: [VX + 4.2, 0.8, -1.6], color: C.server, label: 'サーバー版\npy -3 run.py', labelSize: 0.38, labelBg: '#000000cc', labelOffset: [0, 1.5, 0] });
+      g.box({ id: 'v-cpu', parent: 'V', size: [1.8, 0.7, 1.1], pos: [VX + 2.2, 0.35, 2.0], color: '#64748b', label: 'CPU対戦', labelSize: 0.36, labelBg: '#000000cc', labelOffset: [0, 0.8, 0] });
+      g.box({ id: 'v-lan', parent: 'V', size: [1.8, 0.7, 1.1], pos: [VX + 6.2, 0.35, 2.0], color: '#64748b', label: 'LAN対戦', labelSize: 0.36, labelBg: '#000000cc', labelOffset: [0, 0.8, 0] });
+      g.flow([VX + 3.6, 0.9, -0.9], [VX + 2.4, 0.8, 1.4], { id: 'v-f1', parent: 'V', color: C.data, lift: 0.6, count: 4 });
+      g.flow([VX + 4.8, 0.9, -0.9], [VX + 6.0, 0.8, 1.4], { id: 'v-f2', parent: 'V', color: C.data, lift: 0.6, count: 4 });
+      g.label('ブラウザで開いて遊ぶ', [VX + 4.2, 0.3, 3.8], { id: 'v-r-sub', parent: 'V', size: 0.36, color: '#cbd5e1', bg: '#000000aa' });
+
+      // ======================= カードの強さ =======================
+      g.group('B', {});
+      g.plate({ id: 'b-floor', parent: 'B', size: [17, 10], pos: [BX, 0.01, BZ + 1.6], color: '#1a1a2e', opacity: 0.95 });
+      var RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+      var SU = ['♠', '♥', '♣', '♦'];
+      RANKS.forEach(function (r, i) {
+        var x = BX - 6.6 + i * 1.1, h = 0.25 + i * 0.2;
+        g.box({ id: 'b-step' + i, parent: 'B', size: [0.95, h, 0.6], pos: [x, h / 2, BZ], color: '#3a3555', edgeColor: '#ffd166' });
+        pcard('b-c' + i, 'B', SU[i % 4], r, [x, h + 0.7, BZ], { lying: false, w: 0.95 });
+      });
+      g.label('弱い', [BX - 6.6, 2.4, BZ + 0.6], { id: 'b-weak', parent: 'B', size: 0.45, color: '#93c5fd', bg: '#000000aa' });
+      g.label('いちばん強い', [BX + 6.6, 4.9, BZ + 0.6], { id: 'b-strong', parent: 'B', size: 0.45, color: '#fca5a5', bg: '#000000aa' });
+      [['♠', '7'], ['♣', '7'], ['♥', '7'], ['♦', '7']].forEach(function (c, i) {
+        pcard('b-s' + i, 'B', c[0], c[1], [BX - 4.8 + i * 1.2, 0.75, BZ + 3.6], { lying: false, w: 0.95 });
+      });
+      g.label('マーク（♠♣♥♦）は関係なし\n7はどれも同じ強さ', [BX + 2.6, 0.75, BZ + 3.6], { id: 'b-suit', parent: 'B', size: 0.38, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 画面の見方 =======================
+      g.group('S', {});
+      g.plate({ id: 'scr', parent: 'S', size: [11.2, 11.6], pos: [SX, 0.02, SZ], color: '#0f172a', opacity: 1, radius: 0.15 });
+      function ui(id, x, z, w, d, col, label, lblOff) {
+        g.box({ id: id, parent: 'S', size: [w, 0.14, d], pos: [SX + x, 0.1, SZ + z], color: col, edges: false, label: label, labelSize: 0.3, labelBg: '#000000cc', labelOffset: lblOff || [0, 0.55, 0] });
+      }
+      g.label('🃏 トランプ三戦場バトル', [SX, 0.3, SZ - 5.15], { id: 's-title', parent: 'S', size: 0.34 });
+      ui('s-p1', -1.9, -4.2, 2.6, 0.8, P1C, 'プレイヤー1  6枚', [0, 0.4, 0]);
+      ui('s-p2', 1.9, -4.2, 2.6, 0.8, P2C, 'プレイヤー2  6枚', [0, 0.4, 0]);
+      g.label('VS', [SX, 0.3, SZ - 4.2], { id: 's-vs', parent: 'S', size: 0.3 });
+      ui('s-msg', 0, -3.15, 9.6, 0.6, '#334155', '案内メッセージ（前の結果・次にすること）', [0, 0.35, 0]);
+      var SC1 = [['♠', '9'], ['♥', 'Q'], ['♦', 'A']], SC2 = [['♣', '5'], ['♦', 'Q'], ['♥', 'J']];
+      var SB = [P1C, GOLD, P1C];
+      [-3.4, 0, 3.4].forEach(function (x, b) {
+        g.box({ id: 's-bfb' + b, parent: 'S', size: [3.1, 0.1, 3.9], pos: [SX + x, 0.07, SZ - 0.55], color: SB[b], edges: false });
+        g.box({ id: 's-bf' + b, parent: 'S', size: [2.8, 0.14, 3.6], pos: [SX + x, 0.1, SZ - 0.55], color: '#1e293b', edges: false });
+        g.label('戦場' + (b + 1), [SX + x, 0.35, SZ - 2.0], { id: 's-bft' + b, parent: 'S', size: 0.3, color: '#ffffff' });
+        pcard('s-c1' + b, 'S', SC1[b][0], SC1[b][1], [SX + x, 0.2, SZ - 1.0], { w: 0.85 });
+        pcard('s-c2' + b, 'S', SC2[b][0], SC2[b][1], [SX + x, 0.2, SZ + 0.25], { w: 0.85 });
+      });
+      g.label('上＝プレイヤー1　下＝プレイヤー2\n枠の色：青＝P1の勝ち　赤＝P2の勝ち　金＝相打ち', [SX, 0.3, SZ + 1.95], { id: 's-bf-lbl', parent: 'S', size: 0.28, bg: '#000000cc' });
+      var SH = [['♣', '3'], ['♠', '8'], ['♦', '7'], ['♥', '10'], ['♦', 'K'], ['♠', '2']];
+      var SHsel = { 1: 2, 3: 3, 4: 1 };
+      SH.forEach(function (c, i) {
+        var x = SX - 3.0 + i * 1.2, sel = SHsel[i];
+        pcard('s-h' + i, 'S', c[0], c[1], [x, 0.2 + (sel ? 0.15 : 0), SZ + 3.7 - (sel ? 0.3 : 0)], { w: 0.8 });
+        if (sel) g.label(String(sel), [x + 0.38, 0.6, SZ + 3.0], { id: 's-ord' + i, parent: 'S', size: 0.3, color: '#111111', bg: GOLD });
+      });
+      g.label('手札', [SX - 4.6, 0.3, SZ + 3.7], { id: 's-hand-lbl', parent: 'S', size: 0.3 });
+      ui('s-ok', 0, 5.2, 2.2, 0.55, GOLD, '決定！（3枚えらぶと押せる）', [3.4, 0.3, 0]);
+
+      // ======================= 勝ち負けの決まり方 =======================
+      g.group('J', {});
+      g.plate({ id: 'j-floor', parent: 'J', size: [12, 8], pos: [JX, 0.01, JZ + 0.6], color: '#1a1a2e', opacity: 0.95 });
+      [[-2.6, 6, 5], [2.6, 6, 1]].forEach(function (col, p) {
+        for (var k = 0; k < col[1] + col[2]; k++) {
+          g.box({ id: 'j-b' + p + '-' + k, parent: 'J', size: [1.8, 0.2, 1.2], pos: [JX + col[0], 0.13 + k * 0.26, JZ], color: k < col[1] ? '#94a3b8' : GOLD, edgeColor: '#000000' });
+        }
+      });
+      g.label('11枚', [JX - 2.6, 3.55, JZ], { id: 'j-n1', parent: 'J', size: 0.55, color: '#93c5fd', bg: '#000000aa' });
+      g.label('7枚', [JX + 2.6, 2.5, JZ], { id: 'j-n2', parent: 'J', size: 0.55, color: '#fca5a5', bg: '#000000aa' });
+      g.label('プレイヤー1\n手札6＋獲得5', [JX - 2.6, 0.3, JZ + 1.6], { id: 'j-nm1', parent: 'J', size: 0.34, color: '#93c5fd', bg: '#000000aa' });
+      g.label('プレイヤー2\n手札6＋獲得1', [JX + 2.6, 0.3, JZ + 1.6], { id: 'j-nm2', parent: 'J', size: 0.34, color: '#fca5a5', bg: '#000000aa' });
+      g.label('灰色＝手札　金色＝獲得したカード', [JX, 0.3, JZ + 3.6], { id: 'j-legend', parent: 'J', size: 0.34, bg: '#000000aa' });
+      g.label('差がついた！\nプレイヤー1の勝ち', [JX, 4.6, JZ], { id: 'j-res', parent: 'J', size: 0.5, color: C.good, bg: '#000000cc' });
+
+      // ======================= 決着がつかないとき =======================
+      g.group('K', {});
+      g.plate({ id: 'k-floor', parent: 'K', size: [16, 12.5], pos: [KX + 0.6, 0.01, KZ + 0.8], color: '#1a1a2e', opacity: 0.95 });
+      var KA = [[['♠', '8'], ['♥', '3'], P1C], [['♦', '5'], ['♣', '10'], P2C], [['♥', '7'], ['♠', '7'], GOLD]];
+      var KB = [[['♠', '4'], ['♦', '4'], GOLD], [['♣', '9'], ['♥', '9'], GOLD], [['♦', 'K'], ['♠', 'K'], GOLD]];
+      [[KA, -2.6], [KB, 2.4]].forEach(function (row, ri) {
+        row[0].forEach(function (f, b) {
+          var x = KX - 4.6 + b * 2.8, z = KZ + row[1];
+          g.plate({ id: 'k-bf' + ri + b, parent: 'K', size: [2.4, 3.6], pos: [x, 0.03, z], color: f[2], opacity: 1 });
+          pcard('k-c1' + ri + b, 'K', f[0][0], f[0][1], [x, CY, z + 0.85], { w: 0.95 });
+          pcard('k-c2' + ri + b, 'K', f[1][0], f[1][1], [x, CY, z - 0.85], { w: 0.95 });
+        });
+      });
+      g.label('1勝・1敗・1相打ち\n→ 次のラウンドへ', [KX + 4.4, 0.6, KZ - 2.6], { id: 'k-resA', parent: 'K', size: 0.4, bg: '#000000cc' });
+      g.label('3つとも相打ち\n→ 次のラウンドへ', [KX + 4.4, 0.6, KZ + 2.4], { id: 'k-resB', parent: 'K', size: 0.4, bg: '#000000cc' });
+      g.label('3枚出せなくなったら → 引き分けで終わり', [KX + 0.6, 0.3, KZ + 5.9], { id: 'k-end', parent: 'K', size: 0.38, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 手札と山札 =======================
+      g.group('D', {});
+      g.plate({ id: 'd-floor', parent: 'D', size: [15, 10.5], pos: [DX + 0.8, 0.01, DZ], color: '#1a1a2e', opacity: 0.95 });
+      g.box({ id: 'd-deck', parent: 'D', size: [1.2, 1.0, 1.68], pos: [DX - 4.6, 0.5, DZ], color: '#3b2f7a', edgeColor: '#ffffff' });
+      g.card({ id: 'd-top', parent: 'D', pos: [DX - 4.6, 1.03, DZ], w: 1.2, faceDown: true, backColor: '#3b2f7a' });
+      g.label('山札 40枚', [DX - 4.6, 2.0, DZ], { id: 'd-cnt', parent: 'D', size: 0.45, bg: '#000000cc' });
+      function dSlot(p, i) { return [DX - 1.5 + i * 1.5, CY, DZ + (p === 0 ? 2.3 : -2.3)]; }
+      [0, 1].forEach(function (p) {
+        for (var i = 0; i < 6; i++) {
+          g.card({ id: 'd-h' + p + i, parent: 'D', pos: dSlot(p, i), w: 1.1, faceDown: true, backColor: p === 0 ? '#1d4ed8' : '#b91c1c' });
+        }
+      });
+      g.label('プレイヤー1の手札', [DX + 2.25, 0.3, DZ + 4.1], { id: 'd-p1', parent: 'D', size: 0.38, color: '#93c5fd', bg: '#000000aa' });
+      g.label('プレイヤー2の手札', [DX + 2.25, 0.3, DZ - 4.1], { id: 'd-p2', parent: 'D', size: 0.38, color: '#fca5a5', bg: '#000000aa' });
+      g.label('3枚出したあと\n1枚ずつ交互に引いて\n6枚にもどす', [DX - 4.4, 0.3, DZ + 3.0], { id: 'd-note', parent: 'D', size: 0.32, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 1台版の交代プレイ =======================
+      g.group('H', {});
+      g.plate({ id: 'h-floor', parent: 'H', size: [14, 8], pos: [HX, 0.01, HZ + 0.6], color: '#1a1a2e', opacity: 0.95 });
+      g.sphere({ id: 'h-p1', parent: 'H', radius: 0.6, pos: [HX - 5, 0.6, HZ + 0.6], color: P1C, label: 'プレイヤー1', labelSize: 0.36, labelBg: '#000000aa' });
+      g.sphere({ id: 'h-p2', parent: 'H', radius: 0.6, pos: [HX + 5, 0.6, HZ + 0.6], color: P2C, label: 'プレイヤー2', labelSize: 0.36, labelBg: '#000000aa' });
+      laptop('h-pc', 'H', [HX - 2.4, 0, HZ]);
+      g.label('①プレイヤー1が3枚えらぶ', [HX, 3.0, HZ], { id: 'h-say', size: 0.4, color: GOLD, bg: '#000000cc' });
+      g.label('相手が選んだカードは、結果が出るまで裏向き', [HX, 0.3, HZ + 3.8], { id: 'h-note', parent: 'H', size: 0.34, color: '#cbd5e1', bg: '#000000aa' });
+
+      // ======================= CPU の難易度 =======================
+      g.group('CP', {});
+      g.plate({ id: 'c-floor', parent: 'CP', size: [12, 8], pos: [CX, 0.01, CZ + 0.8], color: '#1a1a2e', opacity: 0.95 });
+      CPU_HAND.forEach(function (c, i) {
+        pcard('c-c' + i, 'CP', c[0], c[1], [CX - 3.3 + i * 1.32, 1.0, CZ], { lying: false, w: 1.1 });
+      });
+      LEVELS.forEach(function (lv, j) {
+        g.box({ id: 'c-lv' + j, parent: 'CP', size: [2.0, 0.35, 1.0], pos: [CX - 3.6 + j * 2.4, 0.18, CZ + 2.8], color: '#475569', label: lv[0], labelSize: 0.4, labelBg: '#000000cc', labelOffset: [0, 0.6, 0] });
+      });
+      g.label(LEVELS[0][1], [CX, 3.4, CZ], { id: 'c-desc', size: 0.45, color: GOLD, bg: '#000000cc' });
+
+      // ======================= LAN対戦 =======================
+      g.group('L', {});
+      g.plate({ id: 'l-floor', parent: 'L', size: [15, 9], pos: [LX, 0.01, LZ + 0.6], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'l-host', parent: 'L', size: [3, 1.6, 1.8], pos: [LX, 0.8, LZ - 2.2], color: C.server, label: 'ホスト役のPC\npy -3 run.py', labelSize: 0.36, labelBg: '#000000cc', labelOffset: [0, 1.5, 0] });
+      g.box({ id: 'l-p1', parent: 'L', size: [2.4, 1.0, 1.5], pos: [LX - 4.6, 0.5, LZ + 1.8], color: P1C, label: 'プレイヤー1\n「部屋を作成」', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 1.1, 0] });
+      g.box({ id: 'l-p2', parent: 'L', size: [2.4, 1.0, 1.5], pos: [LX + 4.6, 0.5, LZ + 1.8], color: P2C, label: 'プレイヤー2\n部屋コードで「参加」', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 1.1, 0] });
+      g.flow([LX - 1.6, 1.0, LZ - 1.6], [LX - 4.0, 1.0, LZ + 1.2], { id: 'l-f1', parent: 'L', color: C.data, lift: 0.8, count: 5 });
+      g.flow([LX + 1.6, 1.0, LZ - 1.6], [LX + 4.0, 1.0, LZ + 1.2], { id: 'l-f2', parent: 'L', color: C.data, lift: 0.8, count: 5 });
+      g.arrow([LX - 3.0, 0.6, LZ + 2.4], [LX + 3.0, 0.6, LZ + 2.4], { id: 'l-arrow', parent: 'L', color: GOLD, lift: 0.9, radius: 0.06 });
+      g.label('部屋コード AB3K を伝える', [LX, 1.85, LZ + 2.4], { id: 'l-code', parent: 'L', size: 0.36, color: GOLD, bg: '#000000cc' });
+      g.label('同じ Wi-Fi で http://192.168.x.x:5000 を開く', [LX, 0.3, LZ + 4.5], { id: 'l-url', parent: 'L', size: 0.36, color: C.data, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: 'トランプ三戦場バトルへようこそ！',
+        html:
+          '<p>2人で戦う <b>トランプのカードゲーム</b> だよ。ジョーカーなしの52枚を使うよ。</p>' +
+          '<ul><li>場には <b>戦場が3つ</b> ある</li>' +
+          '<li>毎ラウンド、2人が <b>同時に3枚</b> えらんで、戦場1・2・3に <b>1枚ずつ</b> 出す</li>' +
+          '<li>それぞれの戦場で <b>数字が大きいほうが勝ち</b>。勝つと、相手のカードももらえる</li></ul>' +
+          '<p><b>勝ち負け</b>：ラウンドのあと、<b>持っているカードの枚数（手札＋もらったカード）</b> が相手より多ければ勝ち！</p>' +
+          '<p>図の手前が <b>あなた（プレイヤー1）</b>、奥が <b>相手（プレイヤー2）</b> だよ。</p>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: CAM_MB,
+        show: ['MB'],
+        update: function (g, t) {
+          placeField(g);
+          BFX.forEach(function (x, b) { g.pulse('bf' + b, t + b * 0.7, 0.03); });
+        },
+      },
+      {
+        title: '2つの遊び方：どれを起動する？',
+        html:
+          '<p>このゲームには <b>2つの版</b> があるよ。</p>' +
+          '<table><tr><th>版</th><th>起動のしかた</th><th>遊べるもの</th></tr>' +
+          '<tr><td><b>1台版</b></td><td>フォルダの <code>index.html</code> をダブルクリック</td><td>1つの画面を2人で交代して使う対戦だけ</td></tr>' +
+          '<tr><td><b>サーバー版</b></td><td><code>py -3 run.py</code> を実行して、ブラウザで <code>http://localhost:5000</code></td><td><b>CPU対戦</b>（4つの難易度）と <b>LAN対戦</b></td></tr></table>' +
+          '<p>サーバー版のほうが新しくて、こっちが本番だよ。1台版は古い版で、ルールが少しちがう（あとで説明するね）。</p>' +
+          '<div class="gg-note">サーバー版は Python と Flask が必要。はじめての時は <code>py -3 -m pip install -r requirements.txt</code> で入れてね。ポートを変えたいときは <code>py -3 run.py 5001</code>。</div>',
+        camera: { pos: [VX, 10, 14], target: [VX, 0.8, 0.8] },
+        show: ['V'],
+      },
+      {
+        title: 'カードの強さは数字だけ',
+        html:
+          '<p>強さは <b>数字だけ</b> で決まるよ。</p>' +
+          '<p style="font-size:17px;text-align:center"><b>2 ＜ 3 ＜ … ＜ 10 ＜ J ＜ Q ＜ K ＜ A</b></p>' +
+          '<ul><li>いちばん弱いのは <b>2</b>、いちばん強いのは <b>A（エース）</b></li>' +
+          '<li>J＝11、Q＝12、K＝13、A＝14 と考えるとわかりやすいよ</li>' +
+          '<li><b>マーク（♠♣♥♦）は関係なし</b>。♠7 と ♥7 は同じ強さ</li></ul>',
+        camera: { pos: [BX, 6.5, BZ + 16], target: [BX, 1.8, BZ + 1.2] },
+        show: ['B'],
+        update: function (g, t) {
+          var k = Math.floor(t / 0.35) % 16;
+          if (k < 13) g.pulse('b-c' + k, t, 0.12);
+        },
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<p>サーバー版の対戦画面は、上から順にこうなっているよ（1台版もほぼ同じ）。</p>' +
+          '<table><tr><th>場所</th><th>なにがある？</th></tr>' +
+          '<tr><td>いちばん上</td><td>2人の名前と <b>枚数</b>（手札＋もらったカード）。この数字で勝ち負けが決まる</td></tr>' +
+          '<tr><td>その下</td><td>案内メッセージ。前のラウンドの結果や、次にすることが出る</td></tr>' +
+          '<tr><td>まん中</td><td><b>戦場1・2・3</b>。<b>上がプレイヤー1、下がプレイヤー2</b> のカード</td></tr>' +
+          '<tr><td>下</td><td>自分の <b>手札</b> と <b>決定！</b> ボタン</td></tr></table>' +
+          '<p>勝負のあと、戦場の枠の色で結果がわかるよ。<b>青＝プレイヤー1の勝ち</b>、<b>赤＝プレイヤー2の勝ち</b>、<b>金＝相打ち</b>。</p>',
+        camera: { pos: [SX, 13.5, SZ + 9.5], target: [SX, 0, SZ + 0.3] },
+        show: ['S'],
+      },
+      {
+        title: '3枚えらんで、3つの戦場に出す',
+        html:
+          '<ol><li>手札のカードを <b>クリックして3枚えらぶ</b></li>' +
+          '<li><b>えらんだ順</b> に、戦場1 → 戦場2 → 戦場3 に出る（サーバー版はカードに番号が出るよ）</li>' +
+          '<li>もう一度クリックすると、えらぶのをやめられる</li>' +
+          '<li>3枚えらぶと <b>決定！</b> が押せる</li></ol>' +
+          '<p>相手も <b>同時に</b> 3枚えらんでいるよ。相手のカードは、2人とも決定するまで <b>裏向き</b> で見えない。</p>' +
+          '<div class="gg-note">作戦のポイント：相手がどの戦場に強いカードを置くか、読み合いだよ。</div>',
+        camera: CAM_MB,
+        show: ['MB', 'ord0', 'ord1', 'ord2', 'btn-ok'],
+        update: function (g, t) {
+          var sel = [0.5, 1.1, 1.7];
+          PICK.forEach(function (h, b) {
+            var id = 'mh' + h, base = [HXp(h), CY, HANDZ];
+            var up = t > sel[b] ? [HXp(h), CY + 0.5, HANDZ - 0.4] : base;
+            var k = g.phase(t, 2.7 + b * 0.15, 0.9);
+            g.arcPos(id, up, bfPos(b, 0), k, 1.2);
+            var o = g.get(id).position, badge = g.get('ord' + b);
+            badge.visible = t > sel[b];
+            badge.position.set(o.x + 0.6, o.y + 0.5, o.z - 0.75);
+            var e = 'me' + b;
+            g.flip(e, 1);
+            g.get(e).visible = t > 2.7;
+            g.arcPos(e, [BFX[b], CY, -6.5], bfPos(b, 1), g.phase(t, 2.7 + b * 0.15, 0.9), 1.2);
+          });
+          if (t > 1.9 && t < 2.8) g.pulse('btn-ok', t, 0.15);
+        },
+      },
+      {
+        title: 'オープン！大きいほうが2枚もらう',
+        html:
+          '<p>2人とも決定すると、カードが <b>いっせいにオープン</b>！ 戦場ごとに数字をくらべるよ。</p>' +
+          '<ul><li><b>数字が大きいほうの勝ち</b></li>' +
+          '<li>勝った人は、<b>自分のカードと相手のカードの2枚</b> をもらえる</li>' +
+          '<li>もらったカードは「獲得したカード」になって、もう場には出せない（枚数には数える）</li></ul>' +
+          '<p>この例では、戦場1は <b>9 ＞ 5</b>、戦場3は <b>A ＞ J</b> で、どちらもプレイヤー1の勝ち。4枚もらえたよ。</p>',
+        camera: CAM_MB,
+        show: ['MB', 'cmp0', 'cmp2', 'get-lbl'],
+        update: function (g, t) {
+          placeField(g);
+          ENEMY.forEach(function (e, b) { g.flip('me' + b, 1 - g.phase(t, 0.3, 0.8)); });
+          g.get('cmp0').visible = t > 1.3;
+          g.get('cmp2').visible = t > 1.3;
+          if (t > 1.6) { g.setColor('bf0', '#2f5fb8'); g.setColor('bf2', '#2f5fb8'); }
+          ['mh1', 'me0'].forEach(function (id) { toPile(g, id, g.phase(t, 2.2, 0.9)); });
+          ['mh4', 'me2'].forEach(function (id) { toPile(g, id, g.phase(t, 3.0, 0.9)); });
+          g.get('get-lbl').visible = t > 2.2;
+        },
+      },
+      {
+        title: '同じ数字なら相打ち',
+        html:
+          '<p>同じ数字どうしは <b>相打ち</b>。どちらの勝ちでもないよ。</p>' +
+          '<ul><li>それぞれ <b>自分が出したカードだけ</b> を、自分の獲得にする</li>' +
+          '<li>相手のカードはもらえない</li></ul>' +
+          '<p>この例では、戦場2が <b>Q ＝ Q</b> で相打ち。プレイヤー1もプレイヤー2も、1枚ずつ獲得するよ。</p>' +
+          '<div class="gg-note">マークがちがっても（♥Q と ♦Q）、数字が同じなら相打ちだよ。</div>',
+        camera: CAM_MB,
+        show: ['MB', 'cmp1', 'draw-lbl'],
+        update: function (g, t) {
+          placeField(g);
+          ['mh1', 'me0', 'mh4', 'me2'].forEach(function (id) { toPile(g, id, 1); });
+          g.setColor('bf0', '#2f5fb8'); g.setColor('bf2', '#2f5fb8');
+          if (t > 1.0) g.setColor('bf1', '#a07d1c');
+          ['mh3', 'me1'].forEach(function (id) { toPile(g, id, g.phase(t, 1.6, 1.0)); });
+          g.get('draw-lbl').visible = t > 1.6;
+        },
+      },
+      {
+        title: '勝ち負けの決まり方',
+        html:
+          '<p>ラウンドが終わるたびに、2人の <b>枚数（手札＋獲得したカード）</b> をくらべるよ。</p>' +
+          '<ul><li><b>相手より多ければ、その場で勝ち！</b> ゲーム終了</li>' +
+          '<li>同じ枚数なら、次のラウンドへ</li></ul>' +
+          '<p>さっきの例（サーバー版）だと、プレイヤー1は 手札6＋獲得5＝<b>11枚</b>、プレイヤー2は 手札6＋獲得1＝<b>7枚</b>。プレイヤー1の勝ちだよ。</p>' +
+          '<div class="gg-note"><b>つまり…</b> 2人の手札の枚数はいつも同じだから、<b>1つのラウンドで相手より多くの戦場に勝ったら、すぐ勝ち</b> なんだ。2勝1敗でも、1勝0敗2相打ちでも勝ち。1回1回が大勝負だよ！</div>',
+        camera: { pos: [JX, 5.5, JZ + 10.5], target: [JX, 1.8, JZ + 0.5] },
+        show: ['J'],
+        update: function (g, t) {
+          for (var p = 0; p < 2; p++) {
+            var n = p === 0 ? 11 : 7;
+            for (var k = 0; k < n; k++) g.get('j-b' + p + '-' + k).visible = t > 0.3 + k * 0.15;
+          }
+          g.get('j-n1').visible = t > 2.0;
+          g.get('j-n2').visible = t > 1.4;
+          g.get('j-res').visible = t > 2.6;
+          if (t > 2.6) g.pulse('j-res', t, 0.06);
+        },
+      },
+      {
+        title: '決着がつかないとき',
+        html:
+          '<p>勝った戦場の数が <b>2人とも同じ</b> だと、枚数も同じになって、<b>次のラウンド</b> に進むよ。</p>' +
+          '<ul><li><b>1勝・1敗・1相打ち</b> → 次のラウンドへ</li>' +
+          '<li><b>3つとも相打ち</b> → 次のラウンドへ</li></ul>' +
+          '<p>図の色は、<b>青＝プレイヤー1の勝ち</b>・<b>赤＝プレイヤー2の勝ち</b>・<b>金＝相打ち</b>（手前のカードがプレイヤー1）。</p>' +
+          '<p>手札が減って <b>3枚出せなくなったら、引き分け</b> で終わり。どちらの版でも、いちばん長くて <b>8ラウンド</b> だよ。</p>' +
+          '<div class="gg-note">1台版は「次のラウンドへ」ボタンで進む。サーバー版は、そのまま次の3枚をえらべるよ。</div>',
+        camera: { pos: [KX + 0.8, 11.5, KZ + 11.5], target: [KX + 0.8, 0, KZ + 1.0] },
+        show: ['K'],
+        update: function (g, t) {
+          var r = Math.floor(t / 1.6) % 2;
+          for (var b = 0; b < 3; b++) g.pulse('k-bf' + r + b, t, 0.03);
+        },
+      },
+      {
+        title: '手札と山札（サーバー版）',
+        html:
+          '<p>サーバー版では、最初に <b>6枚ずつ</b> 配って、残りの <b>40枚が山札</b> になるよ。</p>' +
+          '<ul><li>3枚出すと、手札は3枚に減る</li>' +
+          '<li>ラウンドのあと、手札が6枚より少なければ、山札から <b>1枚ずつ交互に</b> 引いて6枚にもどす</li>' +
+          '<li>山札がなくなったら、もう引けない</li></ul>' +
+          '<table><tr><th></th><th>サーバー版</th><th>1台版</th></tr>' +
+          '<tr><td>最初の手札</td><td>6枚</td><td><b>26枚</b>（全部配る）</td></tr>' +
+          '<tr><td>山札</td><td>40枚から補充</td><td>なし</td></tr>' +
+          '<tr><td>出し方</td><td>2人同時</td><td>交代で</td></tr></table>' +
+          '<div class="gg-note">勝ち負けの決まり方と、相打ちのルールは、どちらの版も同じだよ。</div>',
+        camera: { pos: [DX, 11.5, DZ + 11.5], target: [DX, 0, DZ + 0.3] },
+        show: ['D'],
+        enter: function () { lastDeck = -1; },
+        update: function (g, t) {
+          var drawn = 0;
+          for (var j = 0; j < 6; j++) {
+            var p = j % 2, i = 3 + Math.floor(j / 2), id = 'd-h' + p + i;
+            var t0 = 0.9 + j * 0.45, k = g.phase(t, t0, 0.4);
+            g.get(id).visible = t > t0;
+            g.arcPos(id, [DX - 4.6, 1.1, DZ], dSlotPos(p, i), k, 1.0);
+            if (t > t0 + 0.2) drawn++;
+          }
+          if (drawn !== lastDeck) { lastDeck = drawn; g.setLabel('d-cnt', '山札 ' + (40 - drawn) + '枚', { size: 0.45, bg: '#000000cc' }); }
+        },
+      },
+      {
+        title: '1台版：交代で遊ぶ',
+        html:
+          '<p><code>index.html</code> を開くと、すぐにプレイヤー1の番から始まるよ。</p>' +
+          '<ol><li><b>プレイヤー1</b> が3枚えらんで <b>決定！</b></li>' +
+          '<li>「プレイヤー2に画面を渡してください」と出るので、画面を相手に渡す</li>' +
+          '<li>プレイヤー2が <b>プレイヤー2の番にする</b> を押して、3枚えらんで <b>決定！</b></li>' +
+          '<li>オープンして結果が出る。決着がつかなければ <b>次のラウンドへ</b></li></ol>' +
+          '<p>決着すると結果が出るよ。<b>閉じる</b> → <b>もう一度遊ぶ</b> で最初から。</p>' +
+          '<div class="gg-note">手札は自分の番に画面に出るから、相手の番のときは見ないようにしてね。</div>',
+        camera: { pos: [HX, 7.5, HZ + 10.5], target: [HX, 1.0, HZ + 0.6] },
+        show: ['H', 'h-say'],
+        enter: function () { lastSay = -1; },
+        update: function (g, t) {
+          var tt = t % 8, say;
+          if (tt < 2) { say = 0; g.setPos('h-pc', [HX - 2.4, 0, HZ]); }
+          else if (tt < 3.5) { say = 1; g.lerpPos('h-pc', [HX - 2.4, 0, HZ], [HX + 2.4, 0, HZ], g.phase(tt, 2, 1.3)); }
+          else if (tt < 5.5) { say = 2; g.setPos('h-pc', [HX + 2.4, 0, HZ]); }
+          else { say = 3; g.lerpPos('h-pc', [HX + 2.4, 0, HZ], [HX, 0, HZ], g.phase(tt, 5.5, 0.8)); }
+          var pc = g.get('h-pc').position;
+          g.get('h-say').position.set(pc.x, 3.0, pc.z);
+          if (say !== lastSay) {
+            lastSay = say;
+            g.setLabel('h-say', ['①プレイヤー1が3枚えらぶ', '②画面を相手に渡す', '③プレイヤー2が3枚えらぶ', '④オープン！ 結果発表'][say], { size: 0.4, color: GOLD, bg: '#000000cc' });
+          }
+          if (say === 0) g.pulse('h-p1', t, 0.1);
+          if (say === 2) g.pulse('h-p2', t, 0.1);
+        },
+      },
+      {
+        title: 'CPU対戦と4つの難易度',
+        html:
+          '<p>サーバー版のトップ画面の <b>CPU対戦</b> で、名前を入れて難易度ボタンを押すと、すぐ始まるよ。あなたがプレイヤー1、CPUがプレイヤー2。</p>' +
+          '<table><tr><th>難易度</th><th>CPUの出し方</th></tr>' +
+          '<tr><td>初級</td><td>手札からランダムに3枚</td></tr>' +
+          '<tr><td>中級</td><td>いちばん弱い3枚（強いカードを温存）</td></tr>' +
+          '<tr><td>上級</td><td>まん中くらいの強さの3枚</td></tr>' +
+          '<tr><td>鬼級</td><td>いちばん強い3枚</td></tr></table>' +
+          '<p>CPUは <b>あなたのカードを見ないで</b> えらぶよ（ズルはなし）。あなたが決定すると、すぐ結果が出る。</p>' +
+          '<div class="gg-note">このゲームは1ラウンドで決まりやすいから、弱いカードを出す <b>中級は意外と勝ちやすい</b> かも。いちばん手ごわいのは鬼級だよ。</div>',
+        camera: { pos: [CX, 6.5, CZ + 12], target: [CX, 1.4, CZ + 0.8] },
+        show: ['CP', 'c-desc'],
+        enter: function () { lastLv = -1; },
+        update: function (g, t) {
+          var k = Math.floor(t / 2.2) % 4, lv = LEVELS[k];
+          for (var i = 0; i < 6; i++) {
+            var on = lv[2].indexOf(i) >= 0;
+            g.get('c-c' + i).position.y = 1.0 + (on ? 0.7 * g.phase(t % 2.2, 0.2, 0.4) : 0);
+          }
+          for (var j = 0; j < 4; j++) g.setColor('c-lv' + j, j === k ? lv[3] : '#475569');
+          g.pulse('c-lv' + k, t, 0.08);
+          if (k !== lastLv) { lastLv = k; g.setLabel('c-desc', lv[1], { size: 0.45, color: GOLD, bg: '#000000cc' }); }
+        },
+      },
+      {
+        title: 'LAN対戦の始め方',
+        html:
+          '<p>同じ Wi-Fi につながっていれば、別々のPCやスマホで対戦できるよ。</p>' +
+          '<ol><li><b>ホスト役のPC（1台だけ）</b>で、<code>TrumpTriBattle</code> フォルダの <code>py -3 run.py</code> を実行</li>' +
+          '<li>2人とも、ブラウザで <code>http://192.168.x.x:5000</code>（ホスト役のPCのアドレス）を開く。ホスト役のPCは <code>http://localhost:5000</code> でもOK</li>' +
+          '<li>片方が <b>LAN対戦（部屋作成）</b> に名前を入れて <b>部屋を作成</b>。<b>4文字の部屋コード</b> が出て、相手待ちの画面になる</li>' +
+          '<li>もう片方は <b>LAN対戦（参加）</b> に部屋コードを入れて <b>参加</b>。下の「待機中の部屋」一覧の <b>参加</b> を押してもOK</li></ol>' +
+          '<p>部屋を作った人が <b>プレイヤー1</b>、参加した人が <b>プレイヤー2</b>。そろったらすぐ始まるよ。</p>' +
+          '<div class="gg-note">参加する人の名前は、上の「部屋作成」の名前欄に書いたものが使われるよ（空ならプレイヤー2）。相手待ちのまま5分たつと部屋は消えちゃう。つながらないときは、Windows の「アクセスを許可しますか？」で許可したか確認してね。黒い画面は遊んでいるあいだ閉じないこと。</div>',
+        camera: { pos: [LX, 9.5, LZ + 11.5], target: [LX, 0.8, LZ + 0.6] },
+        show: ['L'],
+        update: function (g, t) { g.pulse('l-code', t, 0.05); },
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li>サーバー版は <code>py -3 run.py</code>、1台版は <code>index.html</code></li>' +
+          '<li>強さは <b>数字だけ</b>（2がいちばん弱く、Aがいちばん強い）</li>' +
+          '<li>手札から <b>3枚</b> えらぶ。えらんだ順に <b>戦場1・2・3</b></li>' +
+          '<li>戦場ごとに <b>大きいほうが2枚とももらう</b>。同じ数字は <b>相打ち</b></li>' +
+          '<li><b>1ラウンドで相手より多くの戦場に勝てば、その場で勝ち！</b></li>' +
+          '<li>3枚出せなくなったら <b>引き分け</b></li></ol>' +
+          '<p>それじゃあ、3つの戦場で読み合いを楽しんでね！</p>',
+        camera: CAM_MB,
+        show: ['MB'],
+        update: function (g, t) { placeField(g); },
+      },
+    ],
+  };
+
+  function dSlotPos(p, i) { return [DX - 1.5 + i * 1.5, CY, DZ + (p === 0 ? 2.3 : -2.3)]; }
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = 'トランプ三戦場バトル | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>太平洋海戦 | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var S3 = Math.sqrt(3);
+  var ROT = [0, Math.PI / 6, 0]; // 6角柱を「平らな頭(flat-top)」向きにする
+
+  // ---------- 色（src/view/HexMapView.ts と同じ） ----------
+  var PCOL = '#4aa3ff', CCOL = '#ff5c5c';   // あなた / CPU
+  var PBASE = '#306aa6', CBASE = '#a63c3c'; // 前線基地は持ち主の色を35%暗く
+  var KCOL = { ocean: '#1b4f72', resource: '#2e8b57', land: '#4a7a3c' };
+  var KH = { ocean: 0.14, resource: 0.2, land: 0.42, base: 0.26, capital: 0.3 }; // 模型でのマスの高さ
+  var FALLEN = '#55525e';
+
+  // ---------- ヘクス座標（src/logic/hexGrid.ts と同じ計算） ----------
+  var DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  function nbs(a) { return DIRS.map(function (d) { return { q: a.q + d[0], r: a.r + d[1] }; }); }
+  function dist(a, b) { return Math.max(Math.abs(a.q - b.q), Math.abs(a.r - b.r), Math.abs((-a.q - a.r) - (-b.q - b.r))); }
+  function eq(a, b) { return a.q === b.q && a.r === b.r; }
+  function key(a) { return a.q + '_' + a.r; }
+  function inRadius(R) {
+    var out = [];
+    for (var q = -R; q <= R; q++) {
+      for (var r = Math.max(-R, -q - R); r <= Math.min(R, -q + R); r++) out.push({ q: q, r: r });
+    }
+    return out;
+  }
+  function inRange(c, R) { return inRadius(R).map(function (d) { return { q: c.q + d.q, r: c.r + d.r }; }); }
+  function rot120(a, times) {
+    var x = a.q, z = a.r, y = -x - z;
+    for (var i = 0; i < times; i++) { var t = x; x = y; y = z; z = t; }
+    return { q: x, r: z };
+  }
+
+  // ---------- 地図（src/logic/mapData.ts と同じ） ----------
+  var PCAP = { q: -4, r: 0 }, CCAP = { q: 4, r: 0 };
+  var PBASES = nbs(PCAP), CBASES = nbs(CCAP);
+  var RES = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, -4], [0, 4]].map(function (a) { return { q: a[0], r: a[1] }; });
+  var PAC_LAND = [{ q: 0, r: 0 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
+  function has(list, p) { return list.some(function (s) { return eq(s, p); }); }
+  function buildMap(id) {
+    return inRadius(5).map(function (p) {
+      if (eq(p, PCAP)) return { q: p.q, r: p.r, kind: 'capital', owner: 'player' };
+      if (eq(p, CCAP)) return { q: p.q, r: p.r, kind: 'capital', owner: 'cpu' };
+      if (has(PBASES, p)) return { q: p.q, r: p.r, kind: 'base', owner: 'player' };
+      if (has(CBASES, p)) return { q: p.q, r: p.r, kind: 'base', owner: 'cpu' };
+      if (has(RES, p)) return { q: p.q, r: p.r, kind: 'resource' };
+      var land;
+      if (id === 'asia') land = !(p.q >= -1 && p.q <= 1);
+      else if (id === 'europe') land = p.r < 3;
+      else land = has(PAC_LAND, p);
+      return { q: p.q, r: p.r, kind: land ? 'land' : 'ocean' };
+    });
+  }
+  // 世界編（src/logic/worldMapData.ts と同じ）
+  var WF = ['asia', 'europe', 'americas'];
+  var WCOL = { asia: '#c0392b', europe: '#2c3e8c', americas: '#27ae60' };
+  var WBASE = { asia: '#7d251c', europe: '#1d285b', americas: '#19713f' };
+  var WCAP = { asia: { q: -6, r: 0 } };
+  WCAP.europe = rot120(WCAP.asia, 1); WCAP.americas = rot120(WCAP.asia, 2);
+  var WRES = [];
+  WF.forEach(function (f, i) { [{ q: -4, r: 2 }, { q: -2, r: 4 }].forEach(function (s) { WRES.push(i ? rot120(s, i) : s); }); });
+  function buildWorld() {
+    return inRadius(7).map(function (p) {
+      for (var i = 0; i < 3; i++) if (eq(p, WCAP[WF[i]])) return { q: p.q, r: p.r, kind: 'capital', owner: WF[i] };
+      for (var j = 0; j < 3; j++) if (has(nbs(WCAP[WF[j]]), p)) return { q: p.q, r: p.r, kind: 'base', owner: WF[j] };
+      if (has(WRES, p)) return { q: p.q, r: p.r, kind: 'resource' };
+      return { q: p.q, r: p.r, kind: dist(p, { q: 0, r: 0 }) <= 3 ? 'ocean' : 'land' };
+    });
+  }
+
+  var PAC = buildMap('pacific');
+  var AT = {};
+  PAC.forEach(function (t) { AT[key(t)] = t; });
+
+  // 太平洋編の地図（メインの模型）の座標。1マス＝半径1
+  function MP(q, r, dy) {
+    var t = AT[q + '_' + r];
+    return [1.5 * q, (t ? KH[t.kind] : 0.14) + (dy || 0), S3 * (q / 2 + r)];
+  }
+  var AIR = 1.15; // 航空機は艦艇より上を飛ぶ（ゲームでも少し上にずらして描いている）
+
+  // 選んだ潜水艦の移動範囲（GameScene.showRanges と同じ：幅優先探索、島・地図の外・艦艇がいるマスは通れない）
+  var SEA_UNITS = { '-5_3': 1, '1_0': 1, '1_1': 1 };
+  function reachable(start, move, blocked) {
+    var seen = {}; seen[key(start)] = 0;
+    var queue = [start], out = [];
+    while (queue.length) {
+      var cur = queue.shift(), d = seen[key(cur)];
+      if (d > 0) out.push(cur);
+      if (d >= move) continue;
+      nbs(cur).forEach(function (n) {
+        if (seen[key(n)] != null || blocked(n)) return;
+        seen[key(n)] = d + 1; queue.push(n);
+      });
+    }
+    return out;
+  }
+  var SUB0 = { q: -5, r: 2 }, SUB1 = { q: -2, r: 2 };
+  var SUB_MOVE = reachable(SUB0, 3, function (p) { var t = AT[key(p)]; return !t || t.kind === 'land' || SEA_UNITS[key(p)]; });
+  function atkTiles(c, R) { return inRange(c, R).filter(function (p) { return AT[key(p)] && !eq(p, c); }); }
+  var SUB_ATK0 = atkTiles(SUB0, 1), SUB_ATK1 = atkTiles(SUB1, 1);
+  var PSUB_PATH = [MP(-5, 2), MP(-4, 2), MP(-3, 2), MP(-2, 2)];
+  var CSUB_PATH = [MP(1, 0), MP(2, 0), MP(2, 1), MP(2, 2)];
+
+  // ---------- 舞台の置き場所 ----------
+  var BX = -34, BZ = -26;   // 起動のしかた
+  var TZ = -30;             // 戦域（3つの小さな地図）
+  var SX = -34;             // ゲーム画面の模型
+  var GX = 34, GZ = -26;    // マスの種類
+  var UX = 34, UZ = 0;      // 海軍と空軍
+  var KX = 34, KZ = 26;     // 攻撃とダメージ
+  var EZ = 30;              // 資源と建造（x=0）
+  var WX = -34, WZ = 28;    // 世界編
+  var LX = -34, LZ = 56;    // LAN対戦
+  function HP(x, y, h) { return [SX + (x - 700) / 100, h == null ? 0.12 : h, (y - 450) / 100]; } // ゲーム画面 1400×900 → 模型
+
+  function along(g, id, pts, k) {
+    var n = pts.length - 1, x = Math.max(0, Math.min(1, k)) * n;
+    var i = Math.min(n - 1, Math.floor(x));
+    g.lerpPos(id, pts[i], pts[i + 1], x - i);
+  }
+  function hpColor(ratio) { return ratio > 0.5 ? '#4caf50' : ratio > 0.25 ? '#ffc107' : '#f44336'; }
+
+  var CFG = {
+    title: '太平洋海戦 遊び方',
+    back: '../index.html',
+    subtitle: '六角形のマスで海軍・空軍・陸軍を動かして、相手の王都を落とすターン制ストラテジー。はじめての人向けのチュートリアル',
+    camera: { pos: [0, 17, 13.5], target: [0, 0, 0.6] },
+
+    build: function (g) {
+      // ---------------------------------------------------------------- 部品
+      function hexTile(parent, id, x, z, h, radius, color, o) {
+        o = o || {};
+        return g.cylinder({ id: id, parent: parent, radius: radius, height: h, segments: 6, rot: ROT, pos: [x, h / 2, z], color: color, emissive: o.emissive, emissiveIntensity: o.ei });
+      }
+      function overlay(parent, list, color, op, s, ox, oz, hFn) {
+        list.forEach(function (p) {
+          var x = (ox || 0) + 1.5 * p.q * (s || 1), z = (oz || 0) + S3 * (s || 1) * (p.q / 2 + p.r);
+          var h = hFn ? hFn(p) : MP(p.q, p.r)[1];
+          g.cylinder({ parent: parent, radius: 0.86 * (s || 1), height: 0.04, segments: 6, rot: ROT, pos: [x, h + 0.03, z], color: color, opacity: op, emissive: color, emissiveIntensity: 0.6 });
+        });
+      }
+      // ユニットの模型。owner の色で塗る（ゲームでも持ち主の色の丸いコマ）
+      function unit(id, type, color, pos, o) {
+        o = o || {};
+        g.group(id, { pos: pos, parent: o.parent });
+        var grp = g.get(id);
+        function b(size, p, col) { g.box({ parent: id, size: size, pos: p, color: col || color, edges: false }); }
+        function c(o2) { o2.parent = id; o2.color = o2.color || color; g.cylinder(o2); }
+        if (type === 'battleship') {
+          b([0.95, 0.22, 0.36], [0, 0.11, 0]);
+          b([0.3, 0.24, 0.22], [-0.05, 0.34, 0], '#e8e8e8');
+          b([0.3, 0.07, 0.07], [0.3, 0.27, 0], '#e8e8e8');
+        } else if (type === 'carrier') {
+          b([1.05, 0.16, 0.48], [0, 0.08, 0]);
+          b([0.95, 0.02, 0.07], [0, 0.17, 0.02], '#f4f4f4');
+          b([0.16, 0.24, 0.12], [0.22, 0.28, -0.18], '#e8e8e8');
+        } else if (type === 'submarine') {
+          c({ radius: 0.13, height: 0.85, rot: [0, 0, Math.PI / 2], pos: [0, 0.12, 0] });
+          b([0.18, 0.2, 0.09], [0.05, 0.3, 0], '#e8e8e8');
+        } else if (type === 'reconnaissance') {
+          b([0.62, 0.1, 0.13], [0, 0, 0]);
+          b([0.17, 0.04, 0.8], [0.04, 0.02, 0], '#e8e8e8');
+          b([0.1, 0.16, 0.28], [-0.27, 0.07, 0]);
+        } else if (type === 'bomber') {
+          b([0.85, 0.15, 0.2], [0, 0, 0]);
+          b([0.26, 0.05, 1.15], [0.04, 0.02, 0], '#e8e8e8');
+          b([0.12, 0.2, 0.38], [-0.36, 0.09, 0]);
+          b([0.1, 0.08, 0.1], [0.07, -0.05, 0.32], '#e8e8e8');
+          b([0.1, 0.08, 0.1], [0.07, -0.05, -0.32], '#e8e8e8');
+        } else if (type === 'infantry') {
+          [-0.17, 0.17].forEach(function (dx, i) {
+            c({ radius: 0.11, height: 0.32, pos: [dx, 0.16, i ? 0.08 : -0.08] });
+            g.sphere({ parent: id, radius: 0.1, pos: [dx, 0.42, i ? 0.08 : -0.08], color: '#f2d3b0' });
+          });
+        } else if (type === 'tank') {
+          b([0.64, 0.2, 0.44], [0, 0.1, 0]);
+          c({ radius: 0.16, height: 0.14, pos: [0, 0.27, 0] });
+          b([0.42, 0.06, 0.06], [0.3, 0.28, 0], '#333333');
+        }
+        if (o.scale) grp.scale.setScalar(o.scale);
+        return grp;
+      }
+      // HPバー（ゲームではユニットの下の細いバー）
+      function hpBar(id, pos, w, ratio, parent) {
+        g.group(id, { pos: pos, parent: parent });
+        g.box({ parent: id, size: [w + 0.06, 0.1, 0.16], pos: [0, 0, 0], color: '#222222', edges: false });
+        g.box({ id: id + '-fg', parent: id, size: [w, 0.12, 0.12], pos: [-(w / 2) * (1 - ratio), 0.01, 0], color: hpColor(ratio), edges: false });
+        g.get(id + '-fg').scale.x = ratio;
+      }
+      function setHp(id, w, ratio) {
+        var fg = g.get(id + '-fg');
+        fg.scale.x = Math.max(ratio, 0.001);
+        fg.position.x = -(w / 2) * (1 - ratio);
+        g.setColor(fg, hpColor(ratio));
+      }
+      g.setHp = setHp;
+      // 建物（基地・王都）
+      function building(id, parent, x, y, z, kind, roofCol) {
+        if (kind === 'capital') {
+          g.box({ id: id, parent: parent, size: [0.74, 0.46, 0.74], pos: [x, y + 0.23, z], color: '#efe2b8', edges: false });
+          g.cylinder({ parent: id, radiusTop: 0, radius: 0.56, height: 0.42, segments: 4, rot: [0, Math.PI / 4, 0], pos: [0, 0.44, 0], color: roofCol });
+          g.box({ parent: id, size: [0.03, 0.42, 0.03], pos: [0, 0.82, 0], color: '#dddddd', edges: false });
+          g.box({ parent: id, size: [0.24, 0.14, 0.02], pos: [0.13, 0.95, 0], color: roofCol, edges: false });
+        } else {
+          g.box({ id: id, parent: parent, size: [0.46, 0.3, 0.46], pos: [x, y + 0.15, z], color: '#d6ccaa', edges: false });
+          g.cylinder({ parent: id, radiusTop: 0, radius: 0.36, height: 0.24, segments: 4, rot: [0, Math.PI / 4, 0], pos: [0, 0.27, 0], color: roofCol });
+        }
+      }
+      // 小さな地図（戦域・画面の模型・世界編で使い回す）
+      function miniMap(parent, tiles, ox, oy, oz, s, colorOf, hScale) {
+        tiles.forEach(function (t) {
+          var x = ox + 1.5 * t.q * s, z = oz + S3 * s * (t.q / 2 + t.r);
+          var h = KH[t.kind] * (hScale || 1);
+          g.cylinder({ parent: parent, radius: 0.93 * s, height: h, segments: 6, rot: ROT, pos: [x, oy + h / 2, z], color: colorOf(t) });
+          if (t.kind === 'resource') g.cylinder({ parent: parent, radius: 0.32 * s, height: 0.03, pos: [x, oy + h + 0.015, z], color: '#ffd166', emissive: '#ffb000', emissiveIntensity: 0.35 });
+        });
+      }
+      function pacColor(t) {
+        if (t.kind === 'capital') return t.owner === 'player' ? PCOL : CCOL;
+        if (t.kind === 'base') return t.owner === 'player' ? PBASE : CBASE;
+        return KCOL[t.kind];
+      }
+
+      // ======================= メインの地図（太平洋編） =======================
+      g.group('map', {});
+      PAC.forEach(function (t) {
+        var x = 1.5 * t.q, z = S3 * (t.q / 2 + t.r), h = KH[t.kind], k = key(t);
+        if (t.kind === 'resource' || t.kind === 'land') {
+          // 領土の枠線（ゲームでも持ち主の色の太い枠になる）
+          hexTile('map', 'bd' + k, x, z, h * 0.85, 0.99, '#0a2540');
+          hexTile('map', 't' + k, x, z, h, 0.8, KCOL[t.kind]);
+        } else {
+          hexTile('map', 't' + k, x, z, h, 0.95, pacColor(t));
+        }
+        if (t.kind === 'resource') g.cylinder({ id: 'coin' + k, parent: 'map', radius: 0.32, height: 0.05, pos: [x, h + 0.025, z], color: '#ffd166', emissive: '#ffb000', emissiveIntensity: 0.35 });
+        if (t.kind === 'land') g.cylinder({ parent: 'map', radiusTop: 0, radius: 0.15, height: 0.38, pos: [x + 0.42, h + 0.19, z - 0.3], color: '#2f5e2a' });
+        if (t.kind === 'base' || t.kind === 'capital') building('bld' + k, 'map', x, h, z, t.kind, t.owner === 'player' ? PCOL : CCOL);
+      });
+      g.label('あなたの王都', MP(-4, 0, 1.75), { id: 'nm-pcap', size: 0.45, color: PCOL, bg: '#000000bb' });
+      g.label('CPUの王都', MP(4, 0, 1.75), { id: 'nm-ccap', size: 0.45, color: CCOL, bg: '#000000bb' });
+      g.label('資源マス', MP(0, -4, 0.75), { id: 'nm-res', size: 0.38, color: '#ffd166', bg: '#000000aa' });
+      g.label('島', MP(0, 0, 1.0), { id: 'nm-land', size: 0.38, color: '#d8e8c8', bg: '#000000aa' });
+
+      // 最初のユニット（太平洋編：王都から3マス以内の空いている海に、潜水艦＋戦艦）
+      unit('u-psub', 'submarine', PCOL, MP(-5, 2));
+      unit('u-pbb', 'battleship', PCOL, MP(-5, 3));
+      unit('u-csub', 'submarine', CCOL, MP(1, 0));
+      unit('u-cbb', 'battleship', CCOL, MP(1, 1));
+      var T3 = g.THREE;
+      var ring = new T3.Mesh(new T3.TorusGeometry(0.66, 0.07, 8, 40), new T3.MeshStandardMaterial({ color: '#ffff00', emissive: '#ffff00', emissiveIntensity: 0.7 }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(MP(-5, 2)[0], MP(-5, 2)[1] + 0.05, MP(-5, 2)[2]);
+      g.add('sel-ring', ring);
+
+      // STEP6：移動範囲（白）・攻撃範囲（赤）
+      g.group('mv', {}); overlay('mv', SUB_MOVE, '#ffffff', 0.35);
+      g.group('atk0', {}); overlay('atk0', SUB_ATK0, '#ff3b30', 0.5);
+      g.group('atk1', {}); overlay('atk1', SUB_ATK1, '#ff3b30', 0.5);
+      g.label('動けるマス（白）', MP(-3, 0, 1.0), { id: 'mv-lbl', size: 0.4, bg: '#000000bb' });
+      g.label('攻撃が届くマス（赤）', MP(-5, 4, 1.2), { id: 'atk-lbl', size: 0.4, color: '#ff8a80', bg: '#000000bb' });
+      g.label('①左クリックで選ぶ', MP(-5, 1, 1.5), { id: 's6-1', size: 0.4, color: '#ffff66', bg: '#000000bb' });
+      g.label('②白いマスをクリックで移動', MP(-2, 0, 1.4), { id: 's6-2', size: 0.4, color: C.gold, bg: '#000000bb' });
+
+      // STEP9：陸軍の配備（緑＝配備できる陸地）
+      g.group('dep', {}); overlay('dep', PAC_LAND, '#44dd66', 0.55);
+      unit('u-pinf', 'infantry', PCOL, MP(-1, 1));
+      g.label('配備できる陸地（緑）\n王都から5マス以内', MP(1, -2, 1.5), { id: 'dep-lbl', size: 0.36, color: '#7dff9a', bg: '#000000bb' });
+      g.label('歩兵を配備！\nこの島が自分の領土に（＋8）', MP(-2, 3, 1.2), { id: 'inf-lbl', size: 0.36, color: PCOL, bg: '#000000bb' });
+
+      // STEP11：領土
+      g.label('資源マスを取った！ ＋5', MP(-2, 2, 1.6), { id: 'cap-p', size: 0.4, color: PCOL, bg: '#000000bb' });
+      g.label('CPUも取った ＋5', MP(2, 2, 1.6), { id: 'cap-c', size: 0.4, color: CCOL, bg: '#000000bb' });
+
+      // STEP12：前線基地と王都
+      unit('u-pcar', 'carrier', PCOL, MP(2, 1));
+      unit('u-pbomb', 'bomber', PCOL, MP(2, 0, AIR));
+      g.group('hp12', {});
+      [3, 4].forEach(function (i) { var b = CBASES[i]; g.label('HP30', MP(b.q, b.r, 0.95), { id: 'hpb' + i, parent: 'hp12', size: 0.34, bg: '#000000cc' }); });
+      g.label('HP60', MP(4, 0, 1.55), { id: 'hpcap', parent: 'hp12', size: 0.34, color: '#ffe066', bg: '#000000cc' });
+      g.label('🔒', MP(4, 0, 2.15), { id: 'lock', size: 0.5, bg: '#000000aa' });
+      g.label('となり合う2つの基地を\nHP0にすると…', MP(1, 3, 1.4), { id: 'b-lbl1', size: 0.36, bg: '#000000bb' });
+      g.label('王都を攻撃できる！\n（届くのは2マス先まで撃てる空母）', MP(3, -3, 1.4), { id: 'b-lbl2', size: 0.36, color: C.gold, bg: '#000000bb' });
+      g.label('勝利！', MP(4, 0, 2.9), { id: 'b-win', size: 0.7, color: C.good, bg: '#000000bb' });
+      g.arrow(MP(2, 0, AIR - 0.1), MP(3, 0, 0.35), { id: 'a-b1', color: C.gold, lift: 0.4, radius: 0.05 });
+      g.arrow(MP(2, 1, 0.3), MP(3, 1, 0.35), { id: 'a-b2', color: C.gold, lift: 0.7, radius: 0.05 });
+      g.arrow(MP(2, 1, 0.3), MP(4, 0, 0.5), { id: 'a-cap', color: '#ff7043', lift: 1.4, radius: 0.07 });
+
+      // ======================= 起動のしかた =======================
+      g.group('boot', {});
+      g.plate({ id: 'boot-floor', parent: 'boot', size: [15, 8], pos: [BX, 0.02, BZ], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'bat1', parent: 'boot', size: [1.3, 1.6, 0.12], pos: [BX - 5, 0.85, BZ - 1.6], color: '#f2f2f2', label: 'あそぶ.bat\n（ひとりで・CPU対戦）', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.4, 0] });
+      g.box({ id: 'bat2', parent: 'boot', size: [1.3, 1.6, 0.12], pos: [BX - 5, 0.85, BZ + 2.2], color: '#f2f2f2', label: 'みんなで遊ぶ（LAN対戦）.bat\n（2人で対戦）', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.4, 0] });
+      g.box({ parent: 'bat1', size: [0.9, 0.14, 0.02], pos: [0, 0.35, 0.07], color: '#888888', edges: false });
+      g.box({ parent: 'bat2', size: [0.9, 0.14, 0.02], pos: [0, 0.35, 0.07], color: '#888888', edges: false });
+      g.box({ id: 'srv', parent: 'boot', size: [2.6, 1.6, 1.4], pos: [BX + 0.2, 0.8, BZ], color: '#111111', edgeColor: '#7ef0ff', label: '黒い画面（サーバー）\n遊ぶあいだ閉じないでね', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.5, 0] });
+      g.box({ id: 'brw', parent: 'boot', size: [3.4, 2.2, 0.16], pos: [BX + 5, 1.2, BZ], color: '#0a2540', edgeColor: '#9fc5e8', label: 'ブラウザが開く\nhttp://localhost:5200/', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.8, 0] });
+      miniMap('brw', PAC, 0, 0, 0.1, 0.11, pacColor);
+      g.get('brw').children.forEach(function (c) { if (c.geometry && c.geometry.type === 'CylinderGeometry') { c.rotation.set(Math.PI / 2, Math.PI / 6, 0); c.position.set(c.position.x, -c.position.z, 0.1); } });
+      g.flow([BX - 4.2, 1.0, BZ - 1.3], [BX - 1.2, 1.0, BZ - 0.2], { id: 'bf1', parent: 'boot', color: C.data, lift: 0.6, count: 5 });
+      g.flow([BX - 4.2, 1.0, BZ + 1.9], [BX - 1.2, 1.0, BZ + 0.3], { id: 'bf2', parent: 'boot', color: C.data, lift: 0.6, count: 5 });
+      g.flow([BX + 1.6, 1.0, BZ], [BX + 3.2, 1.2, BZ], { id: 'bf3', parent: 'boot', color: C.gold, lift: 0.5, count: 4 });
+      g.label('index.html を直接開いても動かないよ', [BX, 0.3, BZ + 3.4], { id: 'boot-note', parent: 'boot', size: 0.34, color: '#ffcf80', bg: '#000000aa' });
+
+      // ======================= 戦域（3つの地図） =======================
+      g.group('theater', {});
+      g.plate({ id: 'th-floor', parent: 'theater', size: [27, 13], pos: [0, 0.02, TZ + 0.6], color: '#1a1a2e', opacity: 0.95 });
+      [['pacific', -8.6, '太平洋編\n海が主体・島が3つ'], ['asia', 0, 'アジア編\n真ん中に南北の海峡'], ['europe', 8.6, 'ヨーロッパ編\n南側だけ海']].forEach(function (m) {
+        miniMap('theater', buildMap(m[0]), m[1], 0.05, TZ, 0.47, pacColor);
+        g.label(m[2], [m[1], 0.6, TZ - 5.0], { id: 'th-' + m[0], parent: 'theater', size: 0.5, bg: '#000000bb' });
+      });
+      g.label('国選択なし', [-8.6, 0.4, TZ + 5.0], { id: 'th-noc', parent: 'theater', size: 0.44, color: '#cccccc', bg: '#000000aa' });
+      var ASIA_C = ['#c0392b', '#f1c40f', '#2980b9', '#27ae60', '#8e44ad', '#e67e22'];
+      var EURO_C = ['#4a4a4a', '#2c3e8c', '#3498db', '#c0392b', '#27ae60', '#f1c40f', '#8e44ad'];
+      [[ASIA_C, 0, '6か国から選ぶ'], [EURO_C, 8.6, '7か国から選ぶ']].forEach(function (a, n) {
+        a[0].forEach(function (col, i) {
+          g.cylinder({ parent: 'theater', radius: 0.36, height: 0.22, segments: 6, rot: ROT, pos: [a[1] + (i - (a[0].length - 1) / 2) * 0.86, 0.13, TZ + 4.6], color: col });
+        });
+        g.label(a[2], [a[1], 0.4, TZ + 5.7], { id: 'th-c' + n, parent: 'theater', size: 0.44, color: '#cccccc', bg: '#000000aa' });
+      });
+
+      // ======================= ゲーム画面の模型 =======================
+      g.group('scr', {});
+      g.plate({ id: 'scr-frame', parent: 'scr', size: [14.4, 9.4], pos: [SX, 0.01, 0], color: '#3a3f55', opacity: 1, radius: 0.15 });
+      g.plate({ id: 'scr-bg', parent: 'scr', size: [14, 9], pos: [SX, 0.03, 0], color: '#0a2540', opacity: 1, radius: 0.08 });
+      miniMap('scr', PAC, SX, 0.06, 0, 0.42, pacColor, 0.6);
+      function ui(id, x, y, w, h, col) { g.box({ id: id, parent: 'scr', size: [w / 100, 0.1, h / 100], pos: HP(x, y, 0.11), color: col, edges: false }); }
+      ui('ui-info1', 60, 22, 80, 12, '#9fc5e8');
+      ui('ui-info2', 150, 44, 260, 22, '#ffffff');
+      ui('ui-info3', 140, 70, 240, 16, '#ffd166');
+      [0, 1, 2].forEach(function (i) { ui('ui-n' + i, 90, 131 + i * 40, 140, 30, '#2e6b4f'); });
+      [0, 1].forEach(function (i) { ui('ui-a' + i, 310, 131 + i * 40, 140, 30, '#4a5d8a'); });
+      [0, 1].forEach(function (i) { ui('ui-l' + i, 530, 131 + i * 40, 140, 30, '#6b5a2e'); });
+      ui('ui-end', 1312, 37, 125, 34, '#345a8a');
+      ui('ui-title', 1295, 74, 90, 26, '#555555');
+      g.label('戦域・ターン・資源', HP(150, 40, 1.1), { id: 'cl-info', parent: 'scr', size: 0.36, bg: '#000000cc' });
+      g.label('海軍を建造\n戦艦・空母・潜水艦', HP(90, 300, 0.7), { id: 'cl-navy', parent: 'scr', size: 0.3, color: '#9be3c0', bg: '#000000cc' });
+      g.label('空軍を建造\n偵察機・爆撃機', HP(250, 420, 0.7), { id: 'cl-air', parent: 'scr', size: 0.3, color: '#b7c6ee', bg: '#000000cc' });
+      g.label('陸軍を配備\n歩兵・戦車', HP(560, 24, 1.1), { id: 'cl-army', parent: 'scr', size: 0.3, color: '#e8d39a', bg: '#000000cc' });
+      g.label('ターン終了 ▶', HP(1250, 150, 0.9), { id: 'cl-end', parent: 'scr', size: 0.36, color: '#9fc5e8', bg: '#000000cc' });
+      g.label('タイトルへ', HP(1290, 230, 0.7), { id: 'cl-title', parent: 'scr', size: 0.3, color: '#cccccc', bg: '#000000cc' });
+      g.label('地図（右ボタンを押したまま動かすと移動）', HP(700, 905, 0.5), { id: 'cl-map', parent: 'scr', size: 0.32, bg: '#000000cc' });
+
+      // ======================= マスの種類 =======================
+      g.group('kinds', {});
+      g.plate({ id: 'k-floor', parent: 'kinds', size: [17, 8], pos: [GX, 0.02, GZ], color: '#1a1a2e', opacity: 0.95 });
+      var KINDS = [
+        ['ocean', '海', '艦艇・航空機が\n通れる', KCOL.ocean],
+        ['land', '島（陸地）', '陸軍・航空機\n取ると収入＋8', KCOL.land],
+        ['resource', '資源マス', '艦艇・航空機\n取ると収入＋5', KCOL.resource],
+        ['base', '前線基地', 'HP30\n海軍・空軍の出撃場所', PBASE],
+        ['capital', '王都', 'HP60\n0になったら負け', PCOL],
+      ];
+      KINDS.forEach(function (k, i) {
+        var x = GX - 6.4 + i * 3.2, h = KH[k[0]] * 2;
+        hexTile('kinds', 'k-' + k[0], x, GZ, h, 1.25, k[3]);
+        if (k[0] === 'resource') g.cylinder({ parent: 'kinds', radius: 0.42, height: 0.06, pos: [x, h + 0.03, GZ], color: '#ffd166', emissive: '#ffb000', emissiveIntensity: 0.35 });
+        if (k[0] === 'land') g.cylinder({ parent: 'kinds', radiusTop: 0, radius: 0.22, height: 0.55, pos: [x + 0.5, h + 0.27, GZ - 0.35], color: '#2f5e2a' });
+        if (k[0] === 'base' || k[0] === 'capital') building('k-b' + i, 'kinds', x, h, GZ, k[0], PCOL);
+        g.label(k[1], [x, h + 1.6, GZ - 0.2], { id: 'k-nm' + i, parent: 'kinds', size: 0.42, bg: '#000000cc' });
+        g.label(k[2], [x, 0.3, GZ + 2.3], { id: 'k-ds' + i, parent: 'kinds', size: 0.3, color: '#dddddd', bg: '#000000aa' });
+      });
+
+      // ======================= 海軍と空軍 =======================
+      g.group('units', {});
+      g.plate({ id: 'u-floor', parent: 'units', size: [14, 9], pos: [UX, 0.02, UZ], color: '#1a1a2e', opacity: 0.95 });
+      [[-3.6, 1.9, 'ocean'], [0, 1.9, 'ocean'], [3.6, 1.9, 'ocean'], [-1.8, -1.7, 'land'], [1.8, -1.7, 'ocean']].forEach(function (p, i) {
+        hexTile('units', 'u-t' + i, UX + p[0], UZ + p[1], KH[p[2]], 1.35, KCOL[p[2]]);
+      });
+      unit('d-bb', 'battleship', PCOL, [UX - 3.6, KH.ocean, UZ + 1.9], { parent: 'units', scale: 1.5 });
+      unit('d-car', 'carrier', PCOL, [UX, KH.ocean, UZ + 1.9], { parent: 'units', scale: 1.5 });
+      unit('d-sub', 'submarine', PCOL, [UX + 3.6, KH.ocean, UZ + 1.9], { parent: 'units', scale: 1.5 });
+      unit('d-rec', 'reconnaissance', PCOL, [UX - 1.8, KH.land + 1.6, UZ - 1.7], { parent: 'units', scale: 1.5 });
+      unit('d-car2', 'carrier', PCOL, [UX + 1.8, KH.ocean, UZ - 1.7], { parent: 'units', scale: 1.2 });
+      unit('d-bomb', 'bomber', PCOL, [UX + 1.8, KH.ocean + 1.7, UZ - 1.7], { parent: 'units', scale: 1.5 });
+      g.label('戦艦', [UX - 3.6, 0.3, UZ + 3.7], { id: 'dn-bb', parent: 'units', size: 0.42, bg: '#000000cc' });
+      g.label('空母', [UX, 0.3, UZ + 3.7], { id: 'dn-car', parent: 'units', size: 0.42, bg: '#000000cc' });
+      g.label('潜水艦', [UX + 3.6, 0.3, UZ + 3.7], { id: 'dn-sub', parent: 'units', size: 0.42, bg: '#000000cc' });
+      g.label('偵察機\n陸の上も飛べる', [UX - 1.8, 3.0, UZ - 1.7], { id: 'dn-rec', parent: 'units', size: 0.34, bg: '#000000cc' });
+      g.label('爆撃機\n艦艇と同じマスOK', [UX + 1.8, 3.0, UZ - 1.7], { id: 'dn-bomb', parent: 'units', size: 0.34, bg: '#000000cc' });
+
+      // ======================= 攻撃とダメージ =======================
+      g.group('combat', {});
+      g.plate({ id: 'c-floor', parent: 'combat', size: [14, 9], pos: [KX, 0.02, KZ], color: '#1a1a2e', opacity: 0.95 });
+      var CS = 1.05, CAR = { q: -1, r: 0 }, SUBP = { q: 1, r: -1 };
+      function CP(p, dy) { return [KX + 1.5 * p.q * CS, KH.ocean + (dy || 0), KZ + 0.6 + S3 * CS * (p.q / 2 + p.r)]; }
+      inRadius(2).concat([{ q: -3, r: 1 }, { q: -3, r: 2 }, { q: 3, r: -2 }, { q: 3, r: -1 }]).forEach(function (p, i) {
+        var pp = CP(p);
+        hexTile('combat', null, pp[0], pp[2], KH.ocean, 0.97 * CS, KCOL.ocean);
+      });
+      g.group('c-rng', { parent: 'combat' });
+      inRange(CAR, 2).filter(function (p) { return !eq(p, CAR) && dist(p, { q: 0, r: 0 }) <= 2 || has([{ q: -3, r: 1 }, { q: -3, r: 2 }], p); }).forEach(function (p) {
+        var pp = CP(p);
+        g.cylinder({ parent: 'c-rng', radius: 0.86 * CS, height: 0.04, segments: 6, rot: ROT, pos: [pp[0], KH.ocean + 0.03, pp[2]], color: '#ff3b30', opacity: 0.4, emissive: '#ff3b30', emissiveIntensity: 0.5 });
+      });
+      unit('k-car', 'carrier', PCOL, CP(CAR), { parent: 'combat', scale: 1.35 });
+      unit('k-sub', 'submarine', CCOL, CP(SUBP), { parent: 'combat', scale: 1.35 });
+      hpBar('k-hp-car', CP(CAR, 0.95), 1.2, 1, 'combat');
+      hpBar('k-hp-sub', CP(SUBP, 0.95), 1.2, 1, 'combat');
+      g.label('空母（あなた）\n攻撃力9・射程2', CP(CAR, 1.8), { id: 'k-l-car', parent: 'combat', size: 0.36, color: PCOL, bg: '#000000cc' });
+      g.label('潜水艦（CPU）\nHP 14', CP(SUBP, 1.8), { id: 'k-l-sub', parent: 'combat', size: 0.36, color: CCOL, bg: '#000000cc' });
+      g.sphere({ id: 'k-missile', parent: 'combat', radius: 0.14, pos: CP(CAR, 0.5), color: '#ffdd55', emissive: '#ffdd55', emissiveIntensity: 0.9 });
+      g.sphere({ id: 'k-flash', parent: 'combat', radius: 0.4, pos: CP(SUBP, 0.4), color: '#ffaa33', emissive: '#ffaa33', emissiveIntensity: 0.8, opacity: 0.8 });
+      g.label('ダメージ＝攻撃力 ±2（最低1）　反撃はないよ', [KX, 0.3, KZ + 4.0], { id: 'k-formula', parent: 'combat', size: 0.38, color: C.gold, bg: '#000000bb' });
+      g.label('赤＝空母の攻撃が届くマス', [KX - 5.2, 0.3, KZ - 3.9], { id: 'k-rng-lbl', parent: 'combat', size: 0.32, color: '#ff8a80', bg: '#000000aa' });
+
+      // ======================= 資源と建造 =======================
+      g.group('cost', {});
+      g.plate({ id: 'e-floor', parent: 'cost', size: [16, 10], pos: [0, 0.02, EZ + 1.2], color: '#1a1a2e', opacity: 0.95 });
+      var CARDS = [
+        ['戦', '戦艦\nコスト30', '#2e6b4f'], ['空', '空母\nコスト35', '#2e6b4f'], ['潜', '潜水艦\nコスト20', '#2e6b4f'],
+        ['偵', '偵察機\nコスト25', '#4a5d8a'], ['爆', '爆撃機\nコスト40', '#4a5d8a'],
+        ['歩', '歩兵\nコスト20', '#6b5a2e'], ['車', '戦車\nコスト35', '#6b5a2e'],
+      ];
+      CARDS.forEach(function (c, i) {
+        g.card({ id: 'card' + i, parent: 'cost', pos: [-4.8 + i * 1.6, 1.6, EZ - 1.6], lying: false, text: c[0], sub: c[1], color: c[2], w: 1.3 });
+      });
+      g.label('海軍', [-3.2, 3.15, EZ - 1.6], { id: 'e-g1', parent: 'cost', size: 0.34, color: '#9be3c0', bg: '#000000aa' });
+      g.label('空軍', [0.8, 3.15, EZ - 1.6], { id: 'e-g2', parent: 'cost', size: 0.34, color: '#b7c6ee', bg: '#000000aa' });
+      g.label('陸軍', [4.0, 3.15, EZ - 1.6], { id: 'e-g3', parent: 'cost', size: 0.34, color: '#e8d39a', bg: '#000000aa' });
+      g.group('coins', { parent: 'cost' });
+      for (var ci = 0; ci < 4; ci++) g.cylinder({ id: 'coin-s' + ci, parent: 'coins', radius: 0.6, height: 0.16, pos: [-5.6, 0.1 + ci * 0.18, EZ + 2.2], color: '#ffd166', emissive: '#c98a00', emissiveIntensity: 0.3 });
+      g.label('最初の資源 40', [-5.6, 1.5, EZ + 2.2], { id: 'coin-lbl', parent: 'cost', size: 0.36, color: '#ffd166', bg: '#000000cc' });
+      g.label('自分のターンを終えるたびに収入\n＋10 ＋ 資源マス×5 ＋ 陸地マス×8', [0, 0.35, EZ + 4.6], { id: 'inc-lbl', parent: 'cost', size: 0.38, color: '#ffd166', bg: '#000000bb' });
+      g.group('ring', { parent: 'cost' });
+      [{ q: 0, r: 0 }].concat(nbs({ q: 0, r: 0 })).forEach(function (p, i) {
+        var x = 5.6 + 1.5 * p.q * 0.62, z = EZ + 2.0 + S3 * 0.62 * (p.q / 2 + p.r);
+        hexTile('ring', 'rg' + i, x, z, i ? 0.2 : 0.26, 0.58, i ? PBASE : PCOL);
+        g.cylinder({ id: 'rgo' + i, parent: 'ring', radius: 0.5, height: 0.04, segments: 6, rot: ROT, pos: [x, (i ? 0.2 : 0.26) + 0.03, z], color: '#44dd66', opacity: 0.6, emissive: '#44dd66', emissiveIntensity: 0.6 });
+      });
+      g.label('海軍・空軍が生まれる場所\n王都＋HPが残っている基地', [5.6, 1.5, EZ + 2.0], { id: 'ring-lbl', parent: 'cost', size: 0.32, color: '#7dff9a', bg: '#000000cc' });
+
+      // ======================= 世界編 =======================
+      g.group('world', {});
+      var WS = 0.55;
+      miniMap('world', buildWorld(), WX, 0.02, WZ, WS, function (t) {
+        if (t.kind === 'capital') return WCOL[t.owner];
+        if (t.kind === 'base') return WBASE[t.owner];
+        return KCOL[t.kind];
+      });
+      function WP(p, dy) { return [WX + 1.5 * p.q * WS, dy || 0, WZ + S3 * WS * (p.q / 2 + p.r)]; }
+      g.label('アジア軍', WP({ q: -8, r: 1 }, 1.0), { id: 'w-asia', parent: 'world', size: 0.46, color: '#ff8a7a', bg: '#000000cc' });
+      g.label('ヨーロッパ軍', WP({ q: 7, r: -8 }, 1.0), { id: 'w-europe', parent: 'world', size: 0.46, color: '#9fb4ff', bg: '#000000cc' });
+      g.label('南北アメリカ連合軍', WP({ q: 1, r: 7.6 }, 1.0), { id: 'w-americas', parent: 'world', size: 0.46, color: '#7be0a0', bg: '#000000cc' });
+      g.label('中央の海', WP({ q: 0, r: 0 }, 0.6), { id: 'w-sea', parent: 'world', size: 0.36, color: '#9fc5e8', bg: '#000000aa' });
+      g.group('w-turn', { parent: 'world' });
+      g.arrow(WP(WCAP.asia, 1.2), WP(WCAP.europe, 1.2), { id: 'w-a1', parent: 'w-turn', color: C.gold, lift: 3.5, radius: 0.06, label: '①→②', labelSize: 0.34, labelBg: '#000000aa' });
+      g.arrow(WP(WCAP.europe, 1.2), WP(WCAP.americas, 1.2), { id: 'w-a2', parent: 'w-turn', color: C.gold, lift: 3.5, radius: 0.06, label: '②→③', labelSize: 0.34, labelBg: '#000000aa' });
+      g.arrow(WP(WCAP.americas, 1.2), WP(WCAP.asia, 1.2), { id: 'w-a3', parent: 'w-turn', color: C.gold, lift: 3.5, radius: 0.06, label: '③→①', labelSize: 0.34, labelBg: '#000000aa' });
+
+      // ======================= LAN対戦 =======================
+      g.group('lan', {});
+      g.plate({ id: 'l-floor', parent: 'lan', size: [15, 8.5], pos: [LX, 0.02, LZ], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'l-host', parent: 'lan', size: [3, 1.6, 1.8], pos: [LX, 0.8, LZ - 2], color: C.server, label: 'ホスト役のPC\n「みんなで遊ぶ（LAN対戦）.bat」', labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 1.6, 0] });
+      g.box({ id: 'l-p1', parent: 'lan', size: [2.4, 1.2, 1.5], pos: [LX - 4.6, 0.6, LZ + 2], color: PCOL, label: 'ルームを作る人\n戦域・国を決める（西・先攻）', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.25, 0] });
+      g.box({ id: 'l-p2', parent: 'lan', size: [2.4, 1.2, 1.5], pos: [LX + 4.6, 0.6, LZ + 2], color: CCOL, label: 'ルームに参加する人\n（東・国はランダム）', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.25, 0] });
+      g.flow([LX - 1.4, 1.0, LZ - 1.4], [LX - 3.8, 1.0, LZ + 1.4], { id: 'l-f1', parent: 'lan', color: C.data, lift: 0.8, count: 5 });
+      g.flow([LX + 1.4, 1.0, LZ - 1.4], [LX + 3.8, 1.0, LZ + 1.4], { id: 'l-f2', parent: 'lan', color: C.data, lift: 0.8, count: 5 });
+      g.label('ルーム 1234', [LX, 1.3, LZ + 1.6], { id: 'l-room', parent: 'lan', size: 0.42, color: C.gold, bg: '#000000cc' });
+      g.label('同じ Wi-Fi で\nブラウザから http://192.168.x.x/', [LX, 0.5, LZ + 3.6], { id: 'l-url', parent: 'lan', size: 0.36, color: C.data, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: '太平洋海戦へようこそ！',
+        html:
+          '<p>六角形（ヘクス）のマスでできた地図の上で、<b>海軍・空軍・陸軍</b> を動かして戦う、ターン制の陣取りゲームだよ。</p>' +
+          '<ul><li><b>青＝あなた</b>（西側）、<b>赤＝CPU</b>（東側）</li>' +
+          '<li>どちらも <b>王都</b>（HP60）を1つ持っていて、まわりを <b>前線基地</b> 6つ（各HP30）が囲んでいる</li></ul>' +
+          '<p><b>勝ち</b>：相手の王都のHPを0にする。<br><b>負け</b>：自分の王都のHPが0になる、または自分のユニットが1体もいなくなる。</p>' +
+          '<p>金色の丸いしるしが <b>資源マス</b>、盛り上がった緑が <b>島</b>。ここを取ると収入が増えるよ。</p>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: { pos: [0, 17, 13.5], target: [0, 0, 0.6] },
+        focus: ['map', 'u-psub', 'u-pbb', 'u-csub', 'u-cbb', 'nm-pcap', 'nm-ccap', 'nm-res', 'nm-land'],
+        show: ['nm-pcap', 'nm-ccap', 'nm-res', 'nm-land'],
+        update: function (g, t) { g.pulse('bld-4_0', t, 0.12); g.pulse('bld4_0', t + 1, 0.12); },
+      },
+      {
+        title: 'ゲームの始め方',
+        html:
+          '<p>ゲームのフォルダにある <b>.bat</b> ファイルをダブルクリックして始めるよ。</p>' +
+          '<table><tr><th>ファイル</th><th>遊び方</th></tr>' +
+          '<tr><td><b>あそぶ.bat</b></td><td>ひとりで遊ぶ（CPU対戦）。ブラウザで <code>http://localhost:5200/</code> が自動で開く</td></tr>' +
+          '<tr><td><b>みんなで遊ぶ（LAN対戦）.bat</b></td><td>同じWi-Fiの人と2人で対戦するとき（くわしくは最後のほうで説明するね）</td></tr></table>' +
+          '<ul><li>黒い画面（サーバー）は、遊んでいるあいだ <b>閉じないでね</b>。閉じるとゲームも止まっちゃう</li>' +
+          '<li>プログラムが新しくなったあとの最初の起動は、自動で作り直す（ビルドする）ので少し待ってね</li>' +
+          '<li><code>index.html</code> をダブルクリックで直接開いても動かないよ</li></ul>',
+        camera: { pos: [BX, 10, BZ + 15], target: [BX, 0.8, BZ + 0.3] },
+        focus: ['boot'],
+      },
+      {
+        title: '戦域と国を選ぶ',
+        html:
+          '<p>タイトル画面で、どこで戦うか（<b>戦域</b>）を選ぶよ。</p>' +
+          '<table><tr><th>戦域</th><th>地図</th><th>最初のユニット</th></tr>' +
+          '<tr><td>太平洋編</td><td>ほとんど海。真ん中に島が3つ</td><td>潜水艦＋戦艦</td></tr>' +
+          '<tr><td>アジア編</td><td>真ん中を南北に海峡。ほかは陸地</td><td>歩兵＋戦車</td></tr>' +
+          '<tr><td>ヨーロッパ編</td><td>南側だけ海。ほかは陸地</td><td>歩兵＋戦車</td></tr></table>' +
+          '<ul><li>王都・前線基地・資源マスの場所は、どの戦域でも同じ</li>' +
+          '<li><b>アジア編</b>（日本・中国・ソビエト連邦・アメリカ・イギリス・タイ）と <b>ヨーロッパ編</b>（ドイツ・イギリス・フランス・ソビエト連邦・イタリア・アメリカ・ポーランド）は、次に <b>国</b> を選ぶ。CPUは残りの国からランダム</li>' +
+          '<li>国で変わるのは <b>色と名前だけ</b>。強さはみんな同じだよ</li></ul>' +
+          '<div class="gg-note">タイトル画面には、ほかに <b>🌍 世界編</b>（3勢力の戦い）と <b>🌐 みんなで遊ぶ（LAN対戦）</b> もあるよ。あとで説明するね。</div>',
+        camera: { pos: [0, 20, TZ + 16], target: [0, 0, TZ + 0.8] },
+        focus: ['theater'],
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<p>ゲームが始まると、こんな画面になるよ。</p>' +
+          '<ul><li><b>左上</b>：戦域の名前、「第○ターン - ○○のターン」、両方の <b>資源</b></li>' +
+          '<li><b>その下</b>：建造ボタン。<b>海軍</b>（戦艦・空母・潜水艦）・<b>空軍</b>（偵察機・爆撃機）・<b>陸軍</b>（歩兵・戦車）。ボタンの（ ）の数字が値段</li>' +
+          '<li><b>右上</b>：<b>ターン終了 ▶</b> と <b>タイトルへ</b></li>' +
+          '<li><b>真ん中</b>：地図。ユニットは丸いコマで、中の1文字が種類（戦・空・潜・偵・爆・歩・車）</li></ul>' +
+          '<p>操作はぜんぶ <b>左クリック</b>。地図は <b>右ボタンを押したまま動かす</b> と、つかんで動かせるよ。</p>' +
+          '<div class="gg-note">相手の番のあいだは、ボタンがうすくなって押せないよ。</div>',
+        camera: { pos: [SX, 13.5, 9.8], target: [SX, 0, 0.4] },
+        focus: ['scr'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.4) % 4;
+          var groups = [['ui-info1', 'ui-info2', 'ui-info3'], ['ui-n0', 'ui-n1', 'ui-n2', 'ui-a0', 'ui-a1', 'ui-l0', 'ui-l1'], ['ui-end'], ['ui-title']];
+          groups[k].forEach(function (id) { g.pulse(id, t, 0.12); });
+        },
+      },
+      {
+        title: 'マスの種類',
+        html:
+          '<table><tr><th>マス</th><th>入れるユニット</th><th>ひとこと</th></tr>' +
+          '<tr><td>海</td><td>艦艇・航空機</td><td>艦艇の通り道</td></tr>' +
+          '<tr><td>島（陸地）</td><td>陸軍・航空機</td><td>陸軍で取ると収入 <b>＋8</b></td></tr>' +
+          '<tr><td>資源マス</td><td>艦艇・航空機</td><td>取ると収入 <b>＋5</b>（ゲームでは「資」と書いてある）</td></tr>' +
+          '<tr><td>前線基地</td><td>自分の艦艇・航空機</td><td>HP30。海軍・空軍が生まれる場所</td></tr>' +
+          '<tr><td>王都</td><td>自分の艦艇・航空機</td><td>HP60。0になったら負け</td></tr></table>' +
+          '<ul><li><b>艦艇</b> は陸地に入れない</li>' +
+          '<li><b>陸軍</b> は陸地から出られない（海・資源マス・基地には入れない）</li>' +
+          '<li><b>航空機</b> はどのマスの上でも飛べる</li>' +
+          '<li><b>敵</b> の前線基地・王都のマスには、だれも入れないよ</li></ul>',
+        camera: { pos: [GX, 9, GZ + 15], target: [GX, 0.6, GZ + 0.3] },
+        focus: ['kinds'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.3) % 5;
+          g.pulse('k-' + KINDS_ID[k], t, 0.06);
+        },
+      },
+      {
+        title: '1ターンの流れ',
+        html:
+          '<ol><li>自分のユニットを <b>左クリック</b> で選ぶ（黄色い輪）。<b>動けるマス＝白</b>、<b>攻撃が届くマス＝赤</b> で光る</li>' +
+          '<li>白いマスをクリックすると移動（<b>1ターンに1回</b>）</li>' +
+          '<li>赤い範囲にいる敵ユニット・敵の基地をクリックすると攻撃（<b>1ターンに1回</b>。移動の前でも後でもOK）</li>' +
+          '<li>資源があれば、ボタンで新しいユニットを作る</li>' +
+          '<li>右上の <b>ターン終了 ▶</b> を押すと、CPUの番</li></ol>' +
+          '<ul><li>同じ種類（海・空・陸）のユニットがいるマスは、通れないし止まれない。艦艇と航空機なら同じマスに重なれる</li>' +
+          '<li>移動も攻撃も終わったユニットは、うすく表示される</li>' +
+          '<li>CPUの番は自動。近い敵（ユニットか、攻撃できる基地）に向かって進んで、届けば攻撃してくるよ</li></ul>' +
+          '<div class="gg-note">この例では、潜水艦（移動3）を3マス先の資源マスまで動かしたよ。動いたあとも、まだ攻撃はできる（赤）。</div>',
+        camera: { pos: [-4.4, 12.5, 11.5], target: [-4.4, 0, 0] },
+        focus: ['map', 'u-psub', 'u-pbb', 'sel-ring', 'mv', 'atk0', 'atk1', 'mv-lbl', 'atk-lbl', 's6-1', 's6-2'],
+        show: ['sel-ring', 'mv', 'atk0', 'atk1', 'mv-lbl', 'atk-lbl', 's6-1', 's6-2'],
+        update: function (g, t) {
+          var tt = t % 7;
+          var k = g.phase(tt, 1.8, 1.0);
+          along(g, 'u-psub', PSUB_PATH, k);
+          var p = g.get('u-psub').position;
+          g.get('sel-ring').position.set(p.x, p.y + 0.05, p.z);
+          g.get('sel-ring').visible = tt > 0.3;
+          g.get('mv').visible = tt > 0.5 && tt < 1.8;
+          g.get('atk0').visible = tt > 0.5 && tt < 1.8;
+          g.get('mv-lbl').visible = tt > 0.5 && tt < 1.8;
+          g.get('atk-lbl').visible = tt > 0.5 && tt < 1.8;
+          g.get('atk1').visible = tt > 2.9;
+          g.get('s6-1').visible = tt < 1.8;
+          g.get('s6-2').visible = tt > 1.8;
+          if (tt > 0.3) g.pulse('sel-ring', t, 0.08);
+        },
+      },
+      {
+        title: '攻撃とダメージ',
+        html:
+          '<p>攻撃できるのは、<b>射程</b>（届く距離）の中にいる敵だけ。射程は <b>空母だけ2マス</b>、ほかは全部 <b>1マス</b>（となり）だよ。</p>' +
+          '<ul><li>ダメージ＝攻撃した側の <b>攻撃力 ±2</b>（ちょっとだけ運しだい。最低でも1）</li>' +
+          '<li>守る側の種類は関係なし。<b>どのユニットでも、どの敵でも攻撃できる</b>（戦艦で飛行機を撃ってもOK）</li>' +
+          '<li>HPが0になったユニットは消える。<b>反撃はない</b> から、先に撃ったほうが得</li>' +
+          '<li>減ったHPは回復しないよ</li></ul>' +
+          '<p>この例：空母（攻撃力9）が、2マス先の潜水艦（HP14）を攻撃。9ダメージなら残りHPは <b>5</b>。</p>' +
+          '<div class="gg-note">ユニットの下のバーがHP。緑 → 黄 → 赤 の順に減っていくよ。基地・王都への攻撃も同じ計算。</div>',
+        camera: { pos: [KX, 10, KZ + 12.5], target: [KX, 0.6, KZ + 0.4] },
+        focus: ['combat'],
+        update: function (g, t) {
+          var tt = t % 7;
+          var a = g.get('k-car').position, b = g.get('k-sub').position;
+          var k = g.linear(tt, 1.2, 0.8);
+          g.arcPos('k-missile', [a.x, a.y + 0.5, a.z], [b.x, b.y + 0.4, b.z], k, 1.2);
+          g.get('k-missile').visible = tt > 1.2 && tt < 2.0;
+          var f = g.linear(tt, 2.0, 0.5);
+          g.get('k-flash').visible = tt > 2.0 && tt < 2.5;
+          g.get('k-flash').scale.setScalar(1 + f * 1.5);
+          var hit = tt > 2.0;
+          g.setHp('k-hp-sub', 1.2, hit ? 5 / 14 : 1);
+          g.setLabel('k-l-sub', hit ? '潜水艦（CPU）\nHP 14 → 5' : '潜水艦（CPU）\nHP 14', { size: 0.36, color: CCOL, bg: '#000000cc' });
+          if (tt > 2.0 && tt < 3.0) g.pulse('k-sub', t * 3, 0.1);
+        },
+      },
+      {
+        title: '海軍と空軍',
+        html:
+          '<table><tr><th></th><th>HP</th><th>移動</th><th>射程</th><th>攻撃</th><th>値段</th></tr>' +
+          '<tr><td>戦艦</td><td>30</td><td>2</td><td>1</td><td>12</td><td>30</td></tr>' +
+          '<tr><td>空母</td><td>22</td><td>2</td><td><b>2</b></td><td>9</td><td>35</td></tr>' +
+          '<tr><td>潜水艦</td><td>14</td><td>3</td><td>1</td><td>14</td><td>20</td></tr>' +
+          '<tr><td>偵察機</td><td>10</td><td><b>5</b></td><td>1</td><td>6</td><td>25</td></tr>' +
+          '<tr><td>爆撃機</td><td>16</td><td>3</td><td>1</td><td><b>17</b></td><td>40</td></tr></table>' +
+          '<ul><li><b>戦艦</b>：HPが高くてかたい。<b>空母</b>：2マス先まで撃てる。<b>潜水艦</b>：安くて速くて一撃が強い（HPは低い）</li>' +
+          '<li><b>偵察機</b>：いちばん速い（攻撃は弱い）。<b>爆撃機</b>：攻撃力がいちばん高い</li>' +
+          '<li>海軍は海と資源マスを進む。空軍は島や陸地の上も飛べる</li>' +
+          '<li>艦艇と航空機は同じマスに重なれる（艦艇どうし・航空機どうしはダメ）</li>' +
+          '<li>どちらも <b>王都か、HPが残っている自分の前線基地</b> で生まれるよ</li></ul>',
+        camera: { pos: [UX, 9.5, UZ + 13], target: [UX, 1.0, UZ] },
+        focus: ['units'],
+        update: function (g, t) {
+          g.get('d-rec').position.y = KH.land + 1.6 + Math.sin(t * 2) * 0.12;
+          g.get('d-bomb').position.y = KH.ocean + 1.7 + Math.sin(t * 2 + 1.5) * 0.12;
+        },
+      },
+      {
+        title: '陸軍と配備',
+        html:
+          '<table><tr><th></th><th>HP</th><th>移動</th><th>射程</th><th>攻撃</th><th>値段</th></tr>' +
+          '<tr><td>歩兵</td><td>20</td><td>2</td><td>1</td><td>10</td><td>20</td></tr>' +
+          '<tr><td>戦車</td><td>28</td><td>2</td><td>1</td><td>15</td><td>35</td></tr></table>' +
+          '<ul><li>陸軍は王都では生まれず、<b>空いている陸地マスに直接配備</b> する。置けるのは <b>自分の王都から5マス以内</b>（ボタンを押すと緑に光る）</li>' +
+          '<li>陸地マスの上しか動けない（海・資源マス・基地には入れない）</li>' +
+          '<li>配備したり入ったりした陸地マスは <b>自分の領土</b>（収入＋8）</li>' +
+          '<li>太平洋編は真ん中の3つの島だけ。アジア編は海峡を渡れない。ヨーロッパ編は陸がつながっていて、敵の基地まで歩いていけるよ</li></ul>' +
+          '<div class="gg-note">陸軍も、射程に入った敵ユニットや敵の基地を攻撃できるよ。</div>',
+        camera: { pos: [-0.5, 12, 11], target: [-0.3, 0, 0.8] },
+        focus: ['map', 'dep', 'u-pinf', 'dep-lbl', 'inf-lbl', 'u-csub', 'u-cbb'],
+        show: ['dep', 'u-pinf', 'dep-lbl', 'inf-lbl'],
+        update: function (g, t) {
+          var tt = t % 6;
+          var top = MP(-1, 1);
+          var k = g.phase(tt, 1.2, 0.9);
+          g.arcPos('u-pinf', [top[0], top[1] + 3, top[2]], top, k, 0.3);
+          g.get('u-pinf').visible = tt > 1.2;
+          g.get('dep').visible = tt < 2.1;
+          g.get('dep-lbl').visible = tt < 2.1;
+          g.get('inf-lbl').visible = tt > 2.2;
+          g.setColor('bd-1_1', tt > 2.1 ? PCOL : '#0a2540');
+          if (tt < 2.1) g.pulse('dep', t, 0.03);
+        },
+      },
+      {
+        title: '資源と建造',
+        html:
+          '<p>ユニットを作るには <b>資源</b> を使う。最初は <b>40</b> だよ。</p>' +
+          '<ol><li>左上の建造ボタンを押す（（ ）の数字が値段）</li>' +
+          '<li>置ける場所が <b>緑</b> に光るので、クリック</li></ol>' +
+          '<ul><li>海軍・空軍：<b>王都</b> か <b>HPが残っている自分の前線基地</b>。攻められている基地に、直接増援を出せる</li>' +
+          '<li>陸軍：王都から5マス以内の、空いている陸地</li>' +
+          '<li>資源と空きマスがあれば、1ターンに何体でも作れる。資源が足りないと、置こうとしても何も起きない</li></ul>' +
+          '<p><b>収入</b>：自分のターンを終えるたびに<br><b>＋10 ＋ 資源マスの数×5 ＋ 陸地マスの数×8</b><br>例：資源マス2つ・陸地マス1つなら 10＋10＋8＝<b>28</b></p>' +
+          '<div class="gg-note">CPUも毎ターン、買えるユニットの中からランダムに1体作ってくるよ。</div>',
+        camera: { pos: [0, 10, EZ + 15], target: [0, 1.0, EZ + 1.2] },
+        focus: ['cost'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.2) % 7;
+          for (var i = 0; i < 7; i++) g.get('card' + i).position.y = 1.6 + (i === k ? 0.25 : 0);
+          g.pulse('ring', t, 0.04);
+        },
+      },
+      {
+        title: '領土を取る',
+        html:
+          '<ul><li><b>資源マス</b>：艦艇か航空機がそのマスに止まると、自分の領土になる（収入＋5）</li>' +
+          '<li><b>陸地マス</b>：陸軍が止まる（配備する）と、自分の領土になる（収入＋8）。艦艇・航空機では取れない</li>' +
+          '<li>一度取ったマスは、<b>ユニットが離れても自分のまま</b></li>' +
+          '<li>敵の領土も、止まりなおせば奪い返せる（そのマスに同じ種類の敵がいたら、先に倒してね）</li></ul>' +
+          '<p>自分の領土は、マスのふちが自分の色になるよ。この例では、青の潜水艦と赤の潜水艦が、それぞれ資源マスを取ったよ。</p>' +
+          '<div class="gg-note">通りすぎるだけじゃダメ。そのマスで止まったときだけ取れるよ。</div>',
+        camera: { pos: [0.5, 16, 14], target: [0.5, 0, 1.6] },
+        focus: ['map', 'u-psub', 'u-pbb', 'u-csub', 'u-cbb', 'cap-p', 'cap-c'],
+        show: ['cap-p', 'cap-c'],
+        update: function (g, t) {
+          var tt = t % 8;
+          along(g, 'u-psub', PSUB_PATH, g.phase(tt, 0.3, 1.0));
+          along(g, 'u-csub', CSUB_PATH, g.phase(tt, 1.7, 1.0));
+          g.setColor('bd-2_2', tt > 1.3 ? PCOL : '#0a2540');
+          g.setColor('bd2_2', tt > 2.7 ? CCOL : '#0a2540');
+          g.get('cap-p').visible = tt > 1.3;
+          g.get('cap-c').visible = tt > 2.7;
+        },
+      },
+      {
+        title: '前線基地と王都（勝ち負け）',
+        html:
+          '<ul><li>王都のまわりの6マスは、ぜんぶ <b>前線基地</b>（HP30）</li>' +
+          '<li>王都には最初 <b>🔒</b> がついていて、攻撃できない。<b>となり合う2つの基地</b> をHP0にすると 🔒 が消えて、攻撃できるようになる（6つ全部こわさなくていい）</li>' +
+          '<li>王都（HP60）を0にしたら <b>勝ち！</b> 負けた側の領土と資源は、ぜんぶ勝った側のものになる</li>' +
+          '<li>こわれた基地からは、もうユニットを出せない。基地のHPは回復しない</li>' +
+          '<li>自分のユニットが1体もいなくなっても負けだよ</li></ul>' +
+          '<div class="gg-note">⚠️ 自分のユニットは <b>敵の基地のマスに入れない</b>。王都のとなりは全部基地だから、<b>王都に攻撃が届くのは2マス先まで撃てる空母だけ</b>。王都を落とすときは空母を用意しよう！（CPUのユニットはこの制限なしで、こっちの基地の上にも乗ってくるよ）</div>',
+        camera: { pos: [3.8, 12, 14], target: [4.2, 0.4, 2.6] },
+        focus: ['map', 'u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap'],
+        show: ['u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap'],
+        update: function (g, t) {
+          var tt = t % 8;
+          var k = g.linear(tt, 0.3, 1.4);
+          var hpA = Math.ceil(30 * (1 - k));
+          // CBASES の並び：(5,0) (5,-1) (4,-1) (3,0) (3,1) (4,1) → 3番と4番がとなり合う2つ
+          [3, 4].forEach(function (i) {
+            var b = CBASES[i];
+            g.setLabel('hpb' + i, 'HP' + hpA, { size: 0.34, color: hpA === 0 ? '#ff8a80' : '#ffffff', bg: '#000000cc' });
+            if (hpA === 0) { g.setColor('t' + key(b), FALLEN); g.setColor('bld' + key(b), FALLEN); }
+          });
+          g.get('a-b1').visible = tt > 0.2 && tt < 1.8;
+          g.get('a-b2').visible = tt > 0.2 && tt < 1.8;
+          g.get('b-lbl1').visible = tt < 1.9;
+          g.get('lock').visible = tt < 1.9;
+          g.get('b-lbl2').visible = tt > 1.9;
+          g.get('a-cap').visible = tt > 2.1 && tt < 4.6;
+          var kc = g.linear(tt, 2.3, 2.2);
+          var hpC = Math.ceil(60 * (1 - kc));
+          g.setLabel('hpcap', 'HP' + hpC, { size: 0.34, color: hpC === 0 ? '#ff8a80' : '#ffe066', bg: '#000000cc' });
+          g.get('b-win').visible = tt > 4.6;
+          if (tt > 4.6) g.pulse('b-win', t, 0.1);
+          if (tt > 2.1 && tt < 4.6) g.pulse('bld4_0', t * 2, 0.06);
+        },
+      },
+      {
+        title: '世界編（3勢力のバトル）',
+        html:
+          '<p>タイトルの <b>🌍 世界編</b> では、<b>アジア軍・ヨーロッパ軍・南北アメリカ連合軍</b> の3勢力が、1枚の大きな地図で戦うよ。</p>' +
+          '<ul><li>自分の陣営を1つ選ぶ。残りの2つはCPU</li>' +
+          '<li>番は <b>アジア軍 → ヨーロッパ軍 → 南北アメリカ連合軍</b> の順。3つとも終わると次のターン</li>' +
+          '<li>みんな歩兵＋戦車・資源40でスタート。ユニット・収入・基地と王都のルールは同じ</li>' +
+          '<li>王都が落ちたか、ユニットが全滅した陣営は <b>脱落</b>（ターンの終わりにチェック）。その陣営の領土は <b>だれのものでもなくなって</b>、早い者勝ちになる</li>' +
+          '<li>最後に残った1勢力の勝ち！</li></ul>' +
+          '<div class="gg-note">世界編とヨーロッパ編では、王都のまわりが陸地で囲まれていて、作った艦艇が海まで出られないよ。空軍と陸軍で戦おう。空母が使えないので王都を落とすのはむずかしいけど、相手のユニットを全滅させても脱落させられるよ。</div>',
+        camera: { pos: [WX, 17, WZ + 13.5], target: [WX, 0, WZ + 0.8] },
+        focus: ['world'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.5) % 3;
+          ['w-a1', 'w-a2', 'w-a3'].forEach(function (id, i) { g.get(id).visible = i === k; });
+        },
+      },
+      {
+        title: 'LAN対戦（2人で遊ぶ）',
+        html:
+          '<p>同じ Wi-Fi につながっていれば、2人で対戦できるよ。</p>' +
+          '<ol><li><b>ホスト役のPC（1台だけ）</b> で <b>みんなで遊ぶ（LAN対戦）.bat</b> をダブルクリック</li>' +
+          '<li>黒い画面に出るアドレス（<code>http://PCの名前/</code> や <code>http://192.168.x.x/</code>）を、相手のPCのブラウザで開く</li>' +
+          '<li>2人とも、タイトルの <b>🌐 みんなで遊ぶ（LAN対戦）</b> を押す</li>' +
+          '<li>片方が <b>ルームを作る</b> → 戦域（と国）を選ぶ。4けたのルーム番号が出る</li>' +
+          '<li>もう片方は、一覧に出た <b>ルーム ○○○○ に参加する</b> を押す</li></ol>' +
+          '<ul><li>ルームを作った人が <b>西側・先攻</b>、参加した人が東側。参加した人の国はランダムに決まる</li>' +
+          '<li>世界編を選ぶと、作った人＝アジア軍、参加した人＝ヨーロッパ軍、南北アメリカ連合軍はCPU</li>' +
+          '<li>相手の番のあいだは見ているだけ。とちゅうで接続が切れたら、最初からやり直しだよ</li></ul>' +
+          '<div class="gg-note">つながらないときは、Windows のファイアウォールで node.exe を <b>許可</b> してね。LAN対戦はできたばかりの機能なので、うまく動かないときは、ひとり用で遊んでね。</div>',
+        camera: { pos: [LX, 9.5, LZ + 11.5], target: [LX, 0.8, LZ] },
+        focus: ['lan'],
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li><b>あそぶ.bat</b> で起動して、戦域（と国）を選ぶ</li>' +
+          '<li>ユニットを <b>左クリック</b> → 白いマスへ移動、赤い範囲の敵を攻撃（どちらも1ターン1回）</li>' +
+          '<li><b>資源マス</b>（艦艇・航空機）と <b>陸地</b>（陸軍）に止まって領土にし、収入アップ</li>' +
+          '<li>資源でユニットを作る。海軍・空軍は王都か基地から、陸軍は陸地へ配備</li>' +
+          '<li>敵の <b>となり合う基地2つ</b> をこわして、<b>空母</b> で王都を攻撃</li>' +
+          '<li>王都のHP60を0にしたら勝ち！ 自分のユニットの全滅には気をつけてね</li></ol>' +
+          '<p>それじゃあ、艦隊をひきいて出撃だよ！⚓</p>',
+        camera: { pos: [0, 17, 13.5], target: [0, 0, 0.6] },
+        focus: ['map', 'u-psub', 'u-pbb', 'u-csub', 'u-cbb', 'nm-pcap', 'nm-ccap'],
+        show: ['nm-pcap', 'nm-ccap'],
+        update: function (g, t) { g.pulse('bld-4_0', t, 0.12); g.pulse('bld4_0', t + 1, 0.12); },
+      },
+    ],
+  };
+  var KINDS_ID = ['ocean', 'land', 'resource', 'base', 'capital'];
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = '太平洋海戦 | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>

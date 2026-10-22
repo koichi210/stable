@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>覇権戦国 | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var P1C = '#ff6b6b', P2C = '#4ecdc4';           // ゲーム画面の駒の色（index.html の .piece.p1 / .p2）
+  var GREEN = '#5ee6a8', ORANGE = '#ff9f43', GOLD = '#ffd166';
+  // 兵種の色（相性の図と駒の柱でそろえる）
+  var TC = { spear: '#e67e22', bow: '#27ae60', cavalry: '#8e44ad', infantry: '#95a5a6' };
+
+  // ---------- 初期配置（src/game/data/pieces.ts の INITIAL_LAYOUT を写したもの） ----------
+  // 記号: K=王将 R=飛車 B=角 s=槍兵 b=弓兵 c=騎兵 i=歩兵
+  var CH = { K: '王', R: '飛', B: '角', s: '槍', b: '弓', c: '馬', i: '歩' };
+  var LAYOUT = [
+    [1, 0, 'Ksbcicbss'], [1, 1, 'sbciRicbs'],
+    [2, 6, 'iiiiBiiii'], [2, 7, 'sbciRicbK'],
+  ];
+
+  // 盤のマス (x, y) → 3D。y=0 が画面の上（プレイヤー1側）
+  function B(x, y, h) { return [x - 4, h == null ? 0.06 : h, y - 4]; }
+
+  // ---------- 舞台の置き場所（ステップのカメラでも使うので先に決めておく） ----------
+  var SAX = -60;   // ゲームの始め方
+  var SCX = -30;   // 画面の見方
+  var LUX = 30;    // 駒の種類
+  var MVX = 60;    // 動ける範囲
+  var CDX = 90;    // アイテムカード
+  var RZ = 32;     // 奥の列
+  var LNX = -60;   // LAN対戦（奥の列）
+  var ATX = -30;   // 攻めるとどうなる？（奥の列）
+  var FRX = 0;     // 正面戦闘のダメージ（奥の列）
+  var AFX = 30;    // 相性（奥の列）
+  var ABX = 60;    // 能力（奥の列）
+
+  var LB = '#000000aa';
+
+  // 正面戦闘の例（rules.ts の resolveBattle で計算した値）
+  var EX = [
+    ['① 相手より少ない', '歩', 1000, 750, '槍', 1200, '歩は 250 減る\n1000 → 750'],
+    ['② 相手と同じ', '歩', 1000, 750, '歩', 1000, '相打ち：250 減る\n1000 → 750'],
+    ['③ 相手より多い', '飛', 2500, 1000, '歩', 1000, '飛は差の 1500 減る\n2500 → 1000'],
+  ];
+
+  // 駒＝円盤＋1文字のラベル。group にしてまとめて動かせるようにする
+  function piece(g, id, pos, color, ch, o) {
+    o = o || {};
+    g.group(id, { pos: pos, parent: o.parent });
+    g.cylinder({ parent: id, radius: o.r || 0.38, height: 0.2, pos: [0, 0.1, 0], color: color,
+      emissive: o.king ? GOLD : '#000000', emissiveIntensity: o.king ? 0.35 : 1 });
+    if (ch) g.label(ch, [0, o.ly || 0.48, 0], { id: o.labelId, parent: id, size: o.size || 0.3, bg: LB });
+  }
+
+  // n×n の小さい盤。cell(i, j) で 3D 座標を返す
+  function miniBoard(g, parent, cx, cz, n, colorFn) {
+    var half = (n - 1) / 2;
+    for (var j = 0; j < n; j++) for (var i = 0; i < n; i++) {
+      g.plate({ parent: parent, size: [0.94, 0.94], pos: [cx + i - half, 0.03, cz + j - half], color: colorFn ? colorFn(i, j) : '#2d2944', opacity: 0.95, radius: 0.05 });
+    }
+    return function (i, j, h) { return [cx + i - half, h == null ? 0.06 : h, cz + j - half]; };
+  }
+  // 順番に光らせるとき、光っていないものは元の大きさにもどす
+  function pulseOne(g, ids, k, t, amp) {
+    ids.forEach(function (id, i) {
+      var o = g.get(id);
+      if (i === k) g.pulse(o, t, amp);
+      else if (o.userData.pulseBase) o.scale.copy(o.userData.pulseBase);
+    });
+  }
+  function mark(g, parent, pos, color, op) {
+    g.plate({ parent: parent, size: [0.8, 0.8], pos: [pos[0], 0.08, pos[2]], color: color, opacity: op == null ? 0.75 : op, radius: 0.08 });
+  }
+
+  var CFG = {
+    title: '覇権戦国 遊び方',
+    back: '../index.html',
+    subtitle: '兵数を持った駒で戦う、将棋みたいな戦国バトル（開発中の「将棋版」）。はじめての人向けのチュートリアル',
+    camera: { pos: [0, 12, 10.5], target: [0, 0, 0.2] },
+
+    build: function (g) {
+      // ======================= 本盤 9×9 =======================
+      g.group('board', {});
+      g.box({ parent: 'board', size: [9.5, 0.08, 9.5], pos: [0, -0.02, 0], color: '#2a2a2a', edges: false });
+      for (var y = 0; y < 9; y++) for (var x = 0; x < 9; x++) {
+        // index.html と同じく、上半分（y<4.5）は赤っぽい陣地、下半分は緑っぽい陣地
+        g.plate({ parent: 'board', size: [0.94, 0.94], pos: B(x, y, 0.03), color: y < 4.5 ? '#4a2a32' : '#24423f', opacity: 0.95, radius: 0.06 });
+      }
+      g.group('pcs', {});
+      LAYOUT.forEach(function (r) {
+        [].forEach.call(r[2], function (sym, x) {
+          piece(g, 'pc-' + x + '-' + r[1], B(x, r[1]), r[0] === 1 ? P1C : P2C, CH[sym], { parent: 'pcs', king: sym === 'K' });
+        });
+      });
+      g.label('プレイヤー1（赤）\nCPU対戦では あなた', [0, 0.4, -5.6], { id: 'lbl-p1', size: 0.34, color: P1C, bg: LB });
+      g.label('プレイヤー2（青緑）\nCPU対戦では CPU', [0, 0.4, 5.6], { id: 'lbl-p2', size: 0.34, color: P2C, bg: LB });
+      g.label('王将「北海道」', [-3.2, 1.35, -4.2], { id: 'lbl-k1', size: 0.32, color: P1C, bg: '#000000cc' });
+      g.label('王将「沖縄県」', [3.3, 0.35, 4.0], { id: 'lbl-k2', size: 0.32, color: P2C, bg: '#000000cc' });
+      g.label('相手の王将を取ったら勝ち！', [0, 0.5, -0.5], { id: 'win-lbl', size: 0.5, color: GOLD, bg: '#000000cc' });
+
+      // STEP5：最初の並び
+      g.label('プレイヤー1には「角」がいない', [1.8, 1.3, -1.6], { id: 'noB-lbl', size: 0.3, color: GOLD, bg: '#000000cc' });
+      g.label('角（プレイヤー2だけ）', [0, 1.0, 1.0], { id: 'lbl-b2', size: 0.3, color: P2C, bg: '#000000cc' });
+      g.label('いちばん下の段は空き', [0, 0.35, 4.0], { id: 'lbl-empty', size: 0.28, color: '#cccccc', bg: LB });
+
+      // STEP6：動かし方（プレイヤー1の歩 (3,1) → (3,2)）
+      g.plate({ id: 'sel', size: [0.92, 0.92], pos: B(3, 1, 0.08), color: '#ffee55', opacity: 0.7, radius: 0.08 });
+      g.group('mvh', {});
+      [[2, 2], [3, 2], [4, 2]].forEach(function (c) { mark(g, 'mvh', B(c[0], c[1]), GREEN); });
+      g.label('① 自分の駒をクリック', [-2.9, 0.4, -0.9], { id: 'op-l1', size: 0.3, bg: '#000000cc' });
+      g.label('② 緑のマスが動ける場所', [2.6, 0.4, -0.9], { id: 'op-l2', size: 0.3, color: GREEN, bg: '#000000cc' });
+      g.label('③ 動かしたら自動で相手の番', [0, 1.6, 0.4], { id: 'turn-lbl', size: 0.34, color: GOLD, bg: '#000000cc' });
+
+      // STEP11：成り
+      g.plate({ id: 'zone1', size: [9, 3], pos: [0, 0.075, 3], color: P1C, opacity: 0.3, radius: 0.1 });
+      g.plate({ id: 'zone2', size: [9, 3], pos: [0, 0.075, -3], color: P2C, opacity: 0.3, radius: 0.1 });
+      g.label('プレイヤー1（赤）が成れる3段', [0, 0.35, 5.0], { id: 'zl1', size: 0.32, color: P1C, bg: LB });
+      g.label('プレイヤー2（青緑）が成れる3段', [0, 0.35, -5.0], { id: 'zl2', size: 0.32, color: P2C, bg: LB });
+      g.group('promo', { pos: B(5, 5) });
+      g.cylinder({ id: 'promo-ring', parent: 'promo', radius: 0.46, height: 0.08, pos: [0, 0.04, 0], color: GOLD, emissive: GOLD, emissiveIntensity: 0.5 });
+      g.cylinder({ parent: 'promo', radius: 0.38, height: 0.2, pos: [0, 0.14, 0], color: P1C });
+      g.label('弓\n1000', [0, 0.62, 0], { id: 'promo-l1', parent: 'promo', size: 0.28, bg: LB });
+      g.label('弓\n2000', [0, 0.62, 0], { id: 'promo-l2', parent: 'promo', size: 0.28, color: GOLD, bg: LB });
+      g.label('「弓兵 を成りますか？\n（兵数が2倍になります）」\n→ OK を押す', [-2.4, 2.3, 2.2], { id: 'promo-dlg', size: 0.3, bg: '#000000dd' });
+      g.label('成った！ 兵数 ×2', [1.6, 1.9, 1.6], { id: 'promo-ok', size: 0.36, color: GOLD, bg: '#000000cc' });
+
+      // ======================= ゲームの始め方 =======================
+      g.group('st', {});
+      var PX = [SAX - 5.8, SAX, SAX + 5.8];
+      ['① 最初の画面', '② 難易度を選ぶ', '③ 配置方法を選ぶ'].forEach(function (t, i) {
+        g.plate({ parent: 'st', size: [4.6, 4.4], pos: [PX[i], 0.02, 0.2], color: '#33333d', opacity: 1, radius: 0.12 });
+        g.label(t, [PX[i], 0.4, -2.5], { parent: 'st', size: 0.36, bg: LB });
+      });
+      function btn(id, x, z, w, text, col) {
+        g.box({ id: id, parent: 'st', size: [w, 0.16, 0.66], pos: [x, 0.1, z], color: col || P2C, edges: false,
+          label: text, labelSize: 0.3, labelBg: '#000000bb', labelOffset: [0, 0.32, 0] });
+      }
+      btn('st-cpu', PX[0], -1.1, 2.6, 'CPU対戦', GOLD);
+      btn('st-host', PX[0], 0.2, 2.6, 'ホストになる');
+      btn('st-guest', PX[0], 1.5, 2.6, 'ゲストで参加');
+      btn('st-d0', PX[1] - 1.1, -0.9, 1.7, '初級');
+      btn('st-d1', PX[1] + 1.1, -0.9, 1.7, '中級');
+      btn('st-d2', PX[1] - 1.1, 0.7, 1.7, '上級');
+      btn('st-d3', PX[1] + 1.1, 0.7, 1.7, '鬼級');
+      btn('st-auto', PX[2], -1.0, 2.6, '自動配置', GOLD);
+      btn('st-man', PX[2], 0.3, 2.6, '手動配置', '#666666');
+      g.label('手動はまだ作りかけ\n（どちらも自動配置）', [PX[2], 0.3, 1.5], { parent: 'st', size: 0.24, color: '#ffcf80', bg: LB });
+      g.label('CPUの強さ', [PX[1], 0.3, 1.8], { parent: 'st', size: 0.26, color: '#cccccc', bg: LB });
+      g.arrow([PX[0] + 2.2, 0.3, 0.2], [PX[1] - 2.2, 0.3, 0.2], { parent: 'st', color: GOLD, lift: 0.6, radius: 0.06 });
+      g.arrow([PX[1] + 2.2, 0.3, 0.2], [PX[2] - 2.2, 0.3, 0.2], { parent: 'st', color: GOLD, lift: 0.6, radius: 0.06 });
+      g.label('index.html をダブルクリック → ブラウザで開く', [SAX, 0.4, -3.6], { parent: 'st', size: 0.38, color: GOLD, bg: LB });
+      g.label('対戦スタート！', [PX[2], 0.4, 3.0], { id: 'st-go', parent: 'st', size: 0.34, color: GREEN, bg: LB });
+
+      // ======================= 画面の見方（ゲーム画面の模型） =======================
+      g.group('scr', {});
+      g.plate({ parent: 'scr', size: [14, 9.8], pos: [SCX, 0.02, 0.2], color: '#2b2b2b', opacity: 1, radius: 0.1 });
+      g.label('覇権戦国 - 将棋版', [SCX, 0.3, -4.1], { parent: 'scr', size: 0.36, color: '#ffffff' });
+      g.box({ id: 'scr-i1', parent: 'scr', size: [4.4, 0.1, 1.2], pos: [SCX - 3.2, 0.08, -2.9], color: '#4a2a2a', edges: false, label: 'プレイヤー1の情報', labelSize: 0.28, labelColor: P1C, labelBg: '#000000cc', labelOffset: [0, 0.35, 0] });
+      g.box({ id: 'scr-i2', parent: 'scr', size: [4.4, 0.1, 1.2], pos: [SCX + 3.2, 0.08, -2.9], color: '#1f3a38', edges: false, label: 'プレイヤー2の情報', labelSize: 0.28, labelColor: P2C, labelBg: '#000000cc', labelOffset: [0, 0.35, 0] });
+      g.group('scr-board', {});
+      for (var sy = 0; sy < 9; sy++) for (var sx = 0; sx < 9; sx++) {
+        var pc = (sy <= 1) ? P1C : (sy === 6 || sy === 7) ? P2C : (sy < 4.5 ? '#4a2a32' : '#24423f');
+        g.box({ parent: 'scr-board', size: [0.42, (sy <= 1 || sy === 6 || sy === 7) ? 0.16 : 0.08, 0.42], pos: [SCX - 3.2 + (sx - 4) * 0.47, 0.1, 1.0 + (sy - 4) * 0.47], color: pc, edges: false });
+      }
+      g.label('盤（9×9）', [SCX - 3.2, 0.3, 3.8], { id: 'scr-board-l', parent: 'scr', size: 0.3, bg: '#000000cc' });
+      g.box({ id: 'scr-log', parent: 'scr', size: [4.4, 0.1, 1.9], pos: [SCX + 3.2, 0.08, -0.7], color: '#222222', edges: false, label: 'ログ（何が起きたか）', labelSize: 0.28, labelBg: '#000000cc', labelOffset: [0, 0.35, 0] });
+      g.box({ id: 'scr-hand', parent: 'scr', size: [4.4, 0.1, 1.9], pos: [SCX + 3.2, 0.08, 1.6], color: '#1a2a1a', edges: false });
+      for (var k = 0; k < 4; k++) {
+        g.box({ parent: 'scr-hand', size: [1.8, 0.06, 0.5], pos: [SCX + 2.2 + (k % 2) * 2.0, 0.16, 1.25 + Math.floor(k / 2) * 0.7], color: '#2a4a2a', edgeColor: P2C });
+      }
+      g.label('手札（アイテムカード）', [SCX + 3.2, 0.5, 1.6], { id: 'scr-hand-l', parent: 'scr', size: 0.28, bg: '#000000cc' });
+      [['scr-b1', 1.7], ['scr-b2', 3.3], ['scr-b3', 4.9]].forEach(function (b) {
+        g.box({ id: b[0], parent: 'scr', size: [1.4, 0.15, 0.5], pos: [SCX + b[1], 0.1, 3.3], color: P2C, edges: false });
+      });
+      g.label('能力を使う／ターン終了／ゲームリセット', [SCX + 3.3, 0.35, 4.2], { id: 'scr-btn-l', parent: 'scr', size: 0.28, bg: '#000000cc' });
+
+      // ======================= 駒の種類と兵数 =======================
+      g.group('lu', {});
+      [['王', '王将', 3000, '槍兵あつかい', TC.spear, true], ['飛', '飛車', 2500, '騎兵あつかい', TC.cavalry], ['角', '角', 2500, '弓兵あつかい', TC.bow],
+        ['槍', '槍兵', 1200, '', TC.spear], ['弓', '弓兵', 1000, '', TC.bow], ['馬', '騎兵', 1100, '', TC.cavalry], ['歩', '歩兵', 1000, '', TC.infantry]].forEach(function (p, i) {
+        var h = p[2] / 1000 * 0.9, x = LUX + (i - 3) * 2.1;
+        g.cylinder({ id: 'lu' + i, parent: 'lu', radius: 0.62, height: h, pos: [x, h / 2, 0], color: p[4], emissive: p[5] ? GOLD : '#000000', emissiveIntensity: p[5] ? 0.25 : 1,
+          label: p[0] + '\n' + p[2], labelSize: 0.4, labelBg: LB, labelOffset: [0, h / 2 + 0.65, 0] });
+        g.label(p[1] + (p[3] ? '\n' + p[3] : ''), [x, 0.05, 2.0], { parent: 'lu', size: 0.32, bg: LB });
+      });
+      g.label('柱の高さ＝最初の兵数', [LUX + 1.05, 3.4, 0], { parent: 'lu', size: 0.3, color: '#cccccc', bg: LB });
+
+      // ======================= 動ける範囲（小さい盤3つ） =======================
+      g.group('rng', {});
+      var ra = miniBoard(g, 'rng', MVX - 6.5, 0, 5);
+      piece(g, 'rA-p', ra(2, 2), P1C, '歩', { parent: 'rng' });
+      [[1, 1], [2, 1], [3, 1], [1, 2], [3, 2], [1, 3], [2, 3], [3, 3]].forEach(function (c) { mark(g, 'rng', ra(c[0], c[1]), GREEN); });
+      g.label('王将・槍・弓・馬・歩\nまわり1マス', [MVX - 6.5, 0.4, -3.4], { parent: 'rng', size: 0.4, bg: LB });
+
+      var rb = miniBoard(g, 'rng', MVX, 0, 5);
+      piece(g, 'rB-p', rb(2, 2), P1C, '飛', { parent: 'rng' });
+      piece(g, 'rB-own', rb(2, 0), P1C, '槍', { parent: 'rng' });
+      piece(g, 'rB-en', rb(4, 2), P2C, '歩', { parent: 'rng' });
+      [[2, 1], [2, 3], [2, 4], [1, 2], [0, 2], [3, 2]].forEach(function (c) { mark(g, 'rng', rb(c[0], c[1]), GREEN); });
+      mark(g, 'rng', rb(4, 2), ORANGE, 0.85);
+      g.label('飛車\n縦・横にどこまでも', [MVX, 0.4, -3.4], { parent: 'rng', size: 0.4, bg: LB });
+      g.label('味方で止まる', [MVX - 1.6, 0.9, -2.0], { parent: 'rng', size: 0.3, color: '#ffcf80', bg: '#000000cc' });
+      g.label('敵は攻撃できる', [MVX + 2.0, 0.3, 1.1], { parent: 'rng', size: 0.3, color: ORANGE, bg: '#000000cc' });
+
+      var rc = miniBoard(g, 'rng', MVX + 6.5, 0, 5);
+      piece(g, 'rC-p', rc(2, 2), P1C, '角', { parent: 'rng' });
+      [[1, 1], [0, 0], [3, 1], [4, 0], [1, 3], [0, 4], [3, 3], [4, 4]].forEach(function (c) { mark(g, 'rng', rc(c[0], c[1]), GREEN); });
+      g.label('角\nななめにどこまでも', [MVX + 6.5, 0.4, -3.4], { parent: 'rng', size: 0.4, bg: LB });
+      g.label('緑＝動けるマス　オレンジ＝攻撃できるマス', [MVX, 0.3, 3.5], { parent: 'rng', size: 0.4, bg: LB });
+
+      // ======================= 攻めるとどうなる？ =======================
+      g.group('at', {});
+      var ac = miniBoard(g, 'at', ATX, RZ, 5, function (i, j) { return j >= 2 ? '#5a4a1e' : '#3a2a5a'; });
+      g.group('at-a', { pos: ac(2, 1), parent: 'at' });
+      g.cylinder({ parent: 'at-a', radius: 0.38, height: 0.2, pos: [0, 0.1, 0], color: P1C });
+      g.label('槍\n1200', [0, 0.6, 0], { id: 'at-a1', parent: 'at-a', size: 0.26, bg: LB });
+      g.label('槍\n950', [0, 0.6, 0], { id: 'at-a2', parent: 'at-a', size: 0.26, color: GOLD, bg: LB });
+      piece(g, 'at-f', ac(2, 2), P2C, '馬\n1100', { parent: 'at', size: 0.26, ly: 0.6 });
+      piece(g, 'at-s', ac(3, 1), P2C, '弓\n1000', { parent: 'at', size: 0.26, ly: 0.6 });
+      g.arrow(ac(2, 1, 0.35), ac(2, 2, 0.35), { id: 'at-arF', parent: 'at', color: GOLD, lift: 0.9, radius: 0.05, head: 0.22 });
+      g.arrow(ac(2, 1, 0.35), ac(3, 1, 0.35), { id: 'at-arS', parent: 'at', color: C.third, lift: 0.9, radius: 0.05, head: 0.22, label: '横', labelSize: 0.24, labelBg: '#000000cc' });
+      g.label('前（正面）', [ATX, 0.3, RZ + 2.95], { parent: 'at', size: 0.32, color: GOLD, bg: LB });
+      g.label('横・後ろ（奇襲）', [ATX, 0.3, RZ - 2.95], { parent: 'at', size: 0.32, color: C.third, bg: LB });
+      g.arrow([ATX - 3.1, 0.25, RZ - 1.6], [ATX - 3.1, 0.25, RZ + 1.9], { parent: 'at', color: P1C, lift: 0.2, radius: 0.06 });
+      g.label('プレイヤー1は\n下が「前」', [ATX - 3.1, 1.0, RZ + 0.1], { parent: 'at', size: 0.26, color: P1C, bg: '#000000cc' });
+      g.label('横から攻めた！\n弓は消える\n槍は 250 減って 950', [ATX + 3.3, 1.6, RZ - 0.6], { id: 'at-res', parent: 'at', size: 0.28, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 正面戦闘のダメージ（棒グラフ） =======================
+      g.group('fr', {});
+      EX.forEach(function (e, i) {
+        var cx = FRX + (i - 1) * 5.4;
+        g.label(e[0], [cx, 3.7, RZ], { parent: 'fr', size: 0.36, color: '#ffffff', bg: LB });
+        g.box({ id: 'fr-a' + i, parent: 'fr', size: [1.2, 1, 1.0], pos: [cx - 0.85, e[2] / 2000, RZ], color: P1C });
+        g.box({ id: 'fr-d' + i, parent: 'fr', size: [1.2, 1, 1.0], pos: [cx + 0.85, e[5] / 2000, RZ], color: P2C });
+        g.label(String(e[2]), [cx - 0.85, e[2] / 1000 + 0.4, RZ], { id: 'fr-an' + i, parent: 'fr', size: 0.3, bg: LB });
+        g.label(String(e[3]), [cx - 0.85, e[3] / 1000 + 0.4, RZ], { id: 'fr-an2' + i, parent: 'fr', size: 0.3, color: GOLD, bg: LB });
+        g.label(String(e[5]), [cx + 0.85, e[5] / 1000 + 0.4, RZ], { id: 'fr-dn' + i, parent: 'fr', size: 0.3, bg: LB });
+        g.label('撃破', [cx + 0.85, 0.5, RZ], { id: 'fr-ko' + i, parent: 'fr', size: 0.32, color: '#ff8080', bg: LB });
+        g.label('攻め ' + e[1] + '　守り ' + e[4], [cx, 0.25, RZ + 1.4], { parent: 'fr', size: 0.26, bg: LB });
+        g.label(e[6], [cx, 0.25, RZ + 2.6], { id: 'fr-res' + i, parent: 'fr', size: 0.27, color: GOLD, bg: '#000000cc' });
+      });
+
+      // ======================= 兵種の相性 =======================
+      g.group('af', {});
+      var AF = [['槍兵（王将も）', TC.spear, '槍'], ['歩兵', TC.infantry, '歩'], ['弓兵（角も）', TC.bow, '弓'], ['騎兵＝馬（飛車も）', TC.cavalry, '馬']];
+      AF.forEach(function (a, i) {
+        var ang = -Math.PI / 2 + i * Math.PI / 2;
+        g.cylinder({ id: 'af' + i, parent: 'af', radius: 0.75, height: 0.5, pos: [AFX + Math.cos(ang) * 2.7, 0.25, RZ + Math.sin(ang) * 2.7], color: a[1],
+          label: a[0], labelSize: 0.36, labelBg: '#000000cc', labelOffset: [0, 0.75, 0] });
+      });
+      for (var ai = 0; ai < 4; ai++) {
+        var a0 = -Math.PI / 2 + ai * Math.PI / 2 + 0.42, a1 = -Math.PI / 2 + (ai + 1) * Math.PI / 2 - 0.42;
+        g.arrow([AFX + Math.cos(a0) * 2.7, 0.5, RZ + Math.sin(a0) * 2.7], [AFX + Math.cos(a1) * 2.7, 0.5, RZ + Math.sin(a1) * 2.7],
+          { id: 'afa' + ai, parent: 'af', color: GOLD, lift: 0.6, radius: 0.06, label: AF[ai][2] + '＞' + AF[(ai + 1) % 4][2], labelSize: 0.3, labelBg: '#000000cc' });
+      }
+      g.label('攻めた側が有利なら\n減る量 ÷1.3', [AFX, 0.4, RZ], { parent: 'af', size: 0.3, color: GREEN, bg: LB });
+      g.label('例：槍1200 で 歩1000 を正面から\n200÷1.3＝153 減る → 残り 1047', [AFX, 0.3, RZ + 4.6], { parent: 'af', size: 0.3, color: GOLD, bg: '#000000cc' });
+
+      // ======================= 能力 =======================
+      g.group('ab', {});
+      [['槍兵「突撃」', '次の攻撃 ×1.5', TC.spear], ['弓兵「爆撃」', '1マス先の敵に500', TC.bow],
+        ['騎兵「突進」', '兵+700・次は攻撃不可', TC.cavalry], ['歩兵「鼓舞」', '兵+1500', TC.infantry],
+        ['王将「統率」', '味方全部+500', '#c9a227'], ['飛車「強行突破」', '兵+1000・次は動けない', '#6c3d99'],
+        ['角「範囲砲撃」', '2マス以内の敵に250', '#1f7a48']].forEach(function (r, i) {
+        g.box({ id: 'abt' + i, parent: 'ab', size: [2.9, 0.3, 1.3], pos: [ABX - 5.6 + (i % 2) * 3.2, 0.15, RZ - 3.0 + Math.floor(i / 2) * 2.0], color: r[2], edges: false,
+          label: r[0] + '\n' + r[1], labelSize: 0.28, labelBg: '#000000cc', labelOffset: [0, 0.75, 0] });
+      });
+      var bc = miniBoard(g, 'ab', ABX + 3.6, RZ, 5);
+      piece(g, 'ab-p', bc(2, 2), P1C, '角', { parent: 'ab' });
+      g.group('ab-area', { parent: 'ab' });
+      for (var bj = 0; bj < 5; bj++) for (var bi = 0; bi < 5; bi++) {
+        var d = Math.abs(bi - 2) + Math.abs(bj - 2);
+        if (d > 0 && d <= 2) mark(g, 'ab-area', bc(bi, bj), ORANGE, 0.6);
+      }
+      [[2, 0], [3, 3], [1, 2]].forEach(function (c, i) {
+        piece(g, 'ab-e' + i, bc(c[0], c[1]), P2C, '歩', { parent: 'ab' });
+        g.label('-250', bc(c[0], c[1], 0.95), { id: 'ab-hit' + i, parent: 'ab', size: 0.3, color: '#ff8080', bg: '#000000cc' });
+      });
+      piece(g, 'ab-out', bc(4, 4), P2C, '歩', { parent: 'ab' });
+      g.label('角の範囲砲撃（ひし形の範囲）', [ABX + 3.6, 0.4, RZ - 3.9], { parent: 'ab', size: 0.3, bg: LB });
+      g.label('とどかない', bc(4, 4, 1.1), { parent: 'ab', size: 0.24, color: '#cccccc', bg: '#000000cc' });
+
+      // ======================= アイテムカード =======================
+      g.group('cd', {});
+      [['援軍', 5, '味方全部の駒\n+500兵'], ['奇襲', 5, '次の攻撃の\nダメージ2倍'], ['兵力UP', 5, '選んだ駒\n+1000兵'], ['ダメ軽減', 5, '次のターン\n受けるダメ半分'],
+        ['援軍II', 4, '味方全部の駒\n+800兵'], ['全攻撃', 3, '全部の駒の\n攻撃1.5倍'], ['全守備', 3, '全部の駒の\n受けるダメ70%'], ['快進撃', 4, '移動できる\n範囲+1'],
+        ['回復', 3, '最大兵数の駒\n+2000兵'], ['連撃', 3, '同じターンに\n2回攻撃']].forEach(function (c, i) {
+        var col = i % 5, row = Math.floor(i / 5);
+        g.card({ id: 'cd' + i, parent: 'cd', pos: [CDX - 4.2 + col * 2.1, 4.3 - row * 2.95, 0], lying: false, text: c[0], sub: '×' + c[1] + '枚', color: '#2b9a6b', w: 1.2 });
+        g.label(c[2], [CDX - 4.2 + col * 2.1, 3.15 - row * 2.95, 0.1], { parent: 'cd', size: 0.22, bg: '#000000cc' });
+      });
+      g.label('全40枚・10種類（書いてある効果は「予定」）', [CDX, 6.1, 0], { parent: 'cd', size: 0.32, bg: LB });
+      g.label('注意：今は使っても手札から消えるだけ', [CDX, -0.15, 0.6], { id: 'cd-warn', parent: 'cd', size: 0.32, color: '#ffcf80', bg: '#000000cc' });
+
+      // ======================= LAN対戦 =======================
+      g.group('lan', {});
+      g.plate({ parent: 'lan', size: [14, 8.4], pos: [LNX, 0.02, RZ + 0.4], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'l-srv', parent: 'lan', size: [3.2, 1.4, 1.6], pos: [LNX, 0.7, RZ - 2.2], color: C.server, label: 'ホスト役のPC\nnpm start（サーバー）', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.35, 0] });
+      g.box({ id: 'l-host', parent: 'lan', size: [2.6, 1.1, 1.4], pos: [LNX - 4.1, 0.55, RZ + 1.8], color: P1C, label: 'ホスト（プレイヤー1・赤）\nlocalhost:3000\n「部屋を作成」', labelSize: 0.26, labelBg: '#000000cc', labelOffset: [0, 1.4, 0] });
+      g.box({ id: 'l-guest', parent: 'lan', size: [2.6, 1.1, 1.4], pos: [LNX + 4.1, 0.55, RZ + 1.8], color: P2C, label: 'ゲスト（プレイヤー2・青緑）\n192.168.x.x:3000\n「ゲストで参加」', labelSize: 0.26, labelBg: '#000000cc', labelOffset: [0, 1.4, 0] });
+      g.flow([LNX - 1.4, 0.9, RZ - 1.6], [LNX - 3.4, 0.9, RZ + 1.2], { id: 'l-f1', parent: 'lan', color: C.data, lift: 0.8, count: 5 });
+      g.flow([LNX + 1.4, 0.9, RZ - 1.6], [LNX + 3.4, 0.9, RZ + 1.2], { id: 'l-f2', parent: 'lan', color: C.data, lift: 0.8, count: 5 });
+      g.arrow([LNX - 2.6, 0.4, RZ + 2.6], [LNX + 2.6, 0.4, RZ + 2.6], { id: 'l-code-a', parent: 'lan', color: GOLD, lift: 0.4, radius: 0.05 });
+      g.label('部屋コード（4文字）\n例：K7QX を教える', [LNX, 1.25, RZ + 2.5], { id: 'l-code', parent: 'lan', size: 0.28, color: GOLD, bg: '#000000cc' });
+      g.label('同じ Wi-Fi（LAN）につないでね', [LNX, 0.3, RZ + 4.1], { parent: 'lan', size: 0.3, color: C.data, bg: LB });
+    },
+
+    steps: [
+      {
+        title: '覇権戦国へようこそ！',
+        html:
+          '<p>9×9 のマスの盤で戦う、<b>将棋みたいな戦国バトル</b>だよ。ふつうの将棋とちがって、駒ひとつひとつが <b>兵の数（兵数）</b> を持っているのがポイント。</p>' +
+          '<ul><li><b>赤＝プレイヤー1</b>（盤の上側）：王将の名前は「北海道」</li>' +
+          '<li><b>青緑＝プレイヤー2</b>（盤の下側）：王将の名前は「沖縄県」</li></ul>' +
+          '<p><b>勝ち方</b>：相手の <b>王将</b> がいるマスに自分の駒を動かせば、その場で勝ち！ 兵数が少ない駒でも、王将を取ればOKだよ。</p>' +
+          '<div class="gg-note">⚠️ このゲームはまだ <b>開発のとちゅう</b>。今遊べるのは「将棋版」で、計画にある日本地図の陣取り（Phaser版）はまだ試作だけだよ。作りかけのところは、このページでも「作りかけ」と書いておくね。</div>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: { pos: [0, 12, 10.5], target: [0, 0, 0.2] },
+        focus: ['board', 'pcs', 'lbl-p1', 'lbl-p2', 'lbl-k1', 'lbl-k2', 'win-lbl'],
+        show: ['win-lbl', 'lbl-k1', 'lbl-k2'],
+        update: function (g, t) { g.pulse('pc-0-0', t, 0.2); g.pulse('pc-8-7', t + 1, 0.2); },
+      },
+      {
+        title: 'ゲームの始め方',
+        html:
+          '<ol><li>ゲームのフォルダにある <code>index.html</code> を <b>ダブルクリック</b>（ブラウザで開く）</li>' +
+          '<li>最初の画面で <b>CPU対戦</b> を押す</li>' +
+          '<li>CPUの強さ（難易度）を選ぶ</li>' +
+          '<li>配置方法を選ぶ（今は <b>どちらを押しても自動配置</b>。手動配置は作りかけ）</li></ol>' +
+          '<table><tr><th>難易度</th><th>CPUの考え方</th></tr>' +
+          '<tr><td>初級</td><td>動かす駒も行き先も、でたらめ</td></tr>' +
+          '<tr><td>中級</td><td>でたらめに選んだ駒を、こちらの王将に近づける</td></tr>' +
+          '<tr><td>上級</td><td>取れる駒があれば取る。なければ王将に近づく</td></tr>' +
+          '<tr><td>鬼級</td><td>上級に加えて、飛車・角を狙い、成れるマスも狙う</td></tr></table>' +
+          '<div class="gg-note">CPU対戦では、あなたが <b>プレイヤー1（赤・先手）</b>。CPUは約1秒考えてから動くよ。CPUは <b>能力やカードは使わない</b>。</div>' +
+          '<div class="gg-note">「読み込み中…」のまま進まないときは、<code>js/game.js</code> がない合図。開発者に <code>npm run build</code> してもらってね。</div>',
+        camera: { pos: [SAX, 16, 11.5], target: [SAX, 0, 0.3] },
+        focus: ['st'],
+        show: ['st-go'],
+        update: function (g, t) {
+          var k = Math.floor((t % 6) / 2);
+          pulseOne(g, ['st-cpu', 'st-d0', 'st-d1', 'st-d2', 'st-d3', 'st-auto'], k === 0 ? 0 : k === 2 ? 5 : 1 + Math.floor(t * 1.4) % 4, t, 0.12);
+          g.get('st-go').visible = (t % 6) > 4;
+        },
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<p>対戦が始まると、こんな画面になるよ。</p>' +
+          '<table><tr><th>場所</th><th>なにがある？</th></tr>' +
+          '<tr><td>上</td><td>プレイヤー1・2の情報（王将の名前、操作と相性のメモ、CPUの難易度）</td></tr>' +
+          '<tr><td>左</td><td><b>盤</b>。駒には「王・飛・角・槍・弓・馬・歩」の1文字が書いてある</td></tr>' +
+          '<tr><td>右上</td><td><b>ログ</b>。戦いの結果や残りの兵数が出る（新しいものが上）</td></tr>' +
+          '<tr><td>右中</td><td><b>手札</b>（アイテムカード）</td></tr>' +
+          '<tr><td>右下</td><td><b>能力を使う</b>・<b>ターン終了</b>・<b>ゲームリセット</b> のボタン</td></tr></table>' +
+          '<div class="gg-note">今は <b>駒の兵数は盤の上に出ない</b> よ。戦ったときにログに「残兵 ○○」と出るから、ログを見てね。王将は黄色いふち、飛車・角は光っていて、成った駒は赤いふちになる。</div>',
+        camera: { pos: [SCX, 13.5, 9.5], target: [SCX, 0, 0.6] },
+        focus: ['scr', 'scr-board'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.5) % 4;
+          pulseOne(g, ['scr-board', 'scr-log', 'scr-hand'], k, t, 0.05);
+          ['scr-b1', 'scr-b2', 'scr-b3'].forEach(function (id) { pulseOne(g, [id], k === 3 ? 0 : -1, t, 0.15); });
+        },
+      },
+      {
+        title: '駒の種類と兵数',
+        html:
+          '<p>駒は7種類。それぞれ最初の兵数が決まっているよ。</p>' +
+          '<table><tr><th>駒（盤の字）</th><th>最初の兵数</th><th>相性での兵種</th></tr>' +
+          '<tr><td>王将（王）</td><td><b>3000</b></td><td>槍兵</td></tr>' +
+          '<tr><td>飛車（飛）</td><td><b>2500</b></td><td>騎兵</td></tr>' +
+          '<tr><td>角（角）</td><td><b>2500</b></td><td>弓兵</td></tr>' +
+          '<tr><td>槍兵（槍）</td><td><b>1200</b></td><td>槍兵</td></tr>' +
+          '<tr><td>弓兵（弓）</td><td><b>1000</b></td><td>弓兵</td></tr>' +
+          '<tr><td>騎兵（馬）</td><td><b>1100</b></td><td>騎兵</td></tr>' +
+          '<tr><td>歩兵（歩）</td><td><b>1000</b></td><td>歩兵</td></tr></table>' +
+          '<p>「相性での兵種」は、あとで出てくる <b>兵種の相性</b> で使うよ。王将・飛車・角も、どれかの兵種として数えられるんだ。</p>' +
+          '<div class="gg-note">兵数は、戦うと減って、能力や「成り」で増える。上限はないよ。</div>',
+        camera: { pos: [LUX, 8.5, 16], target: [LUX, 1.0, 0.4] },
+        focus: ['lu'],
+        update: function (g, t) { pulseOne(g, ['lu0', 'lu1', 'lu2', 'lu3', 'lu4', 'lu5', 'lu6'], Math.floor(t / 1.2) % 7, t, 0.08); },
+      },
+      {
+        title: '最初の並び',
+        html:
+          '<p>駒は自動で並ぶよ。<b>1人18駒</b>。</p>' +
+          '<ul><li>プレイヤー1（赤）：上から1・2段目。王将は <b>左上のすみ</b></li>' +
+          '<li>プレイヤー2（青緑）：下から2・3段目。王将は <b>下から2段目の右はし</b>。いちばん下の段は空き</li>' +
+          '<li>両方とも、2段目（相手に近いほう）のまんなか付近に <b>飛車</b> がいる</li></ul>' +
+          '<div class="gg-note">⚠️ 今の配置だと、<b>プレイヤー1には「角」がいない</b>。プレイヤー2だけ、前の段のまんなかに角がいるよ。これでいいかは、まだ検討中（作りかけ）。</div>',
+        camera: { pos: [0, 13.5, 8.8], target: [0, 0, 0.4] },
+        focus: ['board', 'pcs', 'lbl-p1', 'lbl-p2', 'lbl-k1', 'lbl-k2', 'noB-lbl', 'lbl-b2', 'lbl-empty'],
+        show: ['lbl-k1', 'lbl-k2', 'noB-lbl', 'lbl-b2', 'lbl-empty'],
+        update: function (g, t) { g.pulse('pc-4-6', t, 0.2); },
+      },
+      {
+        title: '駒の動かし方',
+        html:
+          '<ol><li>自分の駒を <b>クリック</b>（ドラッグでもOK）</li>' +
+          '<li>動けるマスが <b>緑</b> に光る</li>' +
+          '<li>緑のマスを <b>クリック</b> すると、そこへ移動</li></ol>' +
+          '<ul><li><b>1回動かすと、自動で相手の番</b> になる（1ターンに動かせるのは1駒を1回だけ）</li>' +
+          '<li>動かしたくないときは <b>ターン終了</b> で番をパスできる</li>' +
+          '<li>能力やカードは、動かす <b>前</b> に使ってね（動かすと番が終わっちゃう）</li></ul>' +
+          '<div class="gg-note">ターン数は、プレイヤー1の番が来るたびに1つ進むよ（プレイヤー1 → プレイヤー2 で1ターン）。</div>',
+        camera: { pos: [0, 11, 3.8], target: [0, 0, -2.3] },
+        focus: ['board', 'pcs', 'sel', 'mvh', 'op-l1', 'op-l2', 'turn-lbl'],
+        show: ['sel', 'mvh', 'op-l1', 'op-l2', 'turn-lbl'],
+        update: function (g, t) {
+          var tt = t % 9;
+          var picking = tt > 0.5 && tt < 3.6;
+          g.get('sel').visible = picking;
+          g.get('op-l1').visible = picking;
+          g.get('mvh').visible = tt > 1.3 && tt < 3.6;
+          g.get('op-l2').visible = tt > 1.3 && tt < 3.6;
+          g.lerpPos('pc-3-1', B(3, 1), B(3, 2), g.phase(tt, 3.6, 0.8));
+          g.get('turn-lbl').visible = tt > 4.5;
+          g.lerpPos('pc-3-6', B(3, 6), B(3, 5), g.phase(tt, 5.8, 0.8));
+          if (picking) g.pulse('sel', t, 0.06);
+        },
+      },
+      {
+        title: '動ける範囲',
+        html:
+          '<ul><li><b>王将・槍・弓・馬・歩</b>：まわり8マスのどこかへ1マス（前後左右・ななめ、どの向きでもOK）</li>' +
+          '<li><b>飛車</b>：縦・横に何マスでも。駒にぶつかったらそこで止まる</li>' +
+          '<li><b>角</b>：ななめに何マスでも。止まり方は飛車と同じ</li></ul>' +
+          '<p>行き先に <b>味方</b> がいたら入れない。<b>敵</b> がいたら、そのマスに入って <b>攻撃</b> できる（オレンジのマス）。駒を飛びこえることはできないよ。</p>' +
+          '<div class="gg-note">ふつうの将棋とちがって、<b>歩も後ろやななめに動ける</b>。兵種で動き方は変わらないよ。取った駒は「持ち駒」にはならない。</div>',
+        camera: { pos: [MVX, 13.5, 13.5], target: [MVX, 0, 0.3] },
+        focus: ['rng'],
+      },
+      {
+        title: '攻めるとどうなる？',
+        html:
+          '<p>敵の駒がいるマスに動くと <b>戦闘</b> だよ。</p>' +
+          '<ul><li>守った側の駒は、兵数に関係なく <b>かならず消える</b>（攻めた側がそのマスを取る）</li>' +
+          '<li>そのかわり、<b>攻めた側の兵数が減る</b></li>' +
+          '<li>減る量は、<b>正面から</b> か <b>横・後ろから</b> かで変わる</li></ul>' +
+          '<p><b>正面</b>＝自分の「前」に向かって攻めたとき（プレイヤー1は下向き、プレイヤー2は上向き。ななめ前もふくむ）。真横や後ろは <b>奇襲</b> あつかい。</p>' +
+          '<p><b>奇襲なら、攻めた側は 250 減るだけ</b>。例：槍1200で真横の弓を攻める → 弓は消えて、槍は <b>950</b> に。</p>' +
+          '<div class="gg-note">🏆 <b>王将</b> を攻めたら、兵数の計算なしで、その場で勝ち！</div>',
+        camera: { pos: [ATX, 9, RZ + 8.5], target: [ATX, 0.3, RZ + 0.2] },
+        focus: ['at'],
+        show: ['at-res', 'at-a2'],
+        update: function (g, t) {
+          var tt = t % 9;
+          var k = g.phase(tt, 2.6, 0.8);
+          g.arcPos('at-a', [ATX, 0.06, RZ - 1], [ATX + 1, 0.06, RZ - 1], k, 0.6);
+          var s = 1 - g.phase(tt, 3.1, 0.3);
+          var en = g.get('at-s');
+          en.scale.set(Math.max(s, 0.001), Math.max(s, 0.001), Math.max(s, 0.001));
+          g.get('at-arS').visible = tt < 2.6;
+          g.get('at-arF').visible = tt < 2.6;
+          g.get('at-a1').visible = tt < 3.5;
+          g.get('at-a2').visible = tt >= 3.5;
+          g.get('at-res').visible = tt >= 3.5;
+        },
+      },
+      {
+        title: '正面戦闘のダメージ',
+        html:
+          '<p>正面からの戦闘では、<b>兵数の差</b> で攻めた側の減り方が決まるよ（相性なしの場合）。</p>' +
+          '<table><tr><th>攻めた側の兵数</th><th>攻めた側が減る量</th></tr>' +
+          '<tr><td>相手より少ない</td><td><b>250</b> だけ</td></tr>' +
+          '<tr><td>相手と同じ</td><td><b>250</b>（相打ち）</td></tr>' +
+          '<tr><td>相手より多い</td><td>兵数の <b>差のぶん全部</b></td></tr></table>' +
+          '<p>例：歩1000 → 槍1200 なら歩は <b>750</b>。飛2500 → 歩1000 なら、飛は差の1500減って <b>1000</b>。どの場合も守った駒は消えるよ。</p>' +
+          '<div class="gg-note">⚠️ 今のプログラムだと、<b>兵数の多い駒で正面から攻めるほど、たくさん減っちゃう</b>。大きい駒は <b>横・後ろから攻める</b> とおトク。この計算は、これから変わるかもしれないよ。</div>' +
+          '<div class="gg-note">兵数は0より下にはならない。0になっても駒は盤に残って、そのまま動かせる（どうするかはまだ決まっていない＝作りかけ）。</div>',
+        camera: { pos: [FRX, 8.5, RZ + 14], target: [FRX, 1.0, RZ + 0.8] },
+        focus: ['fr'],
+        show: ['fr-an20', 'fr-an21', 'fr-an22', 'fr-ko0', 'fr-ko1', 'fr-ko2'],
+        update: function (g, t) {
+          var tt = t % 8;
+          var k = g.phase(tt, 0.7, 0.8);
+          EX.forEach(function (e, i) {
+            var ha = g.lerp(e[2], e[3], k) / 1000, hd = g.lerp(e[5], 0, k) / 1000;
+            var a = g.get('fr-a' + i), d = g.get('fr-d' + i);
+            a.scale.y = ha; a.position.y = ha / 2;
+            d.scale.y = Math.max(hd, 0.001); d.position.y = hd / 2;
+            d.visible = hd > 0.01;
+            g.get('fr-an' + i).visible = tt < 0.7;
+            g.get('fr-an2' + i).visible = tt >= 1.5;
+            g.get('fr-dn' + i).visible = tt < 0.7;
+            g.get('fr-ko' + i).visible = tt >= 1.5;
+          });
+        },
+      },
+      {
+        title: '兵種の相性',
+        html:
+          '<p style="text-align:center;font-size:17px"><b>槍 ＞ 歩 ＞ 弓 ＞ 馬 ＞ 槍</b></p>' +
+          '<p>攻めた側が有利な相性だと、<b>攻めた側が減る量が 1.3 で割られる</b>（少なくてすむ）よ。</p>' +
+          '<ul><li>王将は <b>槍</b>、飛車は <b>馬（騎兵）</b>、角は <b>弓</b> として数える</li>' +
+          '<li>効くのは <b>攻めた側が有利なとき</b> だけ。守る側が有利でも何も起きない</li></ul>' +
+          '<p>例：槍1200で歩1000を正面から → ふつうは差の200減るところ、200÷1.3＝<b>153</b> だけ減って残り <b>1047</b>。奇襲なら 250÷1.3＝<b>192</b> 減る。</p>' +
+          '<div class="gg-note">能力「突撃」（槍）を使っておくと、次の攻撃で倍率がさらに ×1.5。相性とあわせると 1.3×1.5＝<b>1.95</b> で割れるよ。</div>',
+        camera: { pos: [AFX, 10, RZ + 9.5], target: [AFX, 0.3, RZ + 0.9] },
+        focus: ['af'],
+        update: function (g, t) {
+          pulseOne(g, ['af0', 'af1', 'af2', 'af3'], Math.floor(t / 1.5) % 4, t, 0.15);
+        },
+      },
+      {
+        title: '成り：敵の陣地で兵数2倍',
+        html:
+          '<p>相手の陣地（相手側の <b>3段</b>）に入ると、<b>成る</b> かどうか聞かれるよ。</p>' +
+          '<ul><li>プレイヤー1（赤）は <b>下の3段</b>、プレイヤー2（青緑）は <b>上の3段</b></li>' +
+          '<li>「OK」で成ると <b>兵数が2倍</b>！ 例：弓1000 → <b>2000</b></li>' +
+          '<li>成っても <b>動き方は変わらない</b>。成れるのは1つの駒につき1回だけ</li>' +
+          '<li>「キャンセル」で成らなかったら、次にそのエリアの中で動いたときにまた聞かれる</li></ul>' +
+          '<div class="gg-note">敵を倒してそのエリアに入ったときも成れるよ。王将も成れる。CPUはいつも成る。</div>',
+        camera: { pos: [0, 12, 8.5], target: [0, 0, 0.5] },
+        focus: ['board', 'zone1', 'zone2', 'zl1', 'zl2', 'promo', 'promo-dlg', 'promo-ok'],
+        show: ['zone1', 'zone2', 'zl1', 'zl2', 'promo', 'promo-dlg', 'promo-ok'],
+        update: function (g, t) {
+          g.get('pcs').visible = false;
+          g.get('lbl-p1').visible = false;
+          g.get('lbl-p2').visible = false;
+          var tt = t % 8;
+          g.lerpPos('promo', B(5, 5), B(5, 6), g.phase(tt, 0.8, 0.8));
+          g.get('promo-dlg').visible = tt > 1.8 && tt < 3.6;
+          var done = tt >= 3.6;
+          g.get('promo-l1').visible = !done;
+          g.get('promo-l2').visible = done;
+          g.get('promo-ring').visible = done;
+          g.get('promo-ok').visible = done;
+          if (done) g.pulse('promo-ring', t, 0.1);
+        },
+      },
+      {
+        title: '能力を使う',
+        html:
+          '<ol><li><b>能力を使う</b> ボタンを押す（もう一度押すとキャンセル）</li>' +
+          '<li>能力を使いたい <b>自分の駒</b> をクリック</li></ol>' +
+          '<table><tr><th>駒</th><th>能力</th><th>効果</th></tr>' +
+          '<tr><td>槍兵</td><td>突撃</td><td>その駒の次の攻撃が ×1.5（減る量が÷1.5）</td></tr>' +
+          '<tr><td>弓兵</td><td>爆撃</td><td>上下左右1マスの敵に 500 ダメージ</td></tr>' +
+          '<tr><td>騎兵</td><td>突進</td><td>兵＋700。次の自分の番は攻撃できない（移動はOK）</td></tr>' +
+          '<tr><td>歩兵</td><td>鼓舞</td><td>兵＋1500</td></tr>' +
+          '<tr><td>王将</td><td>統率</td><td>味方全部の兵＋500（1ゲーム3回まで）</td></tr>' +
+          '<tr><td>飛車</td><td>強行突破</td><td>兵＋1000。次の自分の番は動けない</td></tr>' +
+          '<tr><td>角</td><td>範囲砲撃</td><td>2マス以内（ひし形）の敵に 250 ダメージ</td></tr></table>' +
+          '<ul><li>能力は <b>プレイヤーごとに3ターンに1回</b>。どの駒で使っても、使ったらそのあと2ターンは使えない</li>' +
+          '<li>使っても番は終わらない。そのあと駒を動かせるよ</li>' +
+          '<li>範囲ダメージで兵数が0になっても、駒は消えない</li></ul>',
+        camera: { pos: [ABX - 0.5, 12, RZ + 12], target: [ABX - 0.5, 0, RZ + 0.3] },
+        focus: ['ab'],
+        show: ['ab-hit0', 'ab-hit1', 'ab-hit2'],
+        update: function (g, t) {
+          var tt = t % 6;
+          g.get('ab-area').visible = tt > 0.8;
+          [0, 1, 2].forEach(function (i) { g.get('ab-hit' + i).visible = tt > 1.6; });
+          g.pulse('abt6', t, 0.06);
+        },
+      },
+      {
+        title: 'アイテムカード（作りかけ）',
+        html:
+          '<p>アイテムカードは全部で <b>40枚（10種類）</b>。</p>' +
+          '<ul><li>最初に <b>5枚</b> ずつ配られる</li>' +
+          '<li>相手の番が終わって自分の番になるたび、山札から <b>1枚</b> 引く（山札がなくなったら引けない）</li>' +
+          '<li>手札のカードをクリックすると使う。<b>1ターンに1枚</b> まで</li></ul>' +
+          '<div class="gg-note">⚠️ <b>作りかけ</b>：今はカードを使っても <b>手札から消えるだけで、効果はまだ何も起きない</b>。カードに書いてある効果は「これから作る予定」だよ。</div>',
+        camera: { pos: [CDX, 3.2, 11.5], target: [CDX, 2.9, 0] },
+        focus: ['cd'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.4) % 10;
+          for (var i = 0; i < 10; i++) {
+            var c = g.get('cd' + i);
+            c.position.z = i === k ? 0.5 : 0;
+          }
+        },
+      },
+      {
+        title: 'LAN対戦の始め方',
+        html:
+          '<p>同じ Wi-Fi（LAN）につながっているPC同士で、2人で対戦できるよ。</p>' +
+          '<ol><li><b>ホスト役のPC</b>で、ゲームのフォルダを開いたターミナル（黒い画面）で <code>npm install</code>（はじめての1回だけ）→ <code>npm start</code></li>' +
+          '<li>ホスト役はブラウザで <code>http://localhost:3000</code> を開いて <b>ホストになる</b> → 名前を入れて <b>部屋を作成</b></li>' +
+          '<li>画面に出た <b>4文字のコード</b> を相手に教える</li>' +
+          '<li>相手は <code>http://192.168.x.x:3000</code>（ホストPCのIPアドレス）を開いて <b>ゲストで参加</b> → 名前とコードを入れて <b>参加</b></li>' +
+          '<li>2人そろったら対戦スタート！ ホストが <b>プレイヤー1（赤・先手）</b>、ゲストが <b>プレイヤー2（青緑）</b></li></ol>' +
+          '<div class="gg-note">index.html をダブルクリックで開いたときは、LAN対戦はできないよ（サーバーが必要）。部屋はゲストが5分来ないと消える。どちらかが切断すると対戦は終わって、最初の画面にもどる。LAN対戦中はゲームリセットできない。</div>',
+        camera: { pos: [LNX, 11, RZ + 14], target: [LNX, 0.8, RZ + 0.6] },
+        focus: ['lan'],
+        update: function (g, t) { g.pulse('l-code', t, 0.06); },
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li><code>index.html</code> を開いて <b>CPU対戦</b>（LAN対戦は <code>npm start</code> から）</li>' +
+          '<li>自分の駒をクリック → 緑のマスをクリックで移動。<b>1回動かすと相手の番</b></li>' +
+          '<li>敵のマスに入ると戦闘。<b>守った駒はかならず消えて</b>、攻めた側の兵数が減る</li>' +
+          '<li><b>横・後ろからの奇襲</b> なら250減るだけ。正面だと兵数の差で減る</li>' +
+          '<li>相性 <b>槍＞歩＞弓＞馬＞槍</b> で有利なら、減る量が÷1.3</li>' +
+          '<li>敵の陣地（3段）に入ったら <b>成って兵数×2</b></li>' +
+          '<li><b>能力</b> は3ターンに1回。カードは今は効果なし（作りかけ）</li>' +
+          '<li>相手の <b>王将</b> を取ったら勝ち！</li></ol>' +
+          '<p>それじゃあ、天下をめざしてがんばってね！🏯</p>',
+        camera: { pos: [0, 12, 10.5], target: [0, 0, 0.2] },
+        focus: ['board', 'pcs', 'lbl-p1', 'lbl-p2', 'win-lbl'],
+        show: ['win-lbl'],
+        update: function (g, t) { g.pulse('pc-0-0', t, 0.2); g.pulse('pc-8-7', t + 1, 0.2); },
+      },
+    ],
+  };
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = '覇権戦国 | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>

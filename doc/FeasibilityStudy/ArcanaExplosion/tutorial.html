@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcanaExplosion | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // マークの色（カードの枠と文字）
+  var SC = { S: '#3a3f8f', H: '#d63031', D: '#e67e22', C: '#16a085' };
+
+  // ---------- 舞台の置き場所（ステップのカメラでも使うので start より先に決めておく） ----------
+  var AR = {
+    board: [0, 0],      // 盤面（ようこそ・撃破・まとめ）
+    launch: [-34, 0],   // 起動とモード選び
+    screen: [34, 0],    // 画面の見方
+    stats: [0, -34],    // カードの強さ
+    turn: [-34, -34],   // ターンの始まり
+    act: [34, -34],     // 1ターンにできること
+    dmg: [0, 34],       // ダメージ計算
+    fat: [-34, 34],     // 疲労と退場
+    jqk: [34, 34],      // J・Q・K の技
+    ace: [0, 68],       // A と魔王
+    item: [-34, 68],    // アイテム
+    tf: [34, 68],       // 第三勢力
+    lan: [0, -68],      // ネットワーク対戦
+  };
+  function CAM(k, p, t) {
+    var a = AR[k];
+    return { pos: [a[0] + p[0], p[1], a[1] + p[2]], target: [a[0] + t[0], t[1], a[1] + t[2]] };
+  }
+  var CAM_BOARD = CAM('board', [0, 9.5, 19.5], [0, 2.0, 0]);
+
+  var CFG = {
+    title: 'ArcanaExplosion 遊び方',
+    back: '../index.html',
+    subtitle: 'トランプがキャラクターとアイテムに変身して戦うカードバトル。はじめての人向けのチュートリアル',
+    camera: CAM_BOARD,
+
+    build: function (g) {
+      function grp(id, k) { return g.group(id, { pos: [AR[k][0], 0, AR[k][1]] }); }
+      function L(id, parent, text, pos, size, color, bg) {
+        return g.label(text, pos, { id: id, parent: parent, size: size || 0.34, color: color, bg: bg === undefined ? '#000000aa' : bg });
+      }
+      function card(id, parent, pos, text, sub, color, w, more) {
+        var o = { id: id, parent: parent, pos: pos, lying: false, text: text, sub: sub, color: color, w: w || 1.2 };
+        if (more) for (var k in more) o[k] = more[k];
+        return g.card(o);
+      }
+
+      // ======================= 盤面（ようこそ・撃破・まとめ） =======================
+      grp('a-board', 'board');
+      g.plate({ id: 'bd-floor', parent: 'a-board', size: [19.5, 9.5], pos: [0, 0.02, 0], color: '#241f38', opacity: 0.95 });
+      // トレーナーHP（柱の高さ＝HP）
+      g.box({ id: 'bd-hp-me', parent: 'a-board', size: [1.1, 3, 1.1], pos: [-8.2, 1.5, 0], color: C.me });
+      g.box({ id: 'bd-hp-op', parent: 'a-board', size: [1.1, 3, 1.1], pos: [8.2, 1.5, 0], color: C.enemy });
+      L('bd-hp-me-l', 'a-board', 'あなたのトレーナー\nHP 200', [-8.2, 3.8, 0], 0.34);
+      L('bd-hp-op-l', 'a-board', '相手のトレーナー\nHP 200', [8.2, 3.8, 0], 0.34);
+      // バトル場
+      card('bd-bat-me', 'a-board', [-4.4, 2.75, -0.6], '♦10', '攻120\n防80', SC.D, 1.5);
+      card('bd-bat-op', 'a-board', [4.4, 2.75, -0.6], '♠9', '攻120\n防60', SC.S, 1.5);
+      L('bd-bat-me-l', 'a-board', 'バトル場', [-4.4, 4.25, -0.6], 0.34, '#ffd166');
+      L('bd-bat-op-l', 'a-board', 'バトル場', [4.4, 4.25, -0.6], 0.34, '#ffd166');
+      // デッキ（控え3枠）
+      [['♥Q', '攻100\n防140', SC.H], ['♣5', '攻50\n防50', SC.C], ['♠3', '攻60\n防10', SC.S]].forEach(function (c, i) {
+        card('bd-dk-me' + i, 'a-board', [-5.8 + i * 1.4, 0.8, 1.7], c[0], c[1], c[2], 0.95);
+        card('bd-dk-op' + i, 'a-board', [3.0 + i * 1.4, 0.8, 1.7], ['♥Q', '♦6', '♣9'][i], ['攻100\n防140', '攻80\n防40', '攻90\n防90'][i], [SC.H, SC.D, SC.C][i], 0.95, { faceDown: true, backColor: '#6a2c3e' });
+      });
+      L('bd-dk-me-l', 'a-board', 'デッキ（控え3枠）', [-4.4, 0.3, 3.15], 0.3);
+      L('bd-dk-op-l', 'a-board', 'デッキ（相手には伏せ札）', [4.4, 0.3, 3.15], 0.3);
+      L('bd-vs', 'a-board', 'VS', [0, 2.7, -0.6], 0.8, '#ffffff', null);
+      L('bd-goal', 'a-board', '相手のトレーナーHPを 0 にしたら勝ち！', [0, 5.5, -0.6], 0.5, C.gold);
+      // STEP8：撃破
+      g.group('bd-s8', { parent: 'a-board' });
+      g.arrow([-3.5, 3.0, -0.6], [3.5, 3.0, -0.6], { id: 'bd8-atk', parent: 'bd-s8', color: C.gold, lift: 1.4, radius: 0.07 });
+      L('bd8-ko', 'bd-s8', '撃破！', [4.4, 1.6, 0.6], 0.7, C.enemy);
+      L('bd8-hp', 'bd-s8', '−30', [8.2, 4.75, 0], 0.6, C.enemy);
+      L('bd8-note', 'bd-s8', '倒されたキャラクターの持ち主は トレーナーHP −30', [0, 5.5, -0.6], 0.42, C.gold);
+      g.arrow([3.0, 1.6, 1.7], [4.2, 1.9, -0.4], { id: 'bd8-pro', parent: 'bd-s8', color: C.good, lift: 0.8, radius: 0.05 });
+      L('bd8-pro-l', 'bd-s8', 'デッキから1体えらんで\nバトル場へ', [1.3, 1.25, 2.4], 0.3, C.good);
+
+      // ======================= 起動とモード選び =======================
+      grp('a-launch', 'launch');
+      g.plate({ id: 'ln-floor', parent: 'a-launch', size: [21, 9], pos: [0.6, 0.02, 0], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'ln-bat1', parent: 'a-launch', size: [2.6, 0.5, 1.5], pos: [-7, 0.25, -2], color: '#43a047' });
+      g.box({ id: 'ln-bat2', parent: 'a-launch', size: [2.6, 0.5, 1.5], pos: [-7, 0.25, 2], color: '#1e88e5' });
+      L('ln-bat1-l', 'a-launch', 'ひとりで遊ぶ.bat\n（このPCだけ）', [-7, 1.25, -2], 0.3);
+      L('ln-bat2-l', 'a-launch', 'みんなで遊ぶ（スマホもOK）.bat\n（スマホ・ほかのPCからも）', [-7, 1.25, 2], 0.3);
+      g.box({ id: 'ln-con', parent: 'a-launch', size: [2.6, 1.9, 0.25], pos: [-2.6, 1.1, 0], color: '#111111', edgeColor: '#7ef0ff' });
+      L('ln-con-l', 'a-launch', '黒い画面\n（サーバー）\n遊ぶあいだは\n閉じないでね', [-2.6, 1.1, 0.35], 0.3, '#ffffff', null);
+      g.arrow([-5.6, 0.6, -1.7], [-3.8, 0.9, -0.2], { id: 'ln-a1', parent: 'a-launch', color: C.gold, lift: 0.5 });
+      g.arrow([-5.6, 0.6, 1.7], [-3.8, 0.9, 0.2], { id: 'ln-a2', parent: 'a-launch', color: C.gold, lift: 0.5 });
+      var PNL = [
+        ['① スキンをえらぶ\nカードの名前や\n絵柄のセット', '#7b5cff'],
+        ['② 遊びかた\n🤖 CPU対戦\n🌐 ネットワーク対戦', '#ff9f43'],
+        ['③ CPUの強さ\n🐣初級 ⚔️中級\n🔥上級', '#5ee6a8'],
+      ];
+      PNL.forEach(function (p, i) {
+        var x = 1.6 + i * 3.4;
+        g.box({ id: 'ln-p' + i, parent: 'a-launch', size: [3.1, 2.3, 0.12], pos: [x, 1.35, 0], color: '#f4f2ff', edgeColor: p[1] });
+        L('ln-p' + i + '-l', 'a-launch', p[0], [x, 1.35, 0.2], 0.32, '#ffffff', '#000000cc');
+        if (i < 2) g.arrow([x + 1.5, 1.25, 0.1], [x + 1.9, 1.25, 0.1], { id: 'ln-pa' + i, parent: 'a-launch', color: C.gold, lift: 0.25, head: 0.2 });
+      });
+      g.arrow([-1.4, 1.0, 0.1], [0.1, 1.2, 0.1], { id: 'ln-a3', parent: 'a-launch', color: C.data, lift: 0.4 });
+      L('ln-br', 'a-launch', 'ブラウザが自動で開くよ', [4.9, 3.0, 0], 0.36, C.data);
+
+      // ======================= 画面の見方（ゲーム画面の模型） =======================
+      grp('a-screen', 'screen');
+      g.plate({ id: 'sc-floor', parent: 'a-screen', size: [12.6, 10.4], pos: [-0.5, 0.02, 0], color: '#bdb8d6', opacity: 1, radius: 0.1 });
+      function ui(id, x, z, w, d, col) {
+        g.box({ id: id, parent: 'a-screen', size: [w, 0.12, d], pos: [x, 0.1, z], color: col, edges: false });
+      }
+      var RX = -9.0; // 左の説明ラベルの列
+      ui('sc-top', -0.5, -4.75, 12.2, 0.55, '#3b3561');
+      ui('sc-ophp', -3.0, -3.9, 6.0, 0.4, C.enemy);
+      ui('sc-opbat', -5.4, -2.9, 0.7, 0.95, SC.S);
+      [0, 1, 2].forEach(function (i) { ui('sc-opdk' + i, -4.3 + i * 0.9, -2.9, 0.7, 0.95, '#6a2c3e'); });
+      ui('sc-tf', -0.9, -2.9, 0.7, 0.95, C.third);
+      ui('sc-vs', -3.0, -1.95, 6.6, 0.06, '#555577');
+      ui('sc-mybat', -5.4, -1.0, 0.7, 0.95, SC.D);
+      ui('sc-end', -3.6, -1.0, 1.6, 0.45, '#e53935');
+      [0, 1, 2].forEach(function (i) { ui('sc-mydk' + i, -5.4 + i * 0.9, 0.15, 0.7, 0.95, '#4a6fa5'); });
+      ui('sc-myhp', -3.0, 1.15, 6.0, 0.4, C.me);
+      [0, 1, 2, 3].forEach(function (i) { ui('sc-ch' + i, -5.5 + i * 0.8, 2.25, 0.6, 0.85, '#8e7cc3'); });
+      [0, 1, 2, 3, 4].forEach(function (i) { ui('sc-it' + i, -5.5 + i * 0.8, 3.35, 0.6, 0.85, '#2e7d32'); });
+      ui('sc-hint', -3.0, 4.3, 6.0, 0.35, '#fff3b0');
+      ui('sc-side', 3.9, -0.2, 3.2, 8.4, '#2a2a40');
+      L('sc-l-top', 'a-screen', 'ターン数・図鑑・⚙️オプション', [RX, 0.3, -4.75], 0.34);
+      L('sc-l-ophp', 'a-screen', '相手のトレーナーHP', [RX, 0.3, -3.9], 0.34, '#ffb3b8');
+      L('sc-l-opbat', 'a-screen', '相手のバトル場・デッキ', [RX, 0.3, -2.9], 0.34, '#ffb3b8');
+      L('sc-l-tf', 'a-screen', '第三勢力', [-0.9, 0.75, -2.9], 0.26, '#e3c2ff');
+      L('sc-l-mybat', 'a-screen', '自分のバトル場', [RX, 0.3, -1.0], 0.34, '#bcdcff');
+      L('sc-l-end', 'a-screen', 'ターン終了', [-3.6, 0.65, -1.0], 0.26, '#ffffff');
+      L('sc-l-mydk', 'a-screen', '自分のデッキ（控え3枠）', [RX, 0.3, 0.15], 0.34, '#bcdcff');
+      L('sc-l-myhp', 'a-screen', '自分のトレーナーHP', [RX, 0.3, 1.15], 0.34, '#bcdcff');
+      L('sc-l-ch', 'a-screen', 'ベンチ（出す前のキャラ）', [RX, 0.3, 2.25], 0.34, '#d9ccff');
+      L('sc-l-it', 'a-screen', 'アイテム手札', [RX, 0.3, 3.35], 0.34, '#b9f0c0');
+      L('sc-l-hint', 'a-screen', '案内メッセージ', [RX, 0.3, 4.3], 0.34);
+      L('sc-l-side', 'a-screen', 'ログ\nルール\nアイテム一覧\nキャラ一覧', [3.9, 0.6, -0.2], 0.3);
+
+      // ======================= カードの強さ =======================
+      grp('a-stats', 'stats');
+      g.plate({ id: 'st-floor', parent: 'a-stats', size: [14.5, 7], pos: [0, 0.02, 0.6], color: '#241f38', opacity: 0.95 });
+      var STATS = [
+        ['S', '♠7', 100, 40, '♠ スペード\n攻+30・防−30'],
+        ['H', '♥7', 50, 90, '♥ ハート\n攻−20・防+20'],
+        ['D', '♦7', 90, 50, '♦ ダイヤ\n攻+20・防−20'],
+        ['C', '♣7', 70, 70, '♣ クラブ\nそのまま'],
+      ];
+      STATS.forEach(function (s, i) {
+        var cx = -5.1 + i * 3.4;
+        card('st-c' + i, 'a-stats', [cx - 0.7, 1.15, 0.6], s[1], '攻' + s[2] + '\n防' + s[3], SC[s[0]], 1.15);
+        g.box({ id: 'st-a' + i, parent: 'a-stats', size: [0.45, s[2] / 40, 0.45], pos: [cx + 0.55, s[2] / 80, 0.3], color: '#ff6b6b' });
+        g.box({ id: 'st-d' + i, parent: 'a-stats', size: [0.45, s[3] / 40, 0.45], pos: [cx + 1.1, s[3] / 80, 0.3], color: '#4fa3ff' });
+        L('st-al' + i, 'a-stats', '攻' + s[2], [cx + 0.55, s[2] / 40 + 0.3, 0.3], 0.24, '#ffb3b3');
+        L('st-dl' + i, 'a-stats', '防' + s[3], [cx + 1.1, s[3] / 40 + 0.62, 0.3], 0.24, '#b3d4ff');
+        L('st-sl' + i, 'a-stats', s[4], [cx, 0.3, 2.65], 0.28);
+      });
+      L('st-title', 'a-stats', '強さ ＝ 数字×10 ＋ マークのクセ', [0, 4.0, 0.3], 0.45, C.gold);
+
+      // ======================= ターンの始まり =======================
+      grp('a-turn', 'turn');
+      g.plate({ id: 'tn-floor', parent: 'a-turn', size: [15, 10], pos: [0, 0.02, -0.4], color: '#231f33', opacity: 0.95 });
+      var TSEQ = ['① 疲労が1へる', '② 毒などのダメージ', '③ キャラを1枚引く', '④ アイテムを1枚引く'];
+      TSEQ.forEach(function (s, i) {
+        var x = -5.1 + i * 3.4;
+        g.cylinder({ id: 'tn-s' + i, parent: 'a-turn', radius: 0.55, height: 0.3, pos: [x, 0.17, -4.4], color: '#555066' });
+        L('tn-sl' + i, 'a-turn', s, [x, 0.95, -4.4], 0.32);
+      });
+      g.box({ id: 'tn-cdeck', parent: 'a-turn', size: [1.0, 0.6, 1.4], pos: [-5.2, 0.3, -1.0], color: '#3b2f7a' });
+      g.box({ id: 'tn-ideck', parent: 'a-turn', size: [1.0, 0.6, 1.4], pos: [-5.2, 0.3, 2.2], color: '#2e5d3a' });
+      L('tn-cdeck-l', 'a-turn', 'キャラクター山札\n（1人1組 52枚）', [-5.2, 1.25, -0.6], 0.26);
+      L('tn-ideck-l', 'a-turn', 'アイテム山札\n（2人で共有 52枚）', [-5.2, 1.25, 2.6], 0.26);
+      [['♣8', '攻80\n防80', SC.C], ['♥4', '攻20\n防60', SC.H]].forEach(function (c, i) {
+        card('tn-ch' + i, 'a-turn', [-0.6 + i * 1.25, 0.9, -1.0], c[0], c[1], c[2], 1.1);
+      });
+      card('tn-chnew', 'a-turn', [1.9, 0.9, -1.0], '♦J', '攻130\n防90', SC.D, 1.1);
+      [['♥5', SC.H], ['♦3', SC.D], ['♠8', SC.S]].forEach(function (c, i) {
+        card('tn-it' + i, 'a-turn', [-0.6 + i * 1.25, 0.9, 2.2], c[0], 'アイテム', c[1], 1.1, { face: '#f3fff4' });
+      });
+      card('tn-itnew', 'a-turn', [3.15, 0.9, 2.2], '♣4', 'アイテム', SC.C, 1.1, { face: '#f3fff4' });
+      L('tn-ch-l', 'a-turn', 'ベンチ\n（キャラ手札）\n最大7枚', [5.4, 0.9, -1.0], 0.32, '#d9ccff');
+      L('tn-it-l', 'a-turn', 'アイテム手札\n最大7枚', [5.4, 0.9, 2.2], 0.32, '#b9f0c0');
+
+      // ======================= 1ターンにできること =======================
+      grp('a-act', 'act');
+      g.plate({ id: 'ac-floor', parent: 'a-act', size: [17, 8], pos: [0.3, 0.02, 0.4], color: '#231f33', opacity: 0.95 });
+      var ACTS = [
+        ['⚔️ 攻撃\n1ターン 1回', '相手のバトル場を\nクリック'],
+        ['🔄 交代\n1ターン 1回', '自分のデッキを\nクリック'],
+        ['🎒 アイテム\n1ターン 1枚', 'アイテム手札を\nクリック'],
+        ['🃏 配置\n何回でも', 'ベンチのカードを\nクリック'],
+      ];
+      ACTS.forEach(function (a, i) {
+        var x = -6.3 + i * 3.0;
+        g.cylinder({ id: 'ac-p' + i, parent: 'a-act', radius: 1.0, height: 0.6, pos: [x, 0.3, 0], color: '#555066' });
+        L('ac-pl' + i, 'a-act', a[0], [x, 1.55, 0], 0.32);
+        L('ac-ph' + i, 'a-act', a[1], [x, 0.3, 2.05], 0.27, '#d8d4f0');
+      });
+      g.box({ id: 'ac-end', parent: 'a-act', size: [2.6, 0.5, 1.2], pos: [6.2, 0.25, 0], color: '#666666' });
+      L('ac-end-l', 'a-act', 'ターン終了ボタン', [6.2, 2.85, 0], 0.3);
+      [['#e53935'], ['#43a047'], ['#ffc107']].forEach(function (c, i) {
+        g.sphere({ id: 'ac-lamp' + i, parent: 'a-act', radius: 0.32, pos: [5.4 + i * 0.8, 1.65, 0], color: '#333333' });
+      });
+      L('ac-lamp-l', 'a-act', '赤：まだ攻撃できる\n緑：攻撃した\n金：もうできる事なし', [6.2, 0.3, 2.35], 0.27);
+
+      // ======================= ダメージ計算 =======================
+      grp('a-dmg', 'dmg');
+      g.plate({ id: 'dm-floor', parent: 'a-dmg', size: [16.5, 8], pos: [0.5, 0.02, 0.6], color: '#1a1a2e', opacity: 0.95 });
+      card('dm-me', 'a-dmg', [-5.6, 1.5, 0], '♦10', '攻120\n防80', SC.D, 1.5);
+      card('dm-op', 'a-dmg', [4.4, 1.5, 0], '♥5', '攻30\n防70', SC.H, 1.5);
+      L('dm-me-l', 'a-dmg', 'あなたのバトル場', [-5.6, 3.05, 0], 0.32, '#bcdcff');
+      L('dm-op-l', 'a-dmg', '相手のバトル場', [4.4, 3.05, 0], 0.32, '#ffb3b8');
+      g.box({ id: 'dm-atk', parent: 'a-dmg', size: [0.8, 1, 0.8], pos: [-3.4, 1.5, 0], color: '#ff6b6b' });
+      g.box({ id: 'dm-def', parent: 'a-dmg', size: [0.8, 1, 0.8], pos: [2.3, 0.875, 0], color: '#4fa3ff' });
+      g.box({ id: 'dm-hp', parent: 'a-dmg', size: [0.8, 1, 0.8], pos: [6.6, 1.25, 0], color: C.good });
+      L('dm-atk-l', 'a-dmg', '攻撃 120', [-3.4, 3.4, 0], 0.32, '#ffb3b3');
+      L('dm-def-l', 'a-dmg', '防御 70', [2.3, 2.15, 0], 0.32, '#b3d4ff');
+      L('dm-hp-l', 'a-dmg', 'HP 100', [6.6, 2.9, 0], 0.32, C.good);
+      g.arrow([-3.0, 3.1, 0], [1.9, 1.9, 0], { id: 'dm-arrow', parent: 'a-dmg', color: C.gold, lift: 1.2, radius: 0.06 });
+      L('dm-f', 'a-dmg', '120 − 70 ＝ 50 ダメージ！', [-0.5, 4.5, 0], 0.48, C.gold);
+      L('dm-min', 'a-dmg', '防御のほうが高くても、最低 10 ダメージは入るよ', [0.5, 0.3, 3.2], 0.32);
+
+      // ======================= 疲労と退場 =======================
+      grp('a-fat', 'fat');
+      g.plate({ id: 'ft-floor', parent: 'a-fat', size: [16, 8], pos: [0, 0.02, 0.5], color: '#231f33', opacity: 0.95 });
+      var FT = [
+        ['⚔️ 攻撃！\n疲労 2', '#c0392b'],
+        ['😴 攻撃できない\n疲労 1', '#5d6d7e'],
+        ['⚔️ 攻撃！\n疲労 2', '#c0392b'],
+        ['🚪 退場\n（3ターンまで）', '#7f8c8d'],
+      ];
+      FT.forEach(function (f, i) {
+        var x = -5.4 + i * 3.6;
+        g.box({ id: 'ft-p' + i, parent: 'a-fat', size: [2.6, 0.4, 2.0], pos: [x, 0.2, 0], color: '#3a3555' });
+        L('ft-n' + i, 'a-fat', '自分のターン' + (i + 1), [x, 0.3, 1.75], 0.3);
+        L('ft-s' + i, 'a-fat', f[0], [x, 3.25, 0], 0.32);
+      });
+      card('ft-card', 'a-fat', [-5.4, 1.45, 0], '♣9', '攻90\n防90', SC.C, 1.5);
+      L('ft-title', 'a-fat', '1体のキャラクターが攻撃できるのは、ふつう2回だけ', [0, 4.55, 0], 0.4, C.gold);
+      L('ft-note', 'a-fat', 'ほかに：3回攻撃しても退場（疲労しない技などのとき）', [0, 0.3, 3.4], 0.3);
+
+      // ======================= J・Q・K の技 =======================
+      grp('a-jqk', 'jqk');
+      g.plate({ id: 'jq-floor', parent: 'a-jqk', size: [9.5, 2.4], pos: [0, 0.02, 0.4], color: '#231f33', opacity: 0.95 });
+      var JQK = [
+        // [マーク, ランク, 下段の文字]
+        ['S', 'J', 'ダメージ+50\n自分に30'], ['H', 'J', '毎ターン\n全員HP+20'], ['D', 'J', '相手デッキ\n全体に20'], ['C', 'J', '相手を\n疲労させる'],
+        ['S', 'Q', '毒をあたえる\n毎ターン20'], ['H', 'Q', '★デッキで\n防御+30'], ['D', 'Q', '相手の防御を\n半分で計算'], ['C', 'Q', '登場時に\nアイテム2枚'],
+        ['S', 'K', '疲労しない\n毎回自分に20'], ['H', 'K', '登場時に\nトレーナー回復'], ['D', 'K', '相手トレーナー\nにも20'], ['C', 'K', '★デッキで\n攻撃+30'],
+      ];
+      var MARK = { S: '♠', H: '♥', D: '♦', C: '♣' };
+      JQK.forEach(function (c, i) {
+        var col = i % 4, row = Math.floor(i / 4);
+        card('jq' + i, 'a-jqk', [-2.6 + col * 1.75, 5.0 - row * 2.0, 0], MARK[c[0]] + c[1], c[2], SC[c[0]], 1.3);
+      });
+      ['♠ スペード', '♥ ハート', '♦ ダイヤ', '♣ クラブ'].forEach(function (s, i) {
+        L('jq-h' + i, 'a-jqk', s, [-2.6 + i * 1.75, 6.35, 0], 0.28, SC[['S', 'H', 'D', 'C'][i]] === SC.S ? '#aab4ff' : null);
+      });
+      ['J', 'Q', 'K'].forEach(function (r, i) { L('jq-r' + i, 'a-jqk', r, [-4.1, 5.0 - i * 2.0, 0], 0.5, C.gold); });
+
+      // ======================= A と魔王 =======================
+      grp('a-ace', 'ace');
+      g.plate({ id: 'ae-floor', parent: 'a-ace', size: [14, 7.5], pos: [0, 0.02, 0.4], color: '#231f33', opacity: 0.95 });
+      var ACE = [
+        ['S', '魔王に変身\nHP250', '魔王オフなら\n攻100・防100'],
+        ['H', '1度だけ\n全快で復活', '攻90・防90'],
+        ['D', '攻撃200\n1回で退場', '攻200・防20'],
+        ['C', '登場時に\nアイテム補充', '攻80・防120\n手札を7枚まで'],
+      ];
+      ACE.forEach(function (a, i) {
+        var x = -4.8 + i * 3.2;
+        card('ae' + i, 'a-ace', [x, 1.6, 0], MARK[a[0]] + 'A', a[1], SC[a[0]], 1.6);
+        L('ae-l' + i, 'a-ace', a[2], [x, 0.3, 1.6], 0.28);
+      });
+      g.sphere({ id: 'ae-demon', parent: 'a-ace', radius: 0.95, pos: [-4.8, 2.2, -2.3], color: '#6c2bd9', emissive: '#3a0f80', emissiveIntensity: 0.6 });
+      L('ae-demon-l', 'a-ace', '👹 魔王 HP250\n攻150・防150', [-4.8, 3.95, -2.3], 0.32, '#e3c2ff');
+      L('ae-opt', 'a-ace', '⚙️オプションで「技」や「魔王」をオフにもできるよ', [0, 0.3, 3.4], 0.3, C.data);
+
+      // ======================= アイテム =======================
+      grp('a-item', 'item');
+      g.plate({ id: 'it-floor', parent: 'a-item', size: [16, 9.4], pos: [0, 0.02, -0.4], color: '#1f2a24', opacity: 0.95 });
+      g.box({ id: 'it-pile', parent: 'a-item', size: [1.1, 0.8, 1.5], pos: [0, 0.4, -4.0], color: '#2e5d3a' });
+      L('it-pile-l', 'a-item', 'アイテム山札（2人で共有）', [0, 1.4, -4.0], 0.3);
+      L('it-me', 'a-item', 'あなた', [-6.2, 0.4, -4.0], 0.36, C.me);
+      L('it-op', 'a-item', '相手', [6.2, 0.4, -4.0], 0.36, C.enemy);
+      g.arrow([-0.7, 0.8, -4.0], [-5.4, 0.5, -4.0], { id: 'it-a1', parent: 'a-item', color: C.good, lift: 0.8 });
+      g.arrow([0.7, 0.8, -4.0], [5.6, 0.5, -4.0], { id: 'it-a2', parent: 'a-item', color: C.good, lift: 0.8 });
+      [['♥', '回復・\nバリア'], ['♦', '武器\n攻撃+10〜'], ['♣', '作戦\nのぞき見など'], ['♠', '強いけど\n代償つき']].forEach(function (c, i) {
+        var s = ['H', 'D', 'C', 'S'][i];
+        card('it-c' + i, 'a-item', [-6.6 + i * 2.0, 1.45, 1.4], c[0], c[1], SC[s], 1.5, { face: '#f3fff4' });
+      });
+      L('it-cl', 'a-item', 'マークごとの だいたいの傾向\n（デフォルトのスキン）', [-3.6, 0.3, 3.5], 0.3);
+      card('it-k', 'a-item', [2.4, 1.45, 1.4], '♣K', '神軍降臨\nHP40以下', SC.C, 1.5, { face: '#fff8e6' });
+      card('it-a', 'a-item', [5.8, 1.45, 1.4], '♠A', '魔神軍\n降臨', SC.S, 1.5, { face: '#fff8e6' });
+      L('it-kl', 'a-item', '代償 トレーナーHP−10\nデッキに強い仲間3体', [2.4, 0.3, 3.5], 0.28, '#ffe08a');
+      L('it-al', 'a-item', 'いつでも使える\n代償 トレーナーHP−50', [5.8, 0.3, 3.5], 0.28, '#ffe08a');
+
+      // ======================= 第三勢力 =======================
+      grp('a-tf', 'tf');
+      g.plate({ id: 'tf-floor', parent: 'a-tf', size: [16, 9], pos: [0, 0.02, 0.4], color: '#22192e', opacity: 0.95 });
+      card('tf-me', 'a-tf', [-5.0, 1.3, 1.2], '♦10', 'あなた', C.me, 1.3);
+      card('tf-op', 'a-tf', [5.0, 1.3, 1.2], '♠9', '相手', C.enemy, 1.3);
+      card('tf-x', 'a-tf', [0, 2.3, -2.2], '♠10', '第三勢力\nHP100', C.third, 1.5, { face: '#f6edff' });
+      L('tf-x-l', 'a-tf', '🌩️ 第三勢力（合計3ターン目に乱入）', [0, 4.2, -2.2], 0.34, '#e3c2ff');
+      g.arrow([-0.6, 2.3, -1.6], [-4.4, 2.0, 0.9], { id: 'tf-a-me', parent: 'a-tf', color: C.third, lift: 0.9, radius: 0.06 });
+      g.arrow([0.6, 2.3, -1.6], [4.4, 2.0, 0.9], { id: 'tf-a-op', parent: 'a-tf', color: C.third, lift: 0.9, radius: 0.06 });
+      L('tf-a-l', 'a-tf', 'ターン終了のたびに\nどちらかを攻撃', [0, 1.0, 0.9], 0.3, '#e3c2ff');
+      g.arrow([-4.4, 2.3, 0.7], [-0.8, 2.6, -1.8], { id: 'tf-a-mine', parent: 'a-tf', color: C.gold, lift: 1.4, radius: 0.07 });
+      L('tf-mine-l', 'a-tf', '自分の攻撃を\nこっちに向けてもOK', [-3.0, 3.85, -0.4], 0.3, C.gold);
+      [0, 1, 2].forEach(function (i) { card('tf-dk' + i, 'a-tf', [-6.4 + i * 1.0, 0.6, 3.3], '', '', '#4a6fa5', 0.7, { faceDown: true, backColor: '#2c3e66' }); });
+      L('tf-dk-l', 'a-tf', '倒すと自分のデッキに仲間入り！\n次は3ターン後に登場', [-1.6, 0.35, 3.6], 0.28, C.good);
+
+      // ======================= ネットワーク対戦 =======================
+      grp('a-lan', 'lan');
+      g.plate({ id: 'la-floor', parent: 'a-lan', size: [16, 9], pos: [0, 0.02, 0.4], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'la-host', parent: 'a-lan', size: [3, 1.5, 1.8], pos: [0, 0.75, -2.4], color: C.server });
+      L('la-host-l', 'a-lan', 'サーバー役のPC（1台だけ）\n「みんなで遊ぶ（スマホもOK）.bat」', [0, 2.2, -2.4], 0.3);
+      g.box({ id: 'la-p1', parent: 'a-lan', size: [2.4, 1.2, 1.5], pos: [-5.0, 0.6, 1.6], color: C.me });
+      L('la-p1-l', 'a-lan', '🏠 部屋を作る人（先攻）\n合言葉が出る', [-5.0, 1.95, 1.6], 0.29);
+      g.box({ id: 'la-p2', parent: 'a-lan', size: [1.0, 1.7, 0.25], pos: [5.0, 0.85, 1.6], color: C.enemy });
+      L('la-p2-l', 'a-lan', '🔎 部屋に入る人（スマホもOK）\n一覧から選ぶ／合言葉を入力', [5.0, 2.45, 1.6], 0.29);
+      g.flow([-1.5, 1.0, -1.8], [-4.2, 1.0, 1.0], { id: 'la-f1', parent: 'a-lan', color: C.data, lift: 0.7, count: 5 });
+      g.flow([1.5, 1.0, -1.8], [4.6, 1.2, 1.0], { id: 'la-f2', parent: 'a-lan', color: C.data, lift: 0.7, count: 5 });
+      card('la-code', 'a-lan', [0, 1.1, 1.8], 'ABCD', '合言葉\n（4文字）', C.gold, 1.2);
+      L('la-url', 'a-lan', '2人とも同じWi-Fiで、ブラウザから http://192.168.x.x/ を開く', [0, 0.3, 4.0], 0.32, C.data);
+    },
+
+    steps: [
+      {
+        title: 'ArcanaExplosion へようこそ！',
+        html:
+          '<p>トランプのカードが <b>キャラクター</b> や <b>アイテム</b> に変身して戦う、カードバトルゲームだよ。プレイヤーは <b>トレーナー</b> になって、キャラクターを戦わせるよ。</p>' +
+          '<ul><li>トレーナーHP は2人とも <b>200</b></li>' +
+          '<li><b>相手のトレーナーHP を 0 にしたら勝ち！</b></li>' +
+          '<li>HPが減るのは、自分のキャラクターが倒されたとき（<b>−30</b>）や、直接攻撃されたときなど</li></ul>' +
+          '<p>キャラクターの山札はトランプ1組（52枚）を <b>1人ずつ</b>、アイテムの山札は別の1組を <b>2人で共有</b> して使うよ。</p>' +
+          '<p>左の柱がトレーナーHP、大きいカードが戦う <b>バトル場</b>、手前の小さい3枚が控えの <b>デッキ</b> だよ。</p>' +
+          '<div class="gg-note">このページは、ドラッグで回転・ホイールで拡大縮小できるよ。←→キーでもステップを進められる。</div>',
+        camera: CAM_BOARD,
+        show: ['a-board', 'bd-goal'],
+        update: function (g, t) { g.pulse('bd-hp-me', t, 0.05); g.pulse('bd-hp-op', t + 1, 0.05); },
+      },
+      {
+        title: '起動とモード選び',
+        html:
+          '<table><tr><th>ファイル</th><th>どんなとき？</th></tr>' +
+          '<tr><td><b>ひとりで遊ぶ.bat</b></td><td>このPCだけで遊ぶ</td></tr>' +
+          '<tr><td><b>みんなで遊ぶ（スマホもOK）.bat</b></td><td>スマホやほかのPCからもつなぎたいとき</td></tr></table>' +
+          '<ol><li>ArcanaExplosion フォルダの .bat をダブルクリック</li>' +
+          '<li>黒い画面（サーバー）が出て、ブラウザが自動で開くよ</li>' +
+          '<li>最初に <b>スキン</b>（カードの名前や絵柄のセット）を選ぶ</li>' +
+          '<li><b>CPU対戦</b> か <b>ネットワーク対戦</b> を選ぶ</li>' +
+          '<li>CPU対戦なら強さを選んでスタート！</li></ol>' +
+          '<p>どちらの .bat でもCPU対戦・ネットワーク対戦の両方ができるよ。ちがいは「ほかの機器からつなげるか」だけ。</p>' +
+          '<div class="gg-note">🐣 <b>初級</b> は、CPUのキャラクターのHPが <b>10</b> しかなくて、CPUは技もアイテムも使わないよ。第三勢力（あとで説明）もCPUだけをねらう。はじめてならここから！<br>終わるときは、黒い画面で <b>Ctrl＋C</b>。動かすには Python と Flask が入ったPCが必要だよ。</div>',
+        camera: CAM('launch', [0.6, 10.5, 18.8], [0.6, 1.1, 0]),
+        show: ['a-launch'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.2) % 4;
+          if (k === 0) g.pulse('ln-con', t, 0.06);
+          else g.pulse('ln-p' + (k - 1), t, 0.06);
+        },
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<p>ゲームが始まると、こんな画面になるよ（上が相手、下が自分）。</p>' +
+          '<table><tr><th>場所</th><th>なにがある？</th></tr>' +
+          '<tr><td>いちばん上</td><td>ターン数、📖図鑑、⚙️オプション、もう一度</td></tr>' +
+          '<tr><td>上半分</td><td>相手のトレーナーHP・バトル場・デッキ、第三勢力</td></tr>' +
+          '<tr><td>下半分</td><td>自分のバトル場と <b>ターン終了</b>、デッキ、トレーナーHP</td></tr>' +
+          '<tr><td>その下</td><td><b>ベンチ</b>（まだ出していないキャラ）と <b>アイテム手札</b></td></tr>' +
+          '<tr><td>右</td><td>ログ・ルール・アイテム一覧・キャラ一覧のタブ</td></tr></table>' +
+          '<div class="gg-note">⚠️ 呼び方に注意！ この画面では、バトル場のうしろの <b>控え3枠</b> を <b>「デッキ」</b>、まだ場に出していない <b>キャラクターの手札</b> を <b>「ベンチ」</b> と呼んでいるよ。このページもその呼び方で説明するね。</div>' +
+          '<ul><li><b>金色の枠</b> がついたカードが、いまクリックできるカード</li>' +
+          '<li>相手のデッキは伏せ札（ただし一度バトル場に出たカードは見えたまま）。相手のベンチとアイテム手札は見えない</li>' +
+          '<li>パソコンではカードにマウスを乗せると拡大されるよ</li></ul>',
+        camera: CAM('screen', [-2.2, 16.8, 8.6], [-2.2, 0, 0.3]),
+        show: ['a-screen'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.5) % 2;
+          for (var i = 0; i < 4; i++) { if (k === 1) g.pulse('sc-ch' + i, t, 0.15); }
+          for (var j = 0; j < 3; j++) { if (k === 0) g.pulse('sc-mydk' + j, t, 0.15); }
+          g.pulse(k === 0 ? 'sc-l-mydk' : 'sc-l-ch', t, 0.06);
+        },
+      },
+      {
+        title: 'カードの強さ：数字とマーク',
+        html:
+          '<p>キャラクターの攻撃力・防御力は、<b>数字×10</b> に <b>マークのクセ</b> を足して決まるよ。</p>' +
+          '<table><tr><th>マーク</th><th>攻撃</th><th>防御</th><th>タイプ</th></tr>' +
+          '<tr><td>♠ スペード</td><td>+30</td><td>−30</td><td>攻め型</td></tr>' +
+          '<tr><td>♥ ハート</td><td>−20</td><td>+20</td><td>守り型</td></tr>' +
+          '<tr><td>♦ ダイヤ</td><td>+20</td><td>−20</td><td>やや攻め</td></tr>' +
+          '<tr><td>♣ クラブ</td><td>±0</td><td>±0</td><td>バランス</td></tr></table>' +
+          '<ul><li>J＝11、Q＝12、K＝13 として計算。<b>A だけは特別な数値</b>（あとで説明）</li>' +
+          '<li>計算して10より小さくなったら <b>10</b></li>' +
+          '<li><b>HPはどのキャラクターも100</b>。防御力が高いほど、なかなか倒れない</li></ul>' +
+          '<p>例：<b>♦10</b> は 攻撃 100+20＝<b>120</b>、防御 100−20＝<b>80</b>。</p>',
+        camera: CAM('stats', [0, 6.5, 15.5], [0, 1.8, 0.4]),
+        show: ['a-stats'],
+        update: function (g, t) {
+          var k = g.phase(t, 0.2, 1.0);
+          for (var i = 0; i < 4; i++) {
+            var A = g.get('st-a' + i), D = g.get('st-d' + i);
+            A.scale.y = Math.max(0.01, k); A.position.y = STATS_A[i] / 80 * k;
+            D.scale.y = Math.max(0.01, k); D.position.y = STATS_D[i] / 80 * k;
+            g.get('st-al' + i).visible = k > 0.95; g.get('st-dl' + i).visible = k > 0.95;
+          }
+        },
+      },
+      {
+        title: 'ターンの始まり（自動）',
+        html:
+          '<p>自分の番が来ると、まずこれが <b>自動で</b> 起きるよ。</p>' +
+          '<ol><li>攻撃・交代・アイテムの権利がもどる</li>' +
+          '<li>キャラクターの <b>疲労</b> が1へる</li>' +
+          '<li>毒などの続くダメージを受ける</li>' +
+          '<li>キャラクター山札から1枚 → <b>ベンチ</b> へ（最大7枚）</li>' +
+          '<li>アイテム山札から1枚 → <b>アイテム手札</b> へ（最大7枚）</li></ol>' +
+          '<ul><li>ゲーム開始時は、バトル場1体とデッキ3体が山札から自動で並ぶ。アイテム手札は3枚から</li>' +
+          '<li>山札がなくなったら、捨て札をまぜてもどすよ。山札切れで負けることはない</li></ul>',
+        camera: CAM('turn', [0.4, 10.5, 14.5], [0.4, 0.6, 0.2]),
+        show: ['a-turn'],
+        update: function (g, t) {
+          var tt = t % 6;
+          var on = Math.min(4, Math.floor(tt / 0.9) + 1);
+          for (var i = 0; i < 4; i++) g.setColor('tn-s' + i, i < on ? '#ffd166' : '#555066');
+          var k1 = g.phase(tt, 1.8, 0.9), k2 = g.phase(tt, 2.7, 0.9);
+          g.arcPos('tn-chnew', [-5.2, 0.9, -1.0], [1.9, 0.9, -1.0], k1, 1.6);
+          g.arcPos('tn-itnew', [-5.2, 0.9, 2.2], [3.15, 0.9, 2.2], k2, 1.6);
+          g.get('tn-chnew').visible = tt > 1.8;
+          g.get('tn-itnew').visible = tt > 2.7;
+        },
+      },
+      {
+        title: '1ターンにできること',
+        html:
+          '<p>自分の番では、次のことが <b>好きな順番で</b> できるよ。</p>' +
+          '<table><tr><th>行動</th><th>回数</th><th>操作</th></tr>' +
+          '<tr><td>⚔️ 攻撃</td><td>1回</td><td>相手のバトル場（または第三勢力）のカードをクリック</td></tr>' +
+          '<tr><td>🔄 交代</td><td>1回</td><td>自分のデッキのカードをクリック（バトル場と入れかわる）</td></tr>' +
+          '<tr><td>🎒 アイテム</td><td>1枚</td><td>アイテム手札をクリック</td></tr>' +
+          '<tr><td>🃏 配置</td><td>何回でも</td><td>ベンチのカードをクリック</td></tr></table>' +
+          '<ul><li><b>交代したあとでも攻撃できる</b>。疲れたキャラを下げて、元気なキャラで攻撃しよう</li>' +
+          '<li>配置すると、バトル場が空いていればバトル場へ、そうでなければデッキの空き枠に自動で入るよ</li></ul>' +
+          '<p>終わったら <b>ターン終了</b>。ボタンの色がヒントになるよ：<b>赤</b>＝まだ攻撃できる（押すと確認が出る）、<b>緑</b>＝攻撃した、<b>金色に点滅</b>＝もうできる事がない。</p>',
+        camera: CAM('act', [0.4, 7.4, 15.2], [0.4, 1.0, 0.5]),
+        show: ['a-act'],
+        update: function (g, t) {
+          var tt = t % 7;
+          for (var i = 0; i < 4; i++) g.setColor('ac-p' + i, tt > 0.6 + i * 0.8 ? ['#c0392b', '#2980b9', '#27ae60', '#8e44ad'][i] : '#555066');
+          var st = tt < 1.4 ? 0 : tt < 3.8 ? 1 : 2;
+          for (var j = 0; j < 3; j++) g.setColor('ac-lamp' + j, j === st ? ['#ff3b30', '#34c759', '#ffcc00'][j] : '#333333');
+          g.setColor('ac-end', st === 2 ? '#c9a227' : '#666666');
+          if (st === 2) { g.pulse('ac-end', t, 0.1); g.pulse('ac-lamp2', t, 0.25); }
+        },
+      },
+      {
+        title: '攻撃とダメージ計算',
+        html:
+          '<p>ダメージの計算はとってもシンプル！</p>' +
+          '<p style="font-size:18px;text-align:center"><b>ダメージ ＝ 攻撃力 − 相手の防御力</b></p>' +
+          '<ul><li>この例：♦10（攻撃120）が ♥5（防御70）を攻撃 → <b>50ダメージ</b>。HP100 → 50</li>' +
+          '<li>防御のほうが高くても、<b>最低10ダメージ</b> は必ず入る</li>' +
+          '<li>HPを0にしたら撃破！ 余ったダメージは次に持ちこさない</li></ul>' +
+          '<p>例：♠5（攻撃80）→ ♥10（防御120）なら、80−120 はマイナスだけど <b>10ダメージ</b>。</p>' +
+          '<div class="gg-note">武器のアイテムで攻撃力を上げたり、技で防御を無視したりできるよ。</div>',
+        camera: CAM('dmg', [0.5, 6.5, 16.5], [0.5, 2.0, 0.3]),
+        show: ['a-dmg'],
+        update: function (g, t) {
+          var tt = t % 8;
+          var k = g.phase(tt, 0.2, 0.9);
+          var A = g.get('dm-atk'), D = g.get('dm-def'), H = g.get('dm-hp');
+          A.scale.y = Math.max(0.01, 3.0 * k); A.position.y = 1.5 * k;
+          D.scale.y = Math.max(0.01, 1.75 * k); D.position.y = 0.875 * k;
+          g.get('dm-arrow').visible = tt > 1.4;
+          g.get('dm-f').visible = tt > 1.8;
+          var hk = g.phase(tt, 2.6, 0.9);
+          var hp = 100 - 50 * hk;
+          H.scale.y = hp / 40; H.position.y = hp / 80;
+          g.get('dm-hp-l').position.y = hp / 40 + 0.4;
+          g.setLabel('dm-hp-l', 'HP ' + Math.round(hp), { size: 0.32, color: C.good, bg: '#000000aa' });
+          if (tt > 2.6 && tt < 3.6) g.get('dm-op').position.x = 4.4 + Math.sin(tt * 40) * 0.08;
+        },
+      },
+      {
+        title: '倒したら／倒されたら',
+        html:
+          '<ul><li>HPが0になったキャラクターは捨て札へ。<b>持ち主のトレーナーに30ダメージ</b>（毒で倒れたときも同じ）</li>' +
+          '<li>自分の技の反動など、<b>自分のせいで倒れたとき</b> はトレーナーダメージなし</li>' +
+          '<li>バトル場が空いたら、<b>デッキから出すキャラクターをクリックで選ぶ</b>。選ぶまでゲームは進まないよ</li>' +
+          '<li>バトル場もデッキも空っぽだと、相手は <b>トレーナーに直接攻撃</b> できる（攻撃力がそのままダメージ！）</li></ul>' +
+          '<div class="gg-note">空いたデッキの枠は、ベンチからキャラクターを配置して早めにうめておこう。</div>',
+        camera: CAM('board', [1.0, 9.0, 19], [1.0, 2.2, 0]),
+        show: ['a-board', 'bd-s8'],
+        update: function (g, t) {
+          var tt = t % 8;
+          g.get('bd8-atk').visible = tt < 1.6;
+          var fall = g.phase(tt, 1.0, 0.6);
+          var op = g.get('bd-bat-op');
+          op.rotation.x = -fall * 1.45; op.position.y = 2.75 - fall * 1.9;
+          op.visible = tt < 3.2;
+          g.get('bd8-ko').visible = tt > 1.5 && tt < 3.2;
+          var hk = g.phase(tt, 1.6, 0.6);
+          var bar = g.get('bd-hp-op');
+          bar.scale.y = 1 - 0.15 * hk; bar.position.y = 1.5 * bar.scale.y;
+          g.get('bd8-hp').visible = tt > 1.6 && tt < 3.6;
+          g.setLabel('bd-hp-op-l', '相手のトレーナー\nHP ' + Math.round(200 - 30 * hk), { size: 0.34, bg: '#000000aa' });
+          g.get('bd8-note').visible = tt > 1.6;
+          var pk = g.phase(tt, 3.6, 1.0);
+          var dk = g.get('bd-dk-op0');
+          g.lerpPos(dk, [3.0, 0.8, 1.7], [4.4, 2.75, -0.6], pk);
+          var s = 1 + 0.58 * pk; dk.scale.set(s, s, s);
+          // 伏せ札で作ったカードは flip(0) が裏、flip(1) が表になる（実際の表示で確認済み）
+          g.flip(dk, g.phase(tt, 4.4, 0.5));
+          g.get('bd8-pro').visible = tt > 3.2 && tt < 4.6;
+          g.get('bd8-pro-l').visible = tt > 3.2;
+        },
+      },
+      {
+        title: '疲労と退場 — このゲームのキモ',
+        html:
+          '<ul><li>攻撃すると <b>疲労2</b>。疲労は自分のターンの始めに1ずつへって、<b>0にならないと攻撃できない</b></li>' +
+          '<li>だから1体のキャラクターは、<b>自分のターン2回に1回</b> しか攻撃できない</li>' +
+          '<li>バトル場にいられるのは <b>自分のターン3回まで</b>。4回目の始めに退場（デッキに下げてもカウントは戻らない）</li>' +
+          '<li><b>3回攻撃</b> しても退場</li>' +
+          '<li>退場では、トレーナーへのダメージはないよ</li></ul>' +
+          '<p>ふつうのキャラクターは「1ターン目と3ターン目に攻撃して退場」が基本の流れ。だからカードがどんどん入れかわって、1体で相手を倒しきるのはむずかしいんだ。</p>' +
+          '<div class="gg-note">疲れているときは、デッキのキャラと <b>交代</b> してから攻撃するのがコツだよ。</div>',
+        camera: CAM('fat', [0, 7, 16], [0, 1.9, 0.4]),
+        show: ['a-fat'],
+        update: function (g, t) {
+          var tt = t % 10;
+          var n = Math.min(3, Math.floor(tt / 2.2));
+          var into = g.phase(tt - n * 2.2, 0, 0.5);
+          var x0 = -5.4 + Math.max(0, n - 1) * 3.6, x1 = -5.4 + n * 3.6;
+          var c = g.get('ft-card');
+          if (n === 0) c.position.x = x1; else g.arcPos(c, [x0, 1.45, 0], [x1, 1.45, 0], into, 0.6);
+          var cols = ['#c0392b', '#5d6d7e', '#c0392b', '#7f8c8d'];
+          for (var i = 0; i < 4; i++) {
+            g.setColor('ft-p' + i, i <= n ? cols[i] : '#3a3555');
+            g.get('ft-s' + i).visible = i <= n;
+          }
+          if (n === 3) {
+            var f = g.phase(tt, 7.4, 0.8);
+            c.rotation.x = -f * 1.45; c.position.y = 1.45 - f * 1.1;
+          }
+        },
+      },
+      {
+        title: 'J・Q・K の技',
+        html:
+          '<p>絵札（J・Q・K）のキャラクターは、強いだけでなく <b>技</b> を持っているよ。技の名前はスキンで変わるけど、効果はどのスキンでも同じ。</p>' +
+          '<table><tr><th></th><th>J</th><th>Q</th><th>K</th></tr>' +
+          '<tr><td>♠</td><td>攻撃時ダメージ+50、自分に30の反動</td><td>攻撃した相手を毒に（毎ターン20）</td><td>攻撃しても疲労しない。攻撃のたび自分に20</td></tr>' +
+          '<tr><td>♥</td><td>毎ターン、自分の場の全員のHP+20</td><td>デッキにいるあいだ、バトル場の防御+30</td><td>登場時、トレーナーHPを30回復</td></tr>' +
+          '<tr><td>♦</td><td>攻撃時、相手のデッキ全員にも20</td><td>相手の防御を半分にして計算</td><td>攻撃時、相手トレーナーにも20</td></tr>' +
+          '<tr><td>♣</td><td>攻撃した相手を疲労させる</td><td>登場時、アイテムを2枚引く</td><td>デッキにいるあいだ、バトル場の攻撃+30</td></tr></table>' +
+          '<div class="gg-note">★ ♥J・♥Q・♣K のように「場にいるだけで効く技」を持つキャラは、<b>デッキにいられるのが3ターンまで</b>。時間切れになると退場するよ。</div>',
+        camera: CAM('jqk', [0, 4.0, 11.6], [0, 3.35, 0]),
+        show: ['a-jqk'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.3) % 12;
+          for (var i = 0; i < 12; i++) {
+            var row = Math.floor(i / 4);
+            g.get('jq' + i).position.z = i === k ? 0.5 : 0;
+            g.get('jq' + i).position.y = 5.0 - row * 2.0 + (i === k ? 0.1 : 0);
+          }
+        },
+      },
+      {
+        title: 'A（エース）と魔王',
+        html:
+          '<p>A のキャラクターは、数字の計算ではなく <b>特別な数値と技</b> を持っているよ。</p>' +
+          '<ul><li><b>♠A</b>：場に出た瞬間 <b>魔王</b> に変身！ HP250・攻撃150・防御150。ただし <b>魔王どうしは攻撃できない</b>。疲労や3ターンのルールは魔王にもある</li>' +
+          '<li><b>♥A</b>：倒されたとき、<b>1度だけHP全快で復活</b></li>' +
+          '<li><b>♦A</b>：攻撃力 <b>200</b> の一撃。そのかわり1回攻撃したら退場</li>' +
+          '<li><b>♣A</b>：登場時、アイテム手札を <b>7枚まで</b> 補充</li></ul>' +
+          '<p><b>⚙️オプション</b> で、ルールを切りかえられるよ（変えると新しいゲームが始まる）。</p>' +
+          '<ul><li><b>キャラクターの技</b> をオフ：J・Q・K・Aの技がなくなって、攻撃と防御だけの勝負に。はじめての人向け（魔王も出なくなる）</li>' +
+          '<li><b>魔王（♠A）</b> をオフ：♠Aは変身しない</li>' +
+          '<li><b>アイテムを使う</b> をオフ：自分だけアイテムが使えない（ハンデ用）</li></ul>',
+        camera: CAM('ace', [0, 5.5, 14], [0, 1.9, 0]),
+        show: ['a-ace'],
+        update: function (g, t) {
+          var tt = t % 6;
+          var k = g.phase(tt, 0.6, 0.8) * (1 - g.phase(tt, 4.8, 0.8));
+          var d = g.get('ae-demon');
+          var s = Math.max(0.01, k); d.scale.set(s, s, s);
+          g.get('ae-demon-l').visible = k > 0.5;
+          if (k > 0.5) g.pulse('ae0', t, 0.06);
+        },
+      },
+      {
+        title: 'アイテムカード',
+        html:
+          '<ul><li>アイテム山札は <b>2人で共有</b>。毎ターン1枚引いて、手札は <b>7枚まで</b></li>' +
+          '<li>使えるのは <b>1ターンに1枚</b>。アイテム手札をクリックするだけ（使えないときは押せない）</li>' +
+          '<li>武器などの <b>装備</b> は、そのキャラクターが退場するといっしょになくなる</li>' +
+          '<li>アイテムの名前と効果は <b>スキンによってちがう</b>。右の「🎒アイテム」タブや 📖図鑑 で確認してね</li></ul>' +
+          '<p>デフォルトのスキンでは、だいたい ♥＝回復・バリア、♦＝武器（攻撃+）、♣＝作戦（のぞき見・弱体化など）、♠＝強いけど代償つき、という傾向だよ。</p>' +
+          '<p><b>逆転の切り札</b>（デフォルトのスキン）</p>' +
+          '<ul><li><b>♣K 神軍降臨</b>：自分のトレーナーHPが <b>40以下</b> のときだけ使える。代償にHP−10。デッキが <b>J・Q・Kの強化版3体</b>（HP140）に入れかわる</li>' +
+          '<li><b>♠A 魔神軍降臨</b>：いつでも使える。代償にHP−<b>50</b>。デッキが <b>♠♦の10・9・8の強化版3体</b>（HP120）に入れかわる</li>' +
+          '<li>どちらも、もとのデッキのキャラクターはベンチ（手札）にもどるよ</li></ul>' +
+          '<div class="gg-note">ほかにも、♥Aは捨て札のキャラ1体をHP30でデッキに復活、♣Aはアイテム山札の上6枚から3枚選んで手札に入れられるよ。</div>',
+        camera: CAM('item', [0, 10, 14.5], [0, 1.0, -0.4]),
+        show: ['a-item'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.2) % 6;
+          var ids = ['it-c0', 'it-c1', 'it-c2', 'it-c3', 'it-k', 'it-a'];
+          ids.forEach(function (id, i) { g.get(id).position.y = 1.45 + (i === k ? 0.25 : 0); });
+        },
+      },
+      {
+        title: '三つ巴：第三勢力の乱入',
+        html:
+          '<p>ゲームが進むと、どちらの味方でもない <b>第三勢力</b> が乱入してくるよ。</p>' +
+          '<ul><li>2人の合計で <b>3ターン目</b> に登場。場にいるのは <b>いつも1体だけ</b>（HP100）</li>' +
+          '<li><b>ターン終了のたびに</b>、2人のどちらかをランダムに攻撃してくる。倒されたら、ふつうと同じくトレーナーに30ダメージ</li>' +
+          '<li>自分の攻撃を、相手ではなく <b>第三勢力に向けてもOK</b>（攻撃は1ターン1回のまま）</li>' +
+          '<li>倒すと、そのカードが <b>強化版になって自分のデッキに仲間入り</b>！ デッキがいっぱいなら特別枠が1つ増える</li>' +
+          '<li>次の1体は、倒したターンの <b>3ターン後</b> に登場。全部で30体いて、いなくなったらもう来ない</li></ul>' +
+          '<div class="gg-note">第三勢力を倒しても勝ちにはならないよ。あくまで2人の勝負をかき回す存在。</div>',
+        camera: CAM('tf', [0, 8.2, 14.8], [0, 1.6, 0.6]),
+        show: ['a-tf'],
+        update: function (g, t) {
+          var tt = t % 10;
+          var x = g.get('tf-x');
+          var k = g.phase(tt, 0, 0.8);
+          var who = Math.floor(t / 10) % 2;
+          g.get('tf-a-me').visible = tt > 1.0 && tt < 3.4 && who === 0;
+          g.get('tf-a-op').visible = tt > 1.0 && tt < 3.4 && who === 1;
+          g.get('tf-a-l').visible = tt > 1.0 && tt < 3.4;
+          g.get('tf-a-mine').visible = tt > 3.6 && tt < 6.0;
+          g.get('tf-mine-l').visible = tt > 3.6 && tt < 6.0;
+          var m = g.phase(tt, 6.2, 1.2);
+          g.arcPos(x, [0, 2.3, -2.2], [-3.4, 0.6, 3.3], m, 1.5);
+          var s = Math.max(0.01, k * (1 - 0.53 * m)); x.scale.set(s, s, s);
+          g.get('tf-x-l').visible = tt < 6.2;
+          g.get('tf-dk-l').visible = tt > 6.6;
+          if (tt > 1.0 && tt < 3.4) g.pulse(who === 0 ? 'tf-me' : 'tf-op', t, 0.06);
+        },
+      },
+      {
+        title: 'ネットワーク対戦（2人で遊ぶ）',
+        html:
+          '<p>同じWi-Fiにつながっていれば、2人で対戦できるよ。スマホからでもOK！</p>' +
+          '<ol><li><b>サーバー役のPC（1台だけ）</b>で <b>みんなで遊ぶ（スマホもOK）.bat</b> をダブルクリック</li>' +
+          '<li>黒い画面に出るURL（<code>http://192.168.x.x/</code> など）を、<b>2人とも</b> ブラウザで開く</li>' +
+          '<li>スキンを選んで <b>ネットワーク対戦</b> へ。名前を入れてね</li>' +
+          '<li>1人が <b>部屋を作る</b> → <b>4文字の合言葉</b> が出る</li>' +
+          '<li>もう1人は <b>部屋に入る</b> → 一覧から選ぶか、合言葉を入力</li>' +
+          '<li>2人そろったら自動でスタート！ <b>部屋を作った人が先攻</b> だよ</li></ol>' +
+          '<ul><li>相手には、自分のベンチ・アイテム手札・伏せたデッキの中身は見えない</li>' +
+          '<li>ブラウザを再読みこみしても、同じ席にもどれる</li>' +
+          '<li>スマホは、カードをタップすると詳しい画面が開いて、ボタンで実行する2段階だよ</li></ul>' +
+          '<div class="gg-note">つながらないときは、はじめに出るWindowsの確認で「アクセスを許可する」を選んだか確認してね。スマホはモバイル通信ではなくWi-Fiにつなぐこと。ポートが使われていると、URLに <code>:5000</code> が付くことがあるよ（黒い画面の表示に従ってね）。</div>',
+        camera: CAM('lan', [0, 9, 16], [0, 1.2, 0.4]),
+        show: ['a-lan'],
+        update: function (g, t) { g.pulse('la-code', t, 0.06); },
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li>.bat で起動して、スキン → <b>CPU対戦</b>（はじめは初級）を選ぶ</li>' +
+          '<li>ターンの始めに、キャラとアイテムを1枚ずつ自動で引く</li>' +
+          '<li><b>ベンチ</b> のキャラをクリックして、場（バトル場・デッキ）に出す</li>' +
+          '<li>相手のバトル場をクリックして攻撃（1ターン1回）。ダメージ＝攻撃−防御（最低10）</li>' +
+          '<li>攻撃したキャラは疲れる。<b>交代</b> と <b>アイテム</b> をうまく使おう</li>' +
+          '<li>バトル場にいられるのは3ターンまで。どんどん入れかえよう</li>' +
+          '<li>第三勢力も倒せば仲間になる</li>' +
+          '<li><b>相手のトレーナーHP（200）を0にしたら勝ち！</b></li></ol>' +
+          '<p>決着がつかないまま合計200ターンをこえたら、残りのトレーナーHPが多いほうの勝ち。試合のあとは「🎬 対戦をふりかえる」で、いままでの流れを見直せるよ。</p>' +
+          '<p>それじゃあ、カードバトルを楽しんでね！🎴</p>',
+        camera: CAM_BOARD,
+        show: ['a-board', 'bd-goal'],
+        update: function (g, t) { g.pulse('bd-goal', t, 0.06); },
+      },
+    ],
+  };
+
+  // STEP4 のアニメで使う元の数値
+  var STATS_A = [100, 50, 90, 70], STATS_D = [40, 90, 50, 70];
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = 'ArcanaExplosion | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>

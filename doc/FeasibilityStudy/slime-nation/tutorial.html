@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スライム建国記 | 遊び方チュートリアル</title>
+<link rel="stylesheet" href="./guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+
+  // ---------- 世界地図（js/data.js の AXIAL・TERRITORY_DATA を写したもの） ----------
+  // [名前, 持ち主, 勢力の強さ, 特産]
+  var TERR = [
+    ['始まりの森', 'player', 0, 'mana'],
+    ['陽だまりの畑', null, 22, 'food'],
+    ['鉄鎚の街道', 'iron', 42, 'wood'],
+    ['銀霜の高地', null, 30, 'mana'],
+    ['涸れ川の里', null, 25, 'food'],
+    ['霧影の谷', null, 28, 'wood'],
+    ['蒼月の丘', null, 24, 'mana'],
+    ['黒曜の岩窟', 'obs', 50, 'mana'],
+    ['風切の砦', 'iron', 38, 'wood'],
+    ['沼渦の底', null, 33, 'food'],
+    ['朽木の砦', null, 27, 'wood'],
+    ['灰塵の廃墟', 'obs', 48, 'mana'],
+    ['終焉の荒野', 'obs', 66, 'mana'],
+  ];
+  var AXIAL = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1], [2, 0], [2, -1], [1, 1], [-1, 2], [-2, 1], [2, -2]];
+  var OWN_COL = { player: '#4fbd8f', none: '#8f8b78', iron: '#d9b968', obs: '#c8643c' };
+  function ownCol(o) { return OWN_COL[o || 'none']; }
+  var RES = { mana: '魔素', food: '食料', wood: '木材' };
+
+  // 六角形の位置と柱の高さ（ステップのカメラでも使うので、build より先に計算しておく）
+  var HS = 1.2;
+  var P = TERR.map(function (t, i) {
+    var q = AXIAL[i][0], r = AXIAL[i][1];
+    return { x: HS * Math.sqrt(3) * (q + r / 2) - 0.52, z: HS * 1.5 * r, h: 0.25 + t[2] / 55 };
+  });
+  function TOP(i, dy) { return [P[i].x, P[i].h + (dy == null ? 0.1 : dy), P[i].z]; }
+  var ADJ0 = [1, 2, 3, 4, 5, 6];     // 始まりの森のとなり（最初にねらえる6マス）
+  var FAR0 = [7, 8, 9, 10, 11, 12];
+
+  // ---------- 舞台の置き場所 ----------
+  var SX = -30, SZ = 0;    // 画面の見方
+  var LX = -30, LZ = 24;   // 始め方とセーブ
+  var FX = 30, FZ = 0;     // 1日の流れ
+  var RX = 30, RZ = 22;    // 資源
+  var PX = 30, PZ = -22;   // 成功率のしくみ
+  var BX = -30, BZ = -22;  // 施設と仲間
+  var EX = 0, EZ = -24;    // 進化
+  var DX = 0, DZ = 26;     // 外交
+  var VX = 60, VZ = 0;      // イベント
+
+  var K = 0.15;           // 成功率のしくみ：力1あたりの柱の高さ
+  var MAP_STEPS_CAM = { pos: [1.4, 13, 11], target: [1.4, 0, 0.6] };
+
+  var CFG = {
+    title: 'スライム建国記 遊び方',
+    back: '../index.html',
+    subtitle: '六角形の地図を、交渉と制圧で自分の色に塗りかえていく国づくりゲーム。はじめての人向けのチュートリアル',
+    camera: MAP_STEPS_CAM,
+
+    build: function (g) {
+      // スライム（少しつぶした球＋目）
+      function slime(id, pos, r, col, parent) {
+        g.sphere({ id: id, parent: parent, radius: r, pos: pos, color: col, roughness: 0.25, emissive: col, emissiveIntensity: 0.18 });
+        g.get(id).scale.set(1, 0.78, 1);
+        g.sphere({ parent: id, radius: r * 0.13, pos: [-r * 0.34, r * 0.22, r * 0.88], color: '#15151a' });
+        g.sphere({ parent: id, radius: r * 0.13, pos: [r * 0.34, r * 0.22, r * 0.88], color: '#15151a' });
+      }
+
+      // ======================= 世界地図 =======================
+      g.group('halo', {});
+      ADJ0.forEach(function (i) {
+        g.cylinder({ id: 'halo' + i, parent: 'halo', radius: 1.26, height: 0.05, segments: 6, pos: [P[i].x, 0.025, P[i].z], color: C.gold, emissive: C.gold, emissiveIntensity: 0.7 });
+      });
+      TERR.forEach(function (t, i) {
+        g.cylinder({ id: 't' + i, radius: 1.08, height: P[i].h, segments: 6, pos: [P[i].x, P[i].h / 2 + 0.03, P[i].z], color: ownCol(t[1]) });
+      });
+      slime('home-slime', [P[0].x, P[0].h + 0.4, P[0].z], 0.48, '#6fe0b0');
+
+      g.group('nm', {});
+      g.group('st', {});
+      TERR.forEach(function (t, i) {
+        g.label(t[0], TOP(i, 0.45), { id: 'nm' + i, parent: 'nm', size: 0.27, bg: '#000000aa' });
+        var s = i === 0 ? t[0] + '\n（本拠地）' : t[0] + '\n強さ ' + t[2];
+        g.label(s, TOP(i, 0.55), { id: 'st' + i, parent: 'st', size: 0.24, bg: '#000000bb' });
+      });
+      g.label('緑：自分の国\n灰：無所属の村\n金：鉄鎚商業連合\n赤茶：黒曜の残党\n柱の高さ＝勢力の強さ', [7.6, 0.8, 1.2], { id: 'legend', size: 0.34, bg: '#000000aa' });
+
+      // STEP6：くわしい情報（地図の下に出るカード）
+      g.group('detail', {});
+      g.line([TOP(1, 0.2), [5.0, 1.6, -0.6]], { parent: 'detail', color: '#ffffff', opacity: 0.7 });
+      g.label('陽だまりの畑［無所属］\n強さ 22・特産 食料', [6.7, 3.0, -0.6], { id: 'dc-head', parent: 'detail', size: 0.27, bg: '#000000dd' });
+      g.label('交渉で迎え入れる　42%\n費用：魔素22・食料14', [6.7, 1.7, -0.6], { id: 'dc-b1', parent: 'detail', size: 0.26, bg: '#173b2ddd', border: '#4fbd8f' });
+      g.label('制圧して従える　39%\n費用：木材22・魔素14', [6.7, 0.6, -0.6], { id: 'dc-b2', parent: 'detail', size: 0.26, bg: '#3f2116dd', border: '#e08060' });
+      g.label('となり＝黄色のふち', [-3.2, 0.4, -4.4], { id: 'adj-lbl', size: 0.34, color: C.gold, bg: '#000000aa' });
+
+      // STEP7：交渉
+      g.group('dip', {});
+      g.arrow(TOP(0, 0.9), TOP(1, 0.3), { id: 'dip-arrow', parent: 'dip', color: C.good, lift: 1.3, radius: 0.07 });
+      g.flow(TOP(0, 0.9), TOP(1, 0.3), { id: 'dip-flow', parent: 'dip', color: '#ffe9a8', lift: 1.3, count: 5, size: 0.11 });
+      g.label('交渉 42%\n魔素22・食料14を払う', [P[1].x + 0.2, 3.1, P[1].z - 0.9], { id: 'dip-lbl', parent: 'dip', size: 0.3, color: C.good, bg: '#000000bb' });
+      g.label('成功！ 自分の国に\n経験＋10・食料＋11', [P[1].x + 3.0, 1.4, P[1].z + 1.3], { id: 'dip-ok', size: 0.3, color: '#ffffff', bg: '#1f6b4fdd' });
+
+      // STEP8：制圧
+      g.group('con', {});
+      g.arrow(TOP(0, 0.9), TOP(1, 0.3), { id: 'con-arrow', parent: 'con', color: C.enemy, lift: 1.3, radius: 0.08 });
+      g.flow(TOP(0, 0.9), TOP(1, 0.3), { id: 'con-flow', parent: 'con', color: '#ffb0a0', lift: 1.3, count: 7, size: 0.1, speed: 0.6 });
+      g.label('制圧 39%\n木材22・魔素14を払う', [P[1].x + 0.2, 3.1, P[1].z - 0.9], { id: 'con-lbl', parent: 'con', size: 0.3, color: '#ff9a9a', bg: '#000000bb' });
+      g.label('成功！ 自分の国に\n経験＋16・食料＋13', [P[1].x + 3.0, 1.4, P[1].z + 1.3], { id: 'con-ok', size: 0.3, color: '#ffffff', bg: '#7a2f22dd' });
+
+      // STEP12：周辺勢力
+      g.group('ai', {});
+      g.arrow(TOP(7, 0.2), TOP(1, 0.3), { id: 'ai-obs', parent: 'ai', color: '#ff7a4a', lift: 1.6, radius: 0.07 });
+      g.arrow(TOP(2, 0.2), TOP(1, 0.3), { id: 'ai-iron', parent: 'ai', color: '#ffd166', lift: 1.6, radius: 0.07 });
+      g.label('どちらも、いちばん弱い\nとなりの土地をねらう', [7.6, 1.2, -1.4], { id: 'ai-lbl', parent: 'ai', size: 0.3, bg: '#000000bb' });
+      g.label('鉄鎚商業連合\n毎日18%で動く', [5.6, 1.8, -4.4], { id: 'ai-iron-lbl', parent: 'ai', size: 0.3, color: '#ffd166', bg: '#000000bb' });
+      g.label('黒曜の残党\n毎日35%で動く', [7.2, 1.6, 1.6], { id: 'ai-obs-lbl', parent: 'ai', size: 0.3, color: '#ff9a70', bg: '#000000bb' });
+
+      // ======================= 始め方とセーブ =======================
+      g.group('launch', {});
+      g.plate({ id: 'l-floor', parent: 'launch', size: [15, 7.5], pos: [LX, 0.02, LZ + 0.8], color: '#1b2c4a', opacity: 0.95 });
+      g.card({ id: 'l-file', parent: 'launch', pos: [LX - 5.2, 1.3, LZ], lying: false, text: '📄', sub: 'ダブル\nクリック', color: '#4fbd8f', w: 1.4 });
+      g.label('index.html', [LX - 5.2, 0.3, LZ + 0.6], { id: 'l-file-lbl', parent: 'launch', size: 0.34, color: '#ffffff', bg: '#000000aa' });
+      g.box({ id: 'l-browser', parent: 'launch', size: [3.2, 2.2, 0.3], pos: [LX, 1.3, LZ], color: '#2d2944', edgeColor: '#7ef0ff' });
+      slime('l-slime', [LX, 1.1, LZ + 0.5], 0.42, '#6fe0b0', 'launch');
+      g.label('ブラウザで開いて すぐ遊べる', [LX, 2.95, LZ], { id: 'l-browser-lbl', parent: 'launch', size: 0.3, bg: '#000000aa' });
+      g.cylinder({ id: 'l-save', parent: 'launch', radius: 0.9, height: 1.4, pos: [LX + 5.2, 0.72, LZ], color: C.server, label: '行動のたびに\nブラウザへ自動保存', labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.45, 0] });
+      g.arrow([LX - 4.2, 1.3, LZ], [LX - 1.8, 1.3, LZ], { id: 'l-a1', parent: 'launch', color: C.gold, lift: 0.6, radius: 0.06 });
+      g.flow([LX + 1.8, 1.3, LZ], [LX + 4.2, 1.3, LZ], { id: 'l-f1', parent: 'launch', color: C.data, lift: 0.6, count: 5 });
+      g.label('別のブラウザ・別のPCには\n引き継がれない', [LX + 3.4, 0.35, LZ + 2.9], { id: 'l-warn', parent: 'launch', size: 0.28, color: '#ffcf80', bg: '#000000aa' });
+      g.box({ id: 'l-reset', parent: 'launch', size: [2.6, 0.3, 0.8], pos: [LX - 2.2, 0.17, LZ + 3.1], color: '#a23b2d', label: '「はじめからやり直す」\n＝セーブを消して最初から', labelSize: 0.26, labelBg: '#000000cc', labelOffset: [0, 0.65, 0] });
+
+      // ======================= 画面の見方（ゲーム画面の模型） =======================
+      g.group('scr', {});
+      g.plate({ id: 'scr-floor', parent: 'scr', size: [12.4, 10.4], pos: [SX, 0.02, SZ], color: '#8a8470', opacity: 1, radius: 0.1 });
+      function ui(id, cx, cz, w, d, col, label, lblOff) {
+        g.box({ id: id, parent: 'scr', size: [w, 0.14, d], pos: [SX + cx, 0.1, SZ + cz], color: col, edges: false, label: label, labelSize: 0.28, labelBg: '#000000cc', labelOffset: lblOff || [0, 0.55, 0] });
+      }
+      ui('u-title', -3.6, -4.55, 4.4, 0.7, '#f5f1e2', 'タイトル');
+      ui('u-turn', 2.1, -4.55, 2.8, 0.7, '#f5f1e2', '経過日数・発展度', [-0.2, 0.55, 0]);
+      ui('u-next', 4.75, -4.55, 1.9, 0.7, '#2f9e78', '次の日へ', [0.2, 0.55, 0]);
+      [['魔素'], ['食料'], ['木材'], ['発展度']].forEach(function (r, i) {
+        ui('u-res' + i, -4.35 + i * 2.9, -3.55, 2.6, 0.8, '#f5f1e2', r[0] + (i < 3 ? '\n（+○/日）' : '\n（○/13領地）'));
+      });
+      ui('u-map', -2.25, -0.75, 7.0, 4.4, '#f5f1e2', '世界地図', [-2.6, 0.45, -1.8]);
+      ui('u-detail', -2.25, 0.95, 6.4, 0.8, '#ffffff', 'クリックした土地のくわしい情報', [0, 0.5, 0.1]);
+      ui('u-log', -2.25, 3.25, 7.0, 3.2, '#f5f1e2', '年代記（できごとの記録）');
+      ui('u-evo', 3.65, -2.65, 4.1, 0.9, '#f5f1e2', 'スライムの成長（進化）', [0, 0.5, 0.05]);
+      ui('u-dip', 3.65, -0.85, 4.1, 2.0, '#f5f1e2', '外交（2つの勢力）');
+      ui('u-bld', 3.65, 1.35, 4.1, 2.0, '#f5f1e2', '本拠地の施設');
+      ui('u-com', 3.65, 3.4, 4.1, 1.7, '#f5f1e2', '仲間（4人）');
+      ui('u-reset', 3.65, 4.75, 2.2, 0.4, '#a23b2d', 'はじめからやり直す', [0, 0.5, 0.2]);
+      // 模型の地図の中の小さな六角形
+      TERR.forEach(function (t, i) {
+        g.cylinder({ id: 'u-hex' + i, parent: 'scr', radius: 0.42, height: 0.12, segments: 6, pos: [SX - 2.25 + (P[i].x + 0.52) * 0.4 - 0.2, 0.22, SZ - 0.95 + P[i].z * 0.4], color: ownCol(t[1]) });
+      });
+
+      // ======================= 1日の流れ =======================
+      g.group('flow', {});
+      g.plate({ id: 'f-floor', parent: 'flow', size: [16, 10], pos: [FX, 0.02, FZ + 0.8], color: '#1a1a2e', opacity: 0.95 });
+      var FA = [FX - 4.2, 0.35, FZ - 1.6], FB = [FX + 4.2, 0.35, FZ - 1.6], FC = [FX, 0.35, FZ + 3];
+      g.cylinder({ id: 'f-a', parent: 'flow', radius: 1.3, height: 0.6, pos: FA, color: '#2f9e78', label: '① 行動する\n資源があるかぎり何回でも', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 0.9, 0] });
+      g.cylinder({ id: 'f-b', parent: 'flow', radius: 1.3, height: 0.6, pos: FB, color: '#c9a227', label: '② 「次の日へ」を押す', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 0.9, 0] });
+      g.cylinder({ id: 'f-c', parent: 'flow', radius: 1.3, height: 0.6, pos: FC, color: '#3a8fb7', label: '③ 1日が進む', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 0.9, 0] });
+      g.arrow([FX - 2.7, 0.6, FZ - 1.6], [FX + 2.7, 0.6, FZ - 1.6], { id: 'f-ab', parent: 'flow', color: C.gold, lift: 0.9, radius: 0.06 });
+      g.arrow([FX + 3.3, 0.6, FZ - 0.3], [FX + 1.3, 0.6, FZ + 2.2], { id: 'f-bc', parent: 'flow', color: C.gold, lift: 0.7, radius: 0.06 });
+      g.arrow([FX - 1.3, 0.6, FZ + 2.2], [FX - 3.3, 0.6, FZ - 0.3], { id: 'f-ca', parent: 'flow', color: C.gold, lift: 0.7, radius: 0.06 });
+      g.label('交渉・制圧\n施設の強化・仲間を鍛える\n贈り物・停戦・同盟', [FX - 4.2, 0.5, FZ + 0.75], { id: 'f-a-list', parent: 'flow', size: 0.27, color: '#bff5dc', bg: '#000000aa' });
+      g.label('資源がふえる・経験＋1\nまわりの勢力が動く\n30%でイベント', [FX + 4.4, 0.5, FZ + 3.4], { id: 'f-c-list', parent: 'flow', size: 0.27, color: '#bfe6ff', bg: '#000000aa' });
+
+      // ======================= 資源 =======================
+      g.group('res', {});
+      g.plate({ id: 'r-floor', parent: 'res', size: [12, 8], pos: [RX, 0.02, RZ + 0.6], color: '#1a1a2e', opacity: 0.95 });
+      var RB = [['mana', '#9b7bff', 40, 8, '🔮 魔素'], ['food', '#e8b04a', 60, 12, '🌾 食料'], ['wood', '#a0683f', 50, 10, '🌲 木材']];
+      RB.forEach(function (r, i) {
+        var x = RX - 3.6 + i * 3.6;
+        g.box({ id: 'rb-' + r[0], parent: 'res', size: [1.6, 1, 1.6], pos: [x, 0.5, RZ], color: r[1] });
+        g.label(r[4] + ' ' + r[2], [x, 2.2, RZ], { id: 'rb-lbl-' + r[0], parent: 'res', size: 0.36, bg: '#000000bb' });
+        g.label('＋' + r[3] + ' /日', [x, 0.3, RZ + 1.7], { id: 'rb-d-' + r[0], parent: 'res', size: 0.32, color: C.good, bg: '#000000aa' });
+      });
+      g.label('1日目', [RX, 5.8, RZ], { id: 'r-day', parent: 'res', size: 0.42, color: C.gold, bg: '#000000aa' });
+
+      // ======================= 成功率のしくみ =======================
+      g.group('pw', {});
+      g.plate({ id: 'pw-floor', parent: 'pw', size: [14, 8], pos: [PX, 0.02, PZ + 0.5], color: '#1a1a2e', opacity: 0.95 });
+      function stack(prefix, x, segs) {
+        var y = 0;
+        segs.forEach(function (s, i) {
+          g.box({ id: prefix + i, parent: 'pw', size: [1.3, s[0] * K, 1.3], pos: [x, y + s[0] * K / 2, PZ], color: s[1] });
+          y += s[0] * K;
+        });
+        return y;
+      }
+      stack('pw-d', PX - 4.6, [[3, '#4fbd8f'], [5, '#9b7bff'], [6, '#7ef0ff']]);
+      g.box({ id: 'pw-dx', parent: 'pw', size: [1.3, 5 * K, 1.3], pos: [PX - 4.6, 14 * K + 2.5 * K, PZ], color: '#e0d4ff' });
+      g.box({ id: 'pw-ds', parent: 'pw', size: [1.3, 22 * K, 1.3], pos: [PX - 2.7, 11 * K, PZ], color: '#8f8b78' });
+      stack('pw-c', PX + 2.7, [[3, '#4fbd8f'], [7, '#ff9f43'], [6, '#ff5f6d']]);
+      g.box({ id: 'pw-cx', parent: 'pw', size: [1.3, 7 * K, 1.3], pos: [PX + 2.7, 16 * K + 3.5 * K, PZ], color: '#ffd2a8' });
+      g.box({ id: 'pw-cs', parent: 'pw', size: [1.3, 22 * K, 1.3], pos: [PX + 4.6, 11 * K, PZ], color: '#8f8b78' });
+      g.label('交渉力 14', [PX - 4.6, 14 * K + 0.45, PZ], { id: 'pw-d-lbl', parent: 'pw', size: 0.3, bg: '#000000bb' });
+      g.label('制圧力 16', [PX + 2.7, 16 * K + 0.45, PZ], { id: 'pw-c-lbl', parent: 'pw', size: 0.3, bg: '#000000bb' });
+      g.label('強さ 22', [PX - 2.7, 22 * K + 0.4, PZ], { id: 'pw-ds-lbl', parent: 'pw', size: 0.3, bg: '#000000bb' });
+      g.label('強さ 22', [PX + 4.6, 22 * K + 0.4, PZ], { id: 'pw-cs-lbl', parent: 'pw', size: 0.3, bg: '#000000bb' });
+      g.label('交渉 42%', [PX - 3.65, 5.0, PZ], { id: 'pw-dp', parent: 'pw', size: 0.46, color: C.good, bg: '#000000bb' });
+      g.label('制圧 39%', [PX + 3.65, 5.0, PZ], { id: 'pw-cp', parent: 'pw', size: 0.46, color: '#ff9a9a', bg: '#000000bb' });
+      g.label('領地×3（緑）\n魔導書庫Lv×5（紫）\n知恵袋Lv×6（水色）', [PX - 3.65, 0.3, PZ + 2.3], { id: 'pw-d-leg', parent: 'pw', size: 0.25, bg: '#000000aa' });
+      g.label('領地×3（緑）\n訓練場Lv×7（橙）\n猛将Lv×6（赤）', [PX + 3.65, 0.3, PZ + 2.3], { id: 'pw-c-leg', parent: 'pw', size: 0.25, bg: '#000000aa' });
+      g.label('相手：陽だまりの畑（強さ22）', [PX, 0.3, PZ - 2.6], { id: 'pw-title', parent: 'pw', size: 0.3, color: C.gold, bg: '#000000aa' });
+
+      // ======================= 施設と仲間 =======================
+      g.group('bld', {});
+      g.plate({ id: 'b-floor', parent: 'bld', size: [16, 9.5], pos: [BX, 0.02, BZ + 0.6], color: '#231f33', opacity: 0.95 });
+      var BLD = [['hall', '集落庁舎\n生産ぜんぶ＋15%', '#c9a227'], ['farm', '農場\n食料＋3', '#e8b04a'], ['workshop', '工房\n木材＋3', '#a0683f'], ['archive', '魔導書庫\n魔素＋3・交渉力＋5', '#9b7bff'], ['training', '訓練場\n制圧力＋7', '#ff7a5c']];
+      BLD.forEach(function (b, i) {
+        var x = BX - 6.2 + i * 3.1, z = BZ - 1.6;
+        g.box({ id: 'b-' + b[0], parent: 'bld', size: [1.5, 0.9, 1.3], pos: [x, 0.45, z], color: b[2] });
+        g.cylinder({ id: 'b-roof-' + b[0], parent: 'bld', radiusTop: 0, radius: 1.15, height: 0.7, segments: 4, pos: [x, 1.25, z], rot: [0, Math.PI / 4, 0], color: '#6b4a3a' });
+        g.label(b[1], [x, 2.3, z], { id: 'b-lbl-' + b[0], parent: 'bld', size: 0.25, bg: '#000000cc' });
+      });
+      g.label('施設：Lvが1上がるごと', [BX, 3.2, BZ - 1.6], { id: 'b-title', parent: 'bld', size: 0.32, color: C.gold, bg: '#000000aa' });
+      var COMP = [['sage', '知恵袋\n交渉力＋6', '#7ef0ff'], ['general', '猛将\n制圧力＋6', '#ff6b6b'], ['artisan', '匠\n木材＋2', '#d79a5c'], ['herder', '牧人\n食料＋2', '#ffe066']];
+      COMP.forEach(function (c, i) {
+        var x = BX - 4.8 + i * 3.2, z = BZ + 2.4;
+        slime('c-' + c[0], [x, 0.4, z], 0.55, c[2], 'bld');
+        g.label(c[1], [x, 1.55, z], { id: 'c-lbl-' + c[0], parent: 'bld', size: 0.25, bg: '#000000cc' });
+      });
+      g.label('仲間：Lvが1上がるごと', [BX, 0.3, BZ + 4.6], { id: 'c-title', parent: 'bld', size: 0.32, color: C.gold, bg: '#000000aa' });
+
+      // ======================= 進化 =======================
+      g.group('evo', {});
+      g.plate({ id: 'e-floor', parent: 'evo', size: [21, 6], pos: [EX, 0.02, EZ + 0.5], color: '#231f33', opacity: 0.95 });
+      var EVO = [['名もなきスライム', 0], ['意思を宿すスライム', 30], ['森の盟主', 80], ['王権を纏う者', 160], ['終焉を統べるもの', 280]];
+      EVO.forEach(function (e, i) {
+        var x = EX - 8 + i * 4, hb = 0.2 + i * 0.3, r = 0.45 + i * 0.14;
+        g.box({ id: 'e-step' + i, parent: 'evo', size: [3.2, hb, 2.2], pos: [x, hb / 2, EZ], color: '#3a3555', edgeColor: '#ffd166' });
+        slime('e-s' + i, [x, hb + r * 0.78, EZ], r, ['#8fd9b6', '#6fe0b0', '#4fbd8f', '#57c7c9', '#b48cff'][i], 'evo');
+        g.label(e[0] + '\n経験 ' + e[1] + '〜', [x, hb + r * 1.6 + 0.75, EZ], { id: 'e-lbl' + i, parent: 'evo', size: 0.27, bg: '#000000cc' });
+      });
+      g.label('段階が1つ上がるごとに 交渉力・制圧力 ＋8', [EX, 0.3, EZ + 2.6], { id: 'e-note', parent: 'evo', size: 0.32, color: C.gold, bg: '#000000aa' });
+
+      // ======================= 外交 =======================
+      g.group('dipl', {});
+      g.plate({ id: 'd-floor', parent: 'dipl', size: [19, 8.5], pos: [DX, 0.02, DZ + 1.6], color: '#1b2c4a', opacity: 0.95 });
+      g.box({ id: 'd-neg', parent: 'dipl', size: [8, 0.3, 0.7], pos: [DX - 4, 0.15, DZ], color: '#b5502f', edges: false });
+      g.box({ id: 'd-pos', parent: 'dipl', size: [8, 0.3, 0.7], pos: [DX + 4, 0.15, DZ], color: '#2f9e78', edges: false });
+      [[-100, -8], [0, 0], [100, 8]].forEach(function (k) {
+        g.label((k[0] > 0 ? '+' : '') + k[0], [DX + k[1], 0.3, DZ + 0.9], { id: 'd-tick' + k[0], parent: 'dipl', size: 0.26, bg: '#000000aa' });
+      });
+      g.label('関係値：-100 から +100', [DX - 5.5, 0.3, DZ - 1.0], { id: 'd-title', parent: 'dipl', size: 0.3, color: '#ffffff', bg: '#000000aa' });
+      g.cylinder({ id: 'd-flag', parent: 'dipl', radius: 0.06, height: 2.4, pos: [DX + 4.8, 1.2, DZ], color: '#ffffff' });
+      g.box({ id: 'd-flag-cloth', parent: 'dipl', size: [0.8, 0.5, 0.05], pos: [DX + 5.2, 2.15, DZ], color: C.gold, edges: false });
+      g.label('60以上で 同盟を申し込める', [DX + 4.8, 2.9, DZ], { id: 'd-flag-lbl', parent: 'dipl', size: 0.27, color: C.gold, bg: '#000000bb' });
+      g.cylinder({ id: 'd-iron', parent: 'dipl', radius: 0.35, height: 0.5, pos: [DX + 1.2, 0.55, DZ], color: '#d9b968' });
+      g.label('鉄鎚 15', [DX + 1.2, 1.35, DZ], { id: 'd-iron-lbl', parent: 'dipl', size: 0.28, color: '#ffe08a', bg: '#000000bb' });
+      g.cylinder({ id: 'd-obs', parent: 'dipl', radius: 0.35, height: 0.5, pos: [DX - 1.2, 0.55, DZ], color: '#c8643c' });
+      g.label('黒曜 -15', [DX - 1.2, 1.35, DZ], { id: 'd-obs-lbl', parent: 'dipl', size: 0.28, color: '#ffae8a', bg: '#000000bb' });
+      [['🎁 贈り物', '魔素18・食料18・木材12\n関係＋12（必ず成功）', '#5a7bd8'],
+       ['🕊️ 停戦', '魔素24・食料16\n成功率 35＋関係×0.6 %', '#3a9fb7'],
+       ['🤝 同盟', '魔素55・食料45・木材35\n成功率 25＋(関係−60)×1.6 %', '#c9a227']].forEach(function (a, i) {
+        var x = DX - 6 + i * 6;
+        g.box({ id: 'd-act' + i, parent: 'dipl', size: [3.4, 0.4, 1.2], pos: [x, 0.2, DZ + 3.6], color: a[2], label: a[0], labelSize: 0.34, labelBg: '#000000cc', labelOffset: [0, 0.6, 0] });
+        g.label(a[1], [x, 0.3, DZ + 4.95], { id: 'd-act-lbl' + i, parent: 'dipl', size: 0.25, bg: '#000000bb' });
+      });
+
+      // ======================= イベント =======================
+      g.group('ev', {});
+      g.plate({ id: 'v-floor', parent: 'ev', size: [15, 6.5], pos: [VX, 0.02, VZ], color: '#231f33', opacity: 0.95 });
+      [['🛒', '行商人\n木材＋8', '#2f9e78'], ['✨', '魔物を助ける\n経験＋6', '#2f9e78'], ['💥', '地割れ\n木材−6', '#a23b2d'], ['🌾', '豊作\n食料＋10', '#2f9e78'], ['👀', '怪しい影\n変化なし', '#7a7690']].forEach(function (c, i) {
+        g.card({ id: 'v-card' + i, parent: 'ev', pos: [VX - 5.6 + i * 2.8, 1.6, VZ], lying: false, text: c[0], sub: c[1], color: c[2], w: 1.7 });
+      });
+      g.label('「次の日へ」を押すたび 30%で、どれか1つ', [VX, 3.85, VZ], { id: 'v-title', parent: 'ev', size: 0.36, color: C.gold, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: 'スライム建国記へようこそ！',
+        html:
+          '<p>小さなスライムが目覚めた <b>始まりの森</b>（真ん中の緑の六角形）から、まわりの土地を仲間にして国を広げていくゲームだよ。</p>' +
+          '<ul><li>地図は <b>六角形13マス</b></li>' +
+          '<li><b>緑＝自分の国</b>、灰色＝無所属の村、金色＝<b>鉄鎚商業連合</b>、赤茶＝<b>黒曜の残党</b></li>' +
+          '<li>となりの土地を <b>交渉</b> か <b>制圧</b> で、自分の色に塗りかえていく</li>' +
+          '<li>柱の高さは、その土地の <b>勢力の強さ</b>。高いほど手ごわい</li></ul>' +
+          '<p><b>めざすこと</b>：13マスぜんぶを自分の国にすること。ぜんぶそろうと、年代記に特別なメッセージが出るよ。</p>' +
+          '<div class="gg-note">「クリア画面」や「ゲームオーバー」はないよ。本拠地の始まりの森は、ぜったいに奪われないから安心してね。このページはドラッグで回転・ホイールで拡大縮小、←→キーでもステップを進められるよ。</div>',
+        camera: MAP_STEPS_CAM,
+        show: ['nm', 'legend'],
+        update: function (g, t) { g.get('home-slime').position.y = P[0].h + 0.4 + Math.abs(Math.sin(t * 3)) * 0.25; },
+      },
+      {
+        title: '始め方とセーブ',
+        html:
+          '<ol><li><code>slime-nation</code> フォルダの <b>index.html</b> をダブルクリック</li>' +
+          '<li>ブラウザで開いたら、すぐに遊べるよ（サーバーもインストールもいらない。<code>.bat</code> もないよ）</li></ol>' +
+          '<ul><li>進み具合は、ボタンを押して何かするたびに <b>ブラウザに自動で保存</b> される（localStorage）</li>' +
+          '<li>次に同じブラウザで index.html を開けば、<b>続きから</b> 遊べる</li>' +
+          '<li><b>別のブラウザ・別のPC</b>・プライベートモードだと、セーブは引き継がれないよ</li>' +
+          '<li>最初からやり直したいときは、画面のいちばん下の <b>はじめからやり直す</b>（確認が出るよ）</li></ul>' +
+          '<div class="gg-note">文字のフォントだけネットから読みこむけど、ネットがなくても遊べるよ。</div>',
+        camera: { pos: [LX, 7.5, LZ + 11], target: [LX, 1, LZ + 0.8] },
+        focus: ['launch'],
+        update: function (g, t) { g.pulse('l-save', t, 0.06); g.get('l-slime').position.y = 1.1 + Math.abs(Math.sin(t * 3)) * 0.2; },
+      },
+      {
+        title: '画面の見方',
+        html:
+          '<table><tr><th>場所</th><th>なにがある？</th></tr>' +
+          '<tr><td>いちばん上</td><td>経過日数・発展度、<b>次の日へ</b> ボタン</td></tr>' +
+          '<tr><td>その下</td><td>資源（<b>魔素・食料・木材</b>）と、1日に増える量。<b>発展度</b> と自分の領地の数</td></tr>' +
+          '<tr><td>左</td><td><b>世界地図</b>。土地をクリックすると下にくわしい情報が出る。その下が <b>年代記</b>（できごとの記録）</td></tr>' +
+          '<tr><td>右</td><td><b>スライムの成長</b>、<b>外交</b>、<b>本拠地の施設</b>、<b>仲間</b>、<b>はじめからやり直す</b></td></tr></table>' +
+          '<p><b>発展度</b> は「領地の数×10 ＋ 施設のLvの合計×3 ＋ 経験」。最初は25だよ。国の大きさの目安にしてね。</p>' +
+          '<div class="gg-note">ブラウザの幅がせまいと、右の列は地図の下にならぶよ。</div>',
+        camera: { pos: [SX, 13.5, SZ + 9.5], target: [SX, 0, SZ + 0.7] },
+        focus: ['scr'],
+        update: function (g, t) { g.pulse('u-next', t, 0.06); },
+      },
+      {
+        title: '1日の流れ',
+        html:
+          '<p>このゲームは <b>1日ずつ</b> 進むよ。1日のあいだの行動には <b>回数の制限がない</b>。資源が足りるかぎり、何回でもできる。</p>' +
+          '<ol><li>地図の土地に <b>交渉</b> か <b>制圧</b>、施設の <b>強化</b>、仲間を <b>鍛える</b>、勢力に <b>贈り物・停戦・同盟</b></li>' +
+          '<li>やることが終わったら、いちばん上の <b>次の日へ</b></li></ol>' +
+          '<p><b>次の日へ</b> を押すと、こんなことが起きるよ。</p>' +
+          '<ul><li>資源が1日ぶん増える（画面の「＋○ /日」の数）</li>' +
+          '<li>経験 ＋1</li>' +
+          '<li>まわりの2つの勢力が動く（土地が強くなったり、攻めてきたり）</li>' +
+          '<li>同盟している勢力から、資源が ＋4</li>' +
+          '<li><b>30%</b> の確率でイベント</li></ul>',
+        camera: { pos: [FX, 10, FZ + 11], target: [FX, 0.4, FZ + 0.8] },
+        focus: ['flow'],
+        update: function (g, t) {
+          var k = t % 6;
+          if (k < 2) g.pulse('f-a', t, 0.12); else if (k < 3.5) g.pulse('f-b', t, 0.12); else g.pulse('f-c', t, 0.12);
+        },
+      },
+      {
+        title: '3つの資源',
+        html:
+          '<p>資源は <b>魔素・食料・木材</b> の3つ。最初は <b>魔素40・食料60・木材50</b> で、毎日 <b>＋8・＋12・＋10</b> 増えるよ。</p>' +
+          '<table><tr><th>資源</th><th>1日に増える量</th></tr>' +
+          '<tr><td>魔素</td><td>4 ＋ 魔導書庫Lv×3 ＋ 魔素の領地</td></tr>' +
+          '<tr><td>食料</td><td>5 ＋ 農場Lv×3 ＋ 牧人Lv×2 ＋ 食料の領地</td></tr>' +
+          '<tr><td>木材</td><td>4 ＋ 工房Lv×3 ＋ 匠Lv×2 ＋ 木材の領地</td></tr></table>' +
+          '<ul><li>どれも最後に <b>集落庁舎</b> の倍率（1 ＋ Lv×0.15）がかかる</li>' +
+          '<li>とった領地は、その土地の <b>特産</b> を毎日「2 ＋ 強さ÷12（切りすて）」ずつくれる（本拠地はのぞく）</li></ul>' +
+          '<p>使いみち：交渉＝<b>魔素＋食料</b>、制圧＝<b>木材＋魔素</b>。施設・仲間・外交にも使うよ。</p>',
+        camera: { pos: [RX, 7.5, RZ + 12.5], target: [RX, 2.4, RZ] },
+        focus: ['res'],
+        update: (function () {
+          var last = -1;
+          return function (g, t) {
+            var day = Math.floor(t / 1.2) % 5;
+            RB_UPDATE(g, day, day !== last);
+            last = day;
+          };
+        })(),
+      },
+      {
+        title: 'となりの土地だけねらえる',
+        html:
+          '<p>地図の六角形をクリックすると、地図の下にその土地の <b>くわしい情報</b> が出るよ（もう一度クリックで閉じる）。</p>' +
+          '<ul><li>交渉・制圧できるのは、<b>自分の国ととなり合っている土地だけ</b>。ゲームでは、ふちの点線が動いている六角形だよ</li>' +
+          '<li>となりでない土地は薄く表示されて、「まだ国境が接していない」と出る</li>' +
+          '<li>最初にねらえるのは、始まりの森のまわりの <b>6マス</b>（黄色のふち）</li></ul>' +
+          '<p>くわしい情報には「勢力の強さ」「特産」と、<b>2つのボタン</b>（成功率と費用つき）が出る。資源が足りないボタンは押せないよ。</p>',
+        camera: { pos: [2.2, 12, 10.5], target: [2.2, 0, 0.2] },
+        focus: ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 'halo', 'st', 'home-slime', 'detail', 'adj-lbl'],
+        show: ['st', 'detail', 'adj-lbl', 'halo'],
+        update: function (g, t) { g.pulse('halo', t, 0.03); g.pulse('t1', t, 0.05); },
+      },
+      {
+        title: '交渉で迎え入れる',
+        html:
+          '<p>話し合いで、相手に仲間になってもらう方法だよ。</p>' +
+          '<table><tr><th>費用</th><td>魔素「15＋強さ×0.3」・食料「10＋強さ×0.2」（四捨五入）</td></tr>' +
+          '<tr><th>成功</th><td>自分の国になる。<b>経験＋10</b>、その土地の特産が「強さ×0.5」もらえる</td></tr>' +
+          '<tr><th>失敗</th><td>はらった資源がなくなるだけ</td></tr></table>' +
+          '<p>例：<b>陽だまりの畑</b>（強さ22）なら、成功率 <b>42%</b>・費用 魔素22・食料14。成功すると食料＋11。</p>' +
+          '<div class="gg-note">相手が鉄鎚・黒曜の土地のときは、相手との <b>関係値</b> が高いほど成功しやすい。成功すると関係値−8、失敗でも−3 されるよ。</div>',
+        camera: { pos: [1.4, 10, 10], target: [1.4, 0.6, 0.3] },
+        show: ['dip', 'dip-ok', 'nm'],
+        update: function (g, t) {
+          var k = t % 7;
+          var ok = k > 3.2;
+          g.get('dip-ok').visible = ok;
+          g.get('dip').visible = !ok;
+          g.setColor('t1', ok ? OWN_COL.player : OWN_COL.none);
+          if (ok) g.pulse('t1', t, 0.06);
+        },
+      },
+      {
+        title: '制圧して従える',
+        html:
+          '<p>力ずくで土地を従える方法だよ。</p>' +
+          '<table><tr><th>費用</th><td>木材「15＋強さ×0.3」・魔素「10＋強さ×0.2」（四捨五入）</td></tr>' +
+          '<tr><th>成功</th><td>自分の国になる。<b>経験＋16</b>、特産が「強さ×0.6」もらえる</td></tr>' +
+          '<tr><th>失敗</th><td>はらった資源がなくなるだけ</td></tr></table>' +
+          '<p>例：<b>陽だまりの畑</b> なら、成功率 <b>39%</b>・費用 木材22・魔素14。成功すると食料＋13。交渉より成功率は低めだけど、<b>経験が多くもらえる</b> よ。</p>' +
+          '<div class="gg-note">勢力の土地を制圧すると、関係値が <b>−25</b>（失敗でも−5）。さらに <b>停戦中・同盟中の相手</b> の土地に手を出すと、その約束が破れて敵対にもどり、関係値がもう −25 されるよ。</div>',
+        camera: { pos: [1.4, 10, 10], target: [1.4, 0.6, 0.3] },
+        show: ['con', 'con-ok', 'nm'],
+        update: function (g, t) {
+          var k = t % 7;
+          var ok = k > 3.2;
+          g.get('con-ok').visible = ok;
+          g.get('con').visible = !ok;
+          g.setColor('t1', ok ? OWN_COL.player : OWN_COL.none);
+          if (ok) g.pulse('t1', t, 0.06);
+        },
+      },
+      {
+        title: '成功率のしくみ',
+        html:
+          '<p>成功率は、自分の <b>力</b> と、相手の <b>勢力の強さ</b> のくらべっこで決まるよ。</p>' +
+          '<ul><li>交渉 ＝ <b>52 ＋（交渉力 − 強さ）× 1.2</b></li>' +
+          '<li>制圧 ＝ <b>46 ＋（制圧力 − 強さ）× 1.2</b></li>' +
+          '<li>どんなときも <b>8%〜92%</b> のあいだ</li></ul>' +
+          '<table><tr><th>力</th><th>中身</th></tr>' +
+          '<tr><td>交渉力</td><td>領地の数×3 ＋ 魔導書庫Lv×5 ＋ 知恵袋Lv×6 ＋ 進化の段階×8（勢力の土地なら ＋関係値×0.25）</td></tr>' +
+          '<tr><td>制圧力</td><td>領地の数×3 ＋ 訓練場Lv×7 ＋ 猛将Lv×6 ＋ 進化の段階×8</td></tr></table>' +
+          '<p>最初は交渉力14・制圧力16。魔導書庫を1回強化すると、陽だまりの畑への交渉が <b>42%→48%</b>、訓練場なら制圧が <b>39%→47%</b> に上がるよ。</p>' +
+          '<table><tr><th>最初のとなり</th><th>強さ</th><th>交渉</th><th>制圧</th></tr>' +
+          '<tr><td>陽だまりの畑</td><td>22</td><td>42%</td><td>39%</td></tr>' +
+          '<tr><td>蒼月の丘</td><td>24</td><td>40%</td><td>36%</td></tr>' +
+          '<tr><td>涸れ川の里</td><td>25</td><td>39%</td><td>35%</td></tr>' +
+          '<tr><td>霧影の谷</td><td>28</td><td>35%</td><td>32%</td></tr>' +
+          '<tr><td>銀霜の高地</td><td>30</td><td>33%</td><td>29%</td></tr>' +
+          '<tr><td>鉄鎚の街道</td><td>42</td><td>23%</td><td>15%</td></tr></table>',
+        camera: { pos: [PX, 6.5, PZ + 11], target: [PX, 2.0, PZ] },
+        focus: ['pw'],
+        update: (function () {
+          var last = null;
+          return function (g, t) {
+            var k = t % 8, up = k > 1.5;
+            var s = g.phase(k, 1.5, 0.8);
+            var dx = g.get('pw-dx'), cx = g.get('pw-cx');
+            dx.visible = cx.visible = up;
+            dx.scale.y = cx.scale.y = Math.max(s, 0.001);
+            dx.position.y = 14 * K + (5 * K * s) / 2; cx.position.y = 16 * K + (7 * K * s) / 2;
+            g.get('pw-d-lbl').position.y = (14 + 5 * s) * K + 0.45;
+            g.get('pw-c-lbl').position.y = (16 + 7 * s) * K + 0.45;
+            var full = k > 2.3;
+            if (full !== last) {
+              g.setLabel('pw-d-lbl', full ? '交渉力 19' : '交渉力 14', { size: 0.3, bg: '#000000bb' });
+              g.setLabel('pw-c-lbl', full ? '制圧力 23' : '制圧力 16', { size: 0.3, bg: '#000000bb' });
+              g.setLabel('pw-dp', full ? '交渉 48%' : '交渉 42%', { size: 0.46, color: C.good, bg: '#000000bb' });
+              g.setLabel('pw-cp', full ? '制圧 47%' : '制圧 39%', { size: 0.46, color: '#ff9a9a', bg: '#000000bb' });
+              last = full;
+            }
+          };
+        })(),
+      },
+      {
+        title: '施設と仲間で強くなる',
+        html:
+          '<p><b>本拠地の施設</b>（5つ）と <b>仲間</b>（4人）は、最初はみんな Lv.1。資源を使って1つずつ上げられるよ。</p>' +
+          '<table><tr><th>施設</th><th>Lv1つごとの効果</th></tr>' +
+          '<tr><td>集落庁舎</td><td>3つの資源の生産ぜんぶ ＋15%</td></tr>' +
+          '<tr><td>農場</td><td>食料 ＋3 /日</td></tr>' +
+          '<tr><td>工房</td><td>木材 ＋3 /日</td></tr>' +
+          '<tr><td>魔導書庫</td><td>魔素 ＋3 /日・交渉力 ＋5</td></tr>' +
+          '<tr><td>訓練場</td><td>制圧力 ＋7（守りも強くなる）</td></tr></table>' +
+          '<p>施設の費用は、強化するたびに <b>1.55倍</b>。最初は 庁舎 魔素20・木材20、農場 食料15・木材10、工房 木材20・魔素10、書庫 魔素25・食料10、訓練場 木材25・魔素15。</p>' +
+          '<table><tr><th>仲間</th><th>Lv1つごとの効果</th></tr>' +
+          '<tr><td>知恵袋</td><td>交渉力 ＋6</td></tr><tr><td>猛将</td><td>制圧力 ＋6（守りも強くなる）</td></tr>' +
+          '<tr><td>匠</td><td>木材 ＋2 /日</td></tr><tr><td>牧人</td><td>食料 ＋2 /日</td></tr></table>' +
+          '<p>仲間を鍛える費用は 食料「10＋Lv×8」・木材「6＋Lv×6」（Lv1→2 なら食料18・木材12）。仲間の <b>名前は自由に書きかえられる</b> よ（10文字まで）。</p>',
+        camera: { pos: [BX, 8, BZ + 11.5], target: [BX, 0.8, BZ + 0.4] },
+        focus: ['bld'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.1) % 9;
+          var keys = ['b-hall', 'b-farm', 'b-workshop', 'b-archive', 'b-training', 'c-sage', 'c-general', 'c-artisan', 'c-herder'];
+          g.pulse(keys[k], t, 0.12);
+        },
+      },
+      {
+        title: 'スライムの進化',
+        html:
+          '<p><b>経験</b> がたまると、スライムが進化するよ（画面右上の「成長」パネル）。</p>' +
+          '<table><tr><th>段階</th><th>必要な経験</th></tr>' +
+          '<tr><td>名もなきスライム</td><td>0</td></tr><tr><td>意思を宿すスライム</td><td>30</td></tr>' +
+          '<tr><td>森の盟主</td><td>80</td></tr><tr><td>王権を纏う者</td><td>160</td></tr><tr><td>終焉を統べるもの</td><td>280</td></tr></table>' +
+          '<p>段階が1つ上がるごとに、<b>交渉力・制圧力が ＋8</b>（守りも強くなる）。</p>' +
+          '<p><b>経験のもらい方</b>：次の日へ ＋1、交渉の成功 ＋10、制圧の成功 ＋16、イベントで ＋6。</p>',
+        camera: { pos: [EX, 9, EZ + 19.5], target: [EX, 1.2, EZ] },
+        focus: ['evo'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.2) % 5;
+          g.pulse('e-s' + k, t, 0.14);
+        },
+      },
+      {
+        title: 'まわりの2つの勢力',
+        html:
+          '<p>地図には、自分で動く勢力が2つあるよ。<b>次の日へ</b> を押すたびに動く。</p>' +
+          '<table><tr><th></th><th>鉄鎚商業連合</th><th>黒曜の残党</th></tr>' +
+          '<tr><td>性格</td><td>商人。話が通じる</td><td>好戦的</td></tr>' +
+          '<tr><td>攻めてくる確率</td><td>毎日 18%</td><td>毎日 35%</td></tr>' +
+          '<tr><td>攻める力</td><td>自分の土地の強さの平均</td><td>平均 ＋12</td></tr>' +
+          '<tr><td>最初の関係値</td><td>＋15</td><td>−15</td></tr></table>' +
+          '<ul><li>勢力の土地は、毎日50%の確率で強さが ＋1（最大99）</li>' +
+          '<li>ねらうのは、自分の土地のとなりで <b>いちばん弱い土地</b>。無所属の村や、もう1つの勢力の土地もねらう</li>' +
+          '<li>あなたの土地が攻められたときの守りは <b>制圧力</b>。成功率は「38 ＋（攻める力 − 守り）× 1.2」（8〜92%）</li>' +
+          '<li>奪われた土地は、強さが「攻める力×0.85」以上になる</li>' +
+          '<li><b>本拠地はぜったいにねらわれない</b>。停戦・同盟中は、あなたの土地を攻めてこない</li></ul>' +
+          '<div class="gg-note">最初の黒曜の力は約67。制圧力16のままだと、ねらわれた土地は <b>92%</b> で取られちゃう！ 訓練場・猛将で守りを固めるか、停戦しておこう。</div>',
+        camera: { pos: [2.4, 12.5, 10.5], target: [2.4, 0, 0.2] },
+        show: ['ai', 'nm'],
+        update: function (g, t) {
+          g.pulse('t7', t, 0.05); g.pulse('t11', t + 0.5, 0.05); g.pulse('t12', t + 1, 0.05);
+          g.pulse('t2', t + 1.5, 0.05); g.pulse('t8', t + 2, 0.05);
+        },
+      },
+      {
+        title: '外交：贈り物・停戦・同盟',
+        html:
+          '<p>右の <b>外交</b> パネルで、2つの勢力とのつき合い方を選べるよ。</p>' +
+          '<table><tr><th>行動</th><th>費用</th><th>結果</th></tr>' +
+          '<tr><td>贈り物</td><td>魔素18・食料18・木材12</td><td>関係値 ＋12（必ず成功）</td></tr>' +
+          '<tr><td>停戦</td><td>魔素24・食料16</td><td>成功率「35＋関係値×0.6」%（5〜95%）。成功で <b>8日間</b> 停戦・関係値＋8。失敗でも＋2</td></tr>' +
+          '<tr><td>同盟</td><td>魔素55・食料45・木材35</td><td>関係値 <b>60以上</b> で申しこめる。成功率「25＋(関係値−60)×1.6」%（10〜95%）。成功で関係値100、毎日資源 ＋4。失敗で関係値−10</td></tr></table>' +
+          '<ul><li>停戦は、敵対中のときだけ申しこめる。8日たつと敵対にもどって、関係値 −10</li>' +
+          '<li>同盟は、自分から相手の土地に手を出さないかぎり続く</li>' +
+          '<li>最初の停戦の成功率は、鉄鎚 44%・黒曜 26%</li></ul>' +
+          '<div class="gg-note">アニメは鉄鎚に贈り物を4回して、関係値が 15→63 になるところ。これで同盟を申しこめるよ。</div>',
+        camera: { pos: [DX, 11, DZ + 16], target: [DX, 0.5, DZ + 2] },
+        focus: ['dipl'],
+        update: (function () {
+          var last = -1;
+          return function (g, t) {
+            var k = t % 9;
+            var n = Math.min(4, Math.floor(k / 1.4));
+            var frac = Math.min(1, g.phase(k - n * 1.4, 0, 0.5));
+            var rel = 15 + 12 * Math.max(0, n - 1) + (n > 0 ? 12 * frac : 0);
+            var x = DX + rel * 0.08;
+            g.get('d-iron').position.x = x;
+            g.get('d-iron-lbl').position.x = x;
+            var shown = 15 + 12 * n;
+            if (shown !== last) { g.setLabel('d-iron-lbl', '鉄鎚 ' + shown, { size: 0.28, color: '#ffe08a', bg: '#000000bb' }); last = shown; }
+            if (n > 0 && frac < 1) g.pulse('d-act0', t, 0.1);
+            if (shown >= 60) { g.pulse('d-flag-cloth', t, 0.2); g.pulse('d-act2', t, 0.08); }
+          };
+        })(),
+      },
+      {
+        title: 'イベントと年代記',
+        html:
+          '<p><b>次の日へ</b> を押すたびに、<b>30%</b> の確率でイベントが1つ起きるよ（5種類から同じ確率で）。</p>' +
+          '<table><tr><th>イベント</th><th>効果</th></tr>' +
+          '<tr><td>旅の行商人</td><td>木材 ＋8</td></tr><tr><td>行き倒れの魔物を助ける</td><td>経験 ＋6</td></tr>' +
+          '<tr><td>小さな地割れ</td><td>木材 −6</td></tr><tr><td>豊作の兆し</td><td>食料 ＋10</td></tr>' +
+          '<tr><td>国境の怪しい影</td><td>なにも起きない（お話だけ）</td></tr></table>' +
+          '<p>起きたことは、地図の下の <b>年代記</b> に記録されるよ（新しい順に60件まで）。</p>' +
+          '<p>自分の領地が <b>5つ・10こ・13こ</b> になったときも、年代記に節目のメッセージが出るよ。</p>',
+        camera: { pos: [VX, 5, VZ + 13.5], target: [VX, 1.8, VZ] },
+        focus: ['ev'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.4) % 5;
+          for (var i = 0; i < 5; i++) {
+            g.get('v-card' + i).position.y = 1.6 + (i === k ? 0.25 : 0);
+            g.get('v-card' + i).position.z = VZ + (i === k ? 0.5 : 0);
+          }
+        },
+      },
+      {
+        title: 'まとめ',
+        html:
+          '<ol><li><b>index.html</b> をダブルクリックで開く（セーブは自動）</li>' +
+          '<li>となりの土地をクリックして、<b>交渉</b>（魔素＋食料）か <b>制圧</b>（木材＋魔素）</li>' +
+          '<li>行動は1日に何回でもOK。終わったら <b>次の日へ</b></li>' +
+          '<li><b>施設・仲間</b> を強化して、生産と成功率を上げる</li>' +
+          '<li>経験をためて <b>進化</b>（交渉力・制圧力＋8）</li>' +
+          '<li>黒曜の残党は強い！ <b>守り（制圧力）</b> を上げるか、<b>停戦・同盟</b> で身を守る</li>' +
+          '<li>めざせ、<b>13マスぜんぶ</b> 自分の国！</li></ol>' +
+          '<p>それじゃあ、小さなスライムの国づくり、楽しんでね！🟢</p>',
+        camera: MAP_STEPS_CAM,
+        show: ['nm'],
+        update: function (g, t) {
+          var order = [1, 6, 4, 5, 3, 2, 9, 10, 11, 8, 7, 12];
+          var n = Math.floor((t % 9) / 0.55);
+          order.forEach(function (id, i) { g.setColor('t' + id, i < n ? OWN_COL.player : ownCol(TERR[id][1])); });
+          g.get('home-slime').position.y = P[0].h + 0.4 + Math.abs(Math.sin(t * 3)) * 0.25;
+        },
+      },
+    ],
+  };
+
+  // STEP5：資源のバーを日数に合わせて伸ばす
+  function RB_UPDATE(g, day, changed) {
+    [['mana', 40, 8, '🔮 魔素'], ['food', 60, 12, '🌾 食料'], ['wood', 50, 10, '🌲 木材']].forEach(function (r) {
+      var v = r[1] + r[2] * day;
+      var h = v * 0.04;
+      var b = g.get('rb-' + r[0]);
+      b.scale.y = h; b.position.y = h / 2;
+      g.get('rb-lbl-' + r[0]).position.y = h + 0.55;
+      if (changed) g.setLabel('rb-lbl-' + r[0], r[3] + ' ' + v, { size: 0.36, bg: '#000000bb' });
+    });
+    if (changed) g.setLabel('r-day', (day + 1) + '日目', { size: 0.42, color: C.gold, bg: '#000000aa' });
+  }
+
+  GameGuide.start(CFG);
+  // guide.js はタイトルに「仕組み図解」と付けるので、このページ用に付け直す
+  document.addEventListener('DOMContentLoaded', function () { document.title = 'スライム建国記 | 遊び方チュートリアル'; });
+})();
+</script>
+</body>
+</html>
