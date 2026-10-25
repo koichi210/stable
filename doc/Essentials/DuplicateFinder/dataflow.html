@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuplicateFinder データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 12;                          // ステージ(工程)どうしの間隔。ファイルのブロックがこの間を流れていく
+  var GREY = new T.Color('#4d4a63');
+
+  // ---- 説明用のファイル12個(ダミー)。色=本当の中身、高さ=サイズ。d=脱落する工程(99=最後まで残る) ----
+  var F = [
+    { n: 'beach.jpg', l: 'beach.jpg', mb: 3.2, c: '#4fa3ff', d: 99 },
+    { n: 'beach_copy.jpg', l: 'beach_copy\n.jpg', mb: 3.2, c: '#4fa3ff', d: 99 },
+    { n: 'sunset.jpg', l: 'sunset.jpg', mb: 2.1, c: '#5ee6a8', d: 99 },
+    { n: 'sunset.jpg', l: 'sunset.jpg', mb: 2.1, c: '#5ee6a8', d: 99 },
+    { n: 'sports_day.mp4', l: 'sports_day\n.mp4', mb: 9, c: '#ffd166', d: 99 },
+    { n: 'sports_day_final.mp4', l: 'sports_day\n_final.mp4', mb: 9, c: '#ffd166', d: 99 },
+    { n: 'other.mp4', l: 'other.mp4', mb: 9, c: '#ff5f6d', d: 3 },
+    { n: 'sports_day_old.mp4', l: 'sports_day\n_old.mp4', mb: 9, c: '#e8a23a', d: 4 },
+    { n: 'memo_a.txt', l: 'memo_a.txt', mb: 0.004, c: '#c77dff', d: 4 },
+    { n: 'memo_b.txt', l: 'memo_b.txt', mb: 0.004, c: '#7ef0ff', d: 4 },
+    { n: 'note.txt', l: 'note.txt', mb: 0.001, c: '#b8b2d6', d: 2 },
+    { n: 'trip.png', l: 'trip.png', mb: 5.5, c: '#ff9f43', d: 2 },
+  ];
+  function H(i) { return 0.35 + Math.min(F[i].mb, 9) * 0.15; }
+
+  // ---- 各工程での置き場所(工程内のローカル座標。ステージ k の中心は x = SX*k) ----
+  var FOLDERS = [[0, 2, 8, 10, 11], [1, 3, 9], [4, 5, 6, 7]];         // 対象1 / 2 / 3 に入っているファイル
+  var FZ = [-5, 0, 5];
+  var ENUM = [0, 2, 8, 10, 11, 1, 3, 9, 4, 5, 6, 7];                  // 列挙される順
+  var LANES = [[4, 5, 6, 7], [11], [0, 1], [2, 3], [8, 9], [10]];     // サイズごとのレーン
+  var LANE_LBL = ['9.0 MB\n4件', '5.5 MB\n1件', '3.2 MB\n2件', '2.1 MB\n2件', '4 KB\n2件', '1 KB\n1件'];
+  var GROUPS = [[4, 5], [0, 1], [2, 3]];                              // 空く容量の大きい順
+  var ROWS = [4, 5, 1, 0, 3, 2];                                      // 一覧の並び(グループ内はパス順)
+  var ROW_TXT = {
+    4: 'sports_day.mp4        8.58 MB    Videos',
+    5: 'sports_day_final.mp4  8.58 MB    Videos',
+    1: 'beach_copy.jpg        3.05 MB    Photos/Backup',
+    0: 'beach.jpg             3.05 MB    Photos/Trip',
+    3: 'sunset.jpg            2.00 MB    Photos/Backup',
+    2: 'sunset.jpg            2.00 MB    Photos/Trip',
+  };
+  var MARKED = { 1: true, 3: true, 5: true };                         // 自動選択(上の対象フォルダを残す)で削除チェックが付くもの
+  function rowZ(r) { return -4.7 + r * 1.3 + Math.floor(r / 2) * 0.7; }
+
+  var layout = [];        // layout[k][i] = [x,y,z]
+  (function () {
+    for (var k = 0; k <= 8; k++) layout[k] = [];
+    var i, j, k2;
+    FOLDERS.forEach(function (list, f) { list.forEach(function (id, j) { layout[0][id] = [-3.2 + j * 1.6, H(id) / 2, FZ[f]]; }); });
+    ENUM.forEach(function (id, s) { layout[1][id] = [-4 + (s % 6) * 1.6, H(id) / 2, -2.2 + Math.floor(s / 6) * 4.4]; });
+    LANES.forEach(function (list, lane) { list.forEach(function (id, j) { layout[2][id] = [-2.6 + j * 1.7, H(id) / 2, -7.5 + lane * 3]; }); });
+    for (k2 = 3; k2 <= 4; k2++) layout[k2] = layout[2];
+    GROUPS.forEach(function (list, gi) { list.forEach(function (id, j) { layout[5][id] = [-1 + j * 2, H(id) / 2, -4 + gi * 4]; }); });
+    ROWS.forEach(function (id, r) { layout[6][id] = [-4.1, H(id) / 2, rowZ(r)]; });
+    layout[7] = layout[6];
+    var BIN = { 1: [-0.6, 0.5, -0.8], 3: [0.6, 0.5, -0.8], 5: [0, 0.5, 0.8] };   // ごみ箱(ステージ7の中心が原点)
+    for (i = 0; i < F.length; i++) layout[8][i] = BIN[i] || layout[7][i] || layout[2][i];
+  })();
+  // 一覧(⑥)と自動選択(⑦)は同じ場所。削除(⑧)のごみ箱だけ、その右隣のステージ(x = SX*7)にある
+  function P(k, i) { var p = layout[k][i]; var sx = (k === 8 && MARKED[i]) ? 7 : Math.min(k, 6); return [p[0] + SX * sx + (k === 8 && MARKED[i] ? 0.5 : 0), p[1], p[2]]; }
+
+  // ---- 棒グラフ(ファイルの中身を8分割で表現)の色 ----
+  var DARK = '#2a2740', READ = '#7ef0ff', SAME = '#5ee6a8', DIFF = '#ff5f6d';
+  var CELLS = 8;
+  var bars = [];          // bars[i][c] = Mesh
+
+  function barColors(i, k, t) {
+    var cols = [], c;
+    for (c = 0; c < CELLS; c++) cols.push(DARK);
+    var big = F[i].mb > 0.125;
+    if (k === 3 && big) {
+      if (t > 1.0) cols[0] = t > 2.8 ? (i === 6 ? DIFF : SAME) : READ;
+      if (t > 1.8) cols[7] = t > 2.8 ? SAME : READ;
+    } else if (k === 4) {
+      if (i === 8 || i === 9) {
+        if (t > 0.8) for (c = 0; c < CELLS; c++) cols[c] = DIFF;
+      } else {
+        for (c = 0; c < CELLS; c++) {
+          if (t < 0.8 + 0.55 * c) break;
+          if (i === 7 && c === 4) { cols[c] = DIFF; break; }
+          cols[c] = SAME;
+        }
+      }
+    }
+    return cols;
+  }
+
+  // 脱落する時刻(その工程のステップ開始からの秒)
+  function dropTime(i, k) {
+    if (k === 2) return 1.8;
+    if (k === 3) return 3.2;
+    if (i === 7) return 0.8 + 0.55 * 4 + 0.3;
+    return 1.3;
+  }
+
+  var files = [];         // Mesh
+
+  function stagePlates(g) {
+    var titles = ['⓪ 対象フォルダ', '① 一覧を作る', '② サイズで仲間分け', '③ 先頭と末尾を比べる', '④ 全員いっせいにチャンク比較', '⑤ 重複グループ確定', '⑥⑦ 一覧に表示 → 残す1件を決める', '⑧ 削除'];
+    for (var k = 0; k <= 7; k++) {
+      g.plate({ id: 'st' + k, size: [11, 20], pos: [SX * k, 0.03, 0], color: '#211e33', label: titles[k], labelSize: 0.5, labelOffset: [0, 0.3, -10.4], labelColor: '#ffffff' });
+      if (k < 7) {
+        g.arrow([SX * k + 5.8, 0.5, 0], [SX * (k + 1) - 5.8, 0.5, 0], { id: 'ar' + k, color: C.gold, lift: 0.4, head: 0.4 });
+        g.flow([SX * k + 5.8, 0.5, 0], [SX * (k + 1) - 5.8, 0.5, 0], { id: 'fl' + k, color: C.data, lift: 0.4, count: 4, size: 0.12 });
+      }
+    }
+  }
+
+  function look(k) {
+    var x = SX * k;
+    if (k === 0) return { pos: [x, 15, 15], target: [x, 0.3, 0] };
+    if (k >= 2 && k <= 4) return { pos: [x, 20, 14], target: [x, 0.3, 0] };
+    if (k === 5) return { pos: [x, 12, 12], target: [x, 0.3, 0] };
+    if (k === 6 || k === 7) return { pos: [SX * 6, 14, 11], target: [SX * 6, 0.3, -0.5] };
+    if (k === 8) return { pos: [SX * 6.6, 16, 18], target: [SX * 6.6, 0.3, 0] };
+    return { pos: [x, 14, 14], target: [x, 0.3, 0] };
+  }
+
+  // ステップ k の毎フレームの処理。位置・色は t から決める(途中のステップへ飛んでも壊れない)
+  function tick(g, t, k) {
+    var ph = k === 0 ? 1 : g.phase(t, 0, 2.2);
+    var i, c, kk, pk, a, b, tint, col, cols;
+    for (i = 0; i < F.length; i++) {
+      var m = files[i];
+      kk = Math.min(k, F[i].d);
+      pk = Math.min(Math.max(k - 1, 0), F[i].d);
+      a = P(pk, i); b = P(kk, i);
+      if (k === 8 && MARKED[i]) {
+        var order = i === 1 ? 0 : i === 3 ? 1 : 2;
+        g.arcPos(m, P(7, i), P(8, i), g.phase(t, 0.6 + 0.5 * order, 1.6), 4);
+      } else {
+        g.lerpPos(m, a, b, ph);
+      }
+      // 脱落 = 灰色になって小さくなり、その場に残る
+      tint = k > F[i].d ? 1 : k === F[i].d ? g.phase(t, dropTime(i, k), 0.9) : 0;
+      col = new T.Color(F[i].c);
+      if (k >= 7 && F[i].d === 99) {
+        var mix = k === 7 ? g.phase(t, 0.8, 1) : 1;
+        col.lerp(new T.Color(MARKED[i] ? '#ff5f6d' : '#5ee6a8'), mix);
+      }
+      col.lerp(GREY, tint);
+      m.material.color.copy(col);
+      m.scale.setScalar(1 - 0.3 * tint);
+      var lab = m.userData.label;
+      if (lab) lab.visible = !(F[i].d === 99 && k >= 6);
+      // 棒グラフ
+      var show = k >= 3 && k <= 4 && F[i].d >= k;
+      cols = show ? barColors(i, k, t) : null;
+      for (c = 0; c < CELLS; c++) {
+        bars[i][c].visible = show;
+        if (show) bars[i][c].material.color.set(cols[c]);
+      }
+    }
+    // 一覧の行(⑥⑦⑧)
+    for (var r = 0; r < ROWS.length; r++) {
+      var id = ROWS[r];
+      var on = k >= 7 && MARKED[id] ? (k === 7 ? g.phase(t, 0.8, 1) : 1) : 0;
+      var rc = new T.Color('#2d2944').lerp(new T.Color('#5a2430'), on);
+      g.get('row' + r).material.color.copy(rc);
+      g.get('chk' + r).material.color.copy(new T.Color('#e9e6f5').lerp(new T.Color(on ? '#ff5f6d' : '#e9e6f5'), on));
+    }
+  }
+
+  function step(k, title, html, extra, show) {
+    var s = {
+      title: title, html: html, camera: look(k), show: show,
+      update: function (g, t) { tick(g, t, k); if (extra) extra(g, t); },
+    };
+    return s;
+  }
+
+  var STEPS = [];
+
+  GameGuide.start({
+    title: 'DuplicateFinder データの流れ',
+    subtitle: 'フォルダ → サイズ → 先頭と末尾 → 中身を同時に比較 → 重複グループ → 一覧 → 削除。ブロックが絞り込まれていく',
+    camera: { pos: [42, 64, 52], target: [42, 0, 3] },
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;            // 全体図は遠くまで見せたいのでフォグを切る
+      g.controls.maxDistance = 130;
+      stagePlates(g);
+
+      // ⓪ 対象フォルダ
+      ['対象1  Photos/Trip', '対象2  Photos/Backup', '対象3  Videos'].forEach(function (t, f) {
+        g.plate({ id: 'fold' + f, size: [9.4, 3.2], pos: [0, 0.07, FZ[f]], color: '#3a3560', label: t, labelSize: 0.36, labelOffset: [-3.4, 0.3, -1.95] });
+      });
+      g.label('色 = 本当の中身(アプリは比べるまで知らない)\n高さ = ファイルサイズ', [0, 0.5, 10.9], { size: 0.34, color: '#ffffff' });
+
+      // ② / ③ / ④ のレーン
+      for (var k = 2; k <= 4; k++) {
+        LANES.forEach(function (list, lane) {
+          g.plate({ id: 'lane' + k + '_' + lane, size: [10, 2.6], pos: [SX * k, 0.07, -7.5 + lane * 3], color: '#2e2a4a', label: LANE_LBL[lane], labelSize: 0.3, labelOffset: [-4.3, 0.3, 0] });
+        });
+      }
+      g.label('サイズが同じ者どうしだけが仲間(読まずに分けられる)', [SX * 2, 0.5, 10.9], { size: 0.34 });
+      g.label('先頭64KB＋末尾64KB だけ読む(128KB以下の小さい物は省略)', [SX * 3, 0.5, 10.9], { size: 0.34 });
+      g.label('図は8分割で表現(実際は 256KB〜32MB のチャンク)', [SX * 4, 0.5, 10.9], { size: 0.34 });
+
+      // ⑤ グループ
+      var gl = ['#1  2件 × 8.58 MB\n空き 8.58 MB', '#2  2件 × 3.05 MB\n空き 3.05 MB', '#3  2件 × 2.00 MB\n空き 2.00 MB'];
+      GROUPS.forEach(function (list, gi) {
+        g.plate({ id: 'grp' + gi, size: [9.6, 3], pos: [SX * 5, 0.07, -4 + gi * 4], color: '#2e2a4a', label: gl[gi], labelSize: 0.3, labelOffset: [-3.5, 0.3, 0] });
+      });
+      g.label('空く容量の大きい順に並べる', [SX * 5, 0.5, 8.3], { size: 0.34 });
+
+      // ⑥⑦ 一覧の行
+      ROWS.forEach(function (id, r) {
+        g.plate({ id: 'row' + r, size: [10.4, 0.95], pos: [SX * 6, 0.07, rowZ(r)], color: '#2d2944', radius: 0.08 });
+        g.box({ id: 'chk' + r, size: [0.4, 0.14, 0.4], pos: [SX * 6 - 4.9, 0.14, rowZ(r)], color: '#e9e6f5', edges: false });
+        g.label(ROW_TXT[id], [SX * 6 + 1.3, 0.55, rowZ(r)], { id: 'rt' + r, size: 0.26, color: '#ffffff' });
+      });
+      g.label('削除チェック列  ファイル名  サイズ  フォルダ', [SX * 6 + 1.3, 0.5, -6.4], { size: 0.3, color: '#b8b2d6' });
+      g.label('自動選択: 対象フォルダの上の方を残す\n→ 赤 = 削除チェック / 緑 = 残す', [SX * 6 + 0.5, 0.5, 6.4], { id: 'rule-note', size: 0.34 });
+
+      // ⑧ 削除
+      g.box({ id: 'bin', size: [3.6, 1.4, 3.4], pos: [SX * 7 + 0.5, 0.7, 0], color: '#3b6ea8', opacity: 0.45, label: 'ごみ箱', labelSize: 0.4, labelOffset: [0, 1.6, 0] });
+      g.label('消す前に毎回確かめる\n・全件チェックのグループが無い\n・検索後に変更されていない\n・残す側が確かに残っている', [SX * 7 - 0.5, 0.5, -5.6], { id: 'chk-note', size: 0.32, bg: '#00000066' });
+      g.label('3件・13.64 MB が空いた', [SX * 7 + 0.5, 3.4, 5.5], { id: 'freed', size: 0.5, color: C.good });
+
+      // ファイルのブロック
+      F.forEach(function (f, i) {
+        var h = H(i), p = P(0, i);
+        files[i] = g.box({ id: 'f' + i, size: [0.9, h, 0.9], pos: p, color: f.c, label: f.l, labelSize: 0.27, labelOffset: [0, h / 2 + 0.7, 0], edges: true });
+        bars[i] = [];
+        for (var c = 0; c < CELLS; c++) {
+          bars[i][c] = g.box({ id: 'b' + i + '_' + c, parent: 'f' + i, size: [0.17, 0.12, 0.34], pos: [-0.7 + c * 0.2, -h / 2 + 0.07, 0.85], color: DARK, edges: false });
+          bars[i][c].visible = false;
+        }
+      });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: { pos: [42, 64, 52], target: [42, 0, 3] },
+        update: function (g, t) { tick(g, t, 0); },
+        html:
+          '<p>ファイルのブロックが、左から右へ<b>工程を進むたびに絞り込まれていく</b>様子を見ます。ブロックの<b>色が本当の中身</b>、<b>高さがサイズ</b>です(同じ色=中身が同じ)。</p>' +
+          '<ol><li>フォルダからファイル一覧を作る(<b>読まない</b>)</li><li>サイズで仲間分け(<b>読まない</b>)</li><li>先頭と末尾だけ読んで比べる</li><li>残りは中身を<b>全員同時に</b>少しずつ読んで比べる</li><li>重複グループ → 一覧 → 自動選択 → 削除</li></ol>' +
+          '<p>大きな動画が何本あっても速いのは、<b>違うと分かった瞬間にそのファイルを読むのをやめる</b>から。ハッシュ値ではなく、<b>中身そのもの(バイト列)を直接比べる</b>ので、ハッシュ衝突による誤判定も起きません。</p>' +
+          '<p class="gg-note">ここに出てくる12個のファイルは説明用のダミーです。矢印キー(←→)でも進めます。</p>' +
+          '<p class="gg-files">📄 <code>DuplicateScanner.cs</code>(冒頭のコメントが設計の要約)</p>',
+      },
+      step(1, '① フォルダからファイル一覧を作る',
+        '<p>対象フォルダ(ここでは3つ)を順にたどり、見つけたファイルの<b>名前・サイズ・更新日時・どの対象フォルダか</b>だけを <code>FileEntry</code> に記録します。<b>中身はまだ1バイトも読みません</b>。</p>' +
+        '<ul><li>入れ子の対象フォルダは外側だけ(<code>StartFolders</code>)。ファイルの所属は深い方(<code>RootIndexOf</code>)</li>' +
+        '<li><code>Stack</code> で深さ優先に探索(<code>EnumerateFiles</code>)。開けないフォルダはエラーに記録して続行</li>' +
+        '<li>飛ばすもの: 隠し・システム(設定で切替)、ジャンクション等のフォルダ、クラウド未ダウンロード、0バイト、最小サイズ未満、拡張子の指定外</li></ul>' +
+        '<p class="gg-files">📄 <code>DuplicateScanner.EnumerateFiles</code> → <code>List&lt;FileEntry&gt;</code>(<code>FileEntry.cs</code>)</p>'),
+      step(2, '② サイズで仲間分け(まだ読まない)',
+        '<p><code>GroupBy(f =&gt; f.Length)</code> で<b>サイズが同じ者どうし</b>をレーンにまとめ、<b>2件以上のレーンだけ</b>残します。サイズが違えば、中身が同じはずがないからです。</p>' +
+        '<ul><li><code>note.txt</code> と <code>trip.png</code> は、同じサイズの仲間がいないので<b>読まずに脱落</b>(灰色)</li>' +
+        '<li>「別々の対象フォルダにまたがる重複だけ」がONなら、1つの対象フォルダにしか無いサイズもここで脱落</li></ul>' +
+        '<p>残ったレーンは、あとで<b>レーンごとに独立して</b>比べます(<code>Parallel.ForEach</code>、同時比較数ぶんだけ並列)。</p>' +
+        '<p class="gg-files">📄 <code>DuplicateScanner.CompareAll</code></p>'),
+      step(3, '③ 先頭と末尾だけ読んで比べる',
+        '<p>同じサイズの別物は、ほぼ先頭か末尾でバレます。そこで<b>先頭64KB＋末尾64KB</b>(<code>SampleSize</code>)だけ読み、<b>一致する者どうし</b>に分け直します。</p>' +
+        '<ul><li><code>other.mp4</code> は9MBで同サイズだが、先頭が違う → <b>残り約9MBを読まずに脱落</b>(赤)</li>' +
+        '<li>128KB以下の小さなファイル(<code>memo_a/b.txt</code>)は、先頭＋末尾を読むのと全体を読むのがほぼ同じなので、この工程を省略</li></ul>' +
+        '<p class="gg-files">📄 <code>CompareGroup</code> → <code>PartitionBySample</code> / <code>ReadSample</code></p>'),
+      step(4, '④ 残りは全員いっせいにチャンク比較',
+        '<p>残った者を<b>全員同時に、チャンク(一定サイズのかたまり)ずつ</b>読み進め、そのたびに<b>バイト単位で一致する者どうし</b>に分け直します(<code>memcmp</code>)。</p>' +
+        '<ul><li>違いが出た者は<b>その時点で読むのをやめる</b>。<code>sports_day_old.mp4</code> は先頭と末尾が同じでも、途中のチャンクで違いが出て脱落(赤)</li>' +
+        '<li><code>memo_a/b.txt</code> は小さいので1チャンクで終わり、どちらも別物と分かる</li>' +
+        '<li>最後まで一致し続けた者が<b>重複</b>(緑)</li></ul>' +
+        '<div class="gg-note">チャンクは 256KB〜32MB で、ファイル数が多いほど小さく(1グループのバッファは合計64MBまで)。図の「8分割」は説明用です。</div>' +
+        '<p>多数のファイルを仕分けるときは、簡易ハッシュ(FNV-1a)で振り分けてから比べて速くしますが、<b>一致の判定は必ずバイト比較</b>です。ハードリンク等の「同じ実体」は、ファイルIDで1件にまとめます。</p>' +
+        '<p class="gg-files">📄 <code>CompareContents</code> / <code>Partition</code> / <code>QuickHash</code> / <code>BytesEqual</code> / <code>ChunkReader</code> / <code>TryGetFileId</code></p>'),
+      step(5, '⑤ 重複グループが確定',
+        '<p>最後まで一致した者が <code>DuplicateGroup</code>(ファイル一覧・サイズ・<code>WastedBytes</code>)になります。<code>WastedBytes</code> は<b>1件だけ残して他を消したときに空く容量</b>(サイズ × (件数−1))。</p>' +
+        '<ul><li>確定したグループから順に <code>ConcurrentBag</code> へ。中止されても確定済みの分はそのまま使える</li>' +
+        '<li>最後に<b>空く容量の大きい順</b>に並べて <code>ScanResult.Groups</code> に入れる</li></ul>' +
+        '<p>ここまでに実際に読んだ量は <code>ScanResult.BytesRead</code> に残り、ステータスバーの「読み込み ○○ MB」になります。</p>' +
+        '<p class="gg-files">📄 <code>DuplicateScanner.Run</code> / <code>FileEntry.cs</code> の <code>DuplicateGroup</code>・<code>ScanResult</code></p>'),
+      step(6, '⑥ 一覧(DataGrid)に表示',
+        '<p>画面側(<code>MainWindow</code>)が結果を受け取り、1ファイル=1行の <code>FileRow</code> にして、グループ見出しつきの <code>DataGrid</code> に出します。</p>' +
+        '<ul><li><code>ShowScanResult</code> → <code>SetRows</code>: 見出し「#1　2件 × 8.58 MB …」を各行に付け、<code>ListCollectionView</code> でグループ化</li>' +
+        '<li>1行の削除チェック(<code>IsMarked</code>)は <code>INotifyPropertyChanged</code>。合計は差分で更新するので、1万件にチェックしても軽い</li></ul>' +
+        '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ShowScanResult</code> / <code>SetRows</code>、<code>FileRow.cs</code></p>'),
+      step(7, '⑦ 残す1件を決めて、削除チェックを付ける',
+        '<p>「自動選択」→「適用」で <code>RowMarker.ApplyKeepRule</code> が走り、各グループで<b>ルールに合う1件を残し、他すべてに削除チェック</b>を付けます。</p>' +
+        '<ul><li>既定の <code>KeepRule.RootOrder</code>: <b>対象フォルダ欄で上のもの</b>を残す(<code>PickKeeper</code>)。ここでは対象1(Trip)の2枚と、同点なら一覧で上の動画が残る</li>' +
+        '<li>同点は一覧の表示順で決まるので、列ヘッダで並べ替えてから使うこともできる</li></ul>' +
+        '<p>右クリックの「このファイルを残す」「このフォルダ以下を全グループで残す」も、同じ <code>RowMarker</code> の別メソッド(<code>KeepOnly</code> / <code>KeepUnderFolder</code>)です。</p>' +
+        '<p class="gg-files">📄 <code>FileRow.cs</code> の <code>RowMarker</code> / <code>KeepRule</code></p>',
+        function (g, t) { }),
+      step(8, '⑧ 確かめてから削除',
+        '<p>「削除」を押すと、まず確認ダイアログ。OKなら<b>1件ずつ</b>、消す直前にもう一度確かめてから消します。</p>' +
+        '<ol><li><code>RowMarker.FindFullyMarkedGroups</code>: 全件チェック済みのグループがあれば、消さずに警告</li>' +
+        '<li><code>CheckBeforeDelete</code>: 検索後に変更・移動されていないか(<code>IsUnchanged</code>)／残す側が確かに残っているか(同じ実体は数えない)</li>' +
+        '<li><code>FileDeleter.Delete</code>: ごみ箱なら Windows の <code>SHFileOperation</code>(元に戻せる)、OFFなら <code>File.Delete</code>(完全削除)</li></ol>' +
+        '<p>消せなかったものは理由つきで一覧表示。終わったら、1件だけになったグループは一覧から外れます。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>DeleteButton_Click</code> / <code>DeleteRows</code>、<code>FileDeleter.cs</code></p>',
+        null, ['chk-note', 'freed']),
+    ],
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventRecorder 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 画面写真(1320x746)を3D空間のパネルとして並べる。パネルの中心座標と幅
+  var PW = 8, PH = PW * 746 / 1320, PY = 3.2;
+  var PANELS = {
+    main:      { key: 'main',      x: -9, title: '① 起動直後(レコードモード)' },
+    recording: { key: 'recording', x: 0,  title: '② 記録中(最新行が黄色)' },
+    playing:   { key: 'playing',   x: 9,  title: '③ プレイリスト再生中' }
+  };
+  // 写真上の位置(0〜1)をパネルのローカル座標へ
+  function L(fx, fy, z) { return [(fx - 0.5) * PW, (0.5 - fy) * PH, z == null ? 0.2 : z]; }
+  // 表の行(0始まり)の高さ(写真上の割合)
+  function rowFy(i) { return 0.192 + 0.0516 * i; }
+
+  // 手順のカメラ。パネル中心 cx を正面から見る
+  function cam(cx, dist) { return { pos: [cx, PY + 0.1, dist || 9.6], target: [cx, PY - 0.2, 0] }; }
+  var WIDE = { pos: [0, 4.2, 26], target: [0, 2.8, 0] };
+
+  GameGuide.start({
+    title: 'EventRecorder 使い方',
+    back: 'index.html',
+    subtitle: 'マウス・キーボード操作を記録して再生する(実際の画面の写真つき)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面写真のパネル ----
+      Object.keys(PANELS).forEach(function (name) {
+        var p = PANELS[name];
+        g.group('p-' + name, { pos: [p.x, PY, 0] });
+        g.box({ id: 'f-' + name, parent: 'p-' + name, size: [PW + 0.3, PH + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.ER_IMGS[p.key]);
+        var plane = new T.Mesh(new T.PlaneGeometry(PW, PH), new T.MeshBasicMaterial({ map: tex, transparent: true }));
+        g.add('s-' + name, plane, 'p-' + name);
+        g.label(p.title, [0, PH / 2 + 0.55, 0], { id: 't-' + name, parent: 'p-' + name, size: 0.38, bg: '#000000aa' });
+      });
+
+      // ---- 写真の上に重ねる吹き出し(ステップごとに出す) ----
+      function co(id, panel, text, fx, fy, color) {
+        g.label(text, L(fx, fy), { id: id, parent: 'p-' + panel, size: 0.22, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      co('c-mode',  'main', '① モード切替\nレコード / プレイバック', 0.20, -0.08);
+      co('c-rec',   'main', '② レコード表\nEvent / Detail / 備考', 0.30, 0.42);
+      co('c-list',  'main', '③ プレイリスト表\n実行 / ファイル / ループ数', 0.76, 0.42);
+      co('c-btn',   'main', '④ 記録 / クリア', 0.14, 0.73);
+      co('c-play',  'main', '⑤ ループ数 と 再生', 0.30, 0.93);
+      co('c-prof',  'main', '⑥ プロファイル(保存ファイルの選択 / 保存)', 0.55, 1.10);
+
+      co('c-r1', 'recording', '記録中は ボタンが「記録中…」', 0.74, 0.74, '#ff5f6d');
+      co('c-r2', 'recording', '最新の行が黄色\n(自動スクロール)', 0.34, 0.54, '#ffd166');
+      co('c-r3', 'recording', 'WAIT_MS 行は\n操作の間隔が自動で入る', 0.76, 0.52, '#7ef0ff');
+
+      co('c-e1', 'recording', 'Detail を直接書き換えられる\nX:320 Y:240 / Key:H', 0.32, 0.30, '#7ef0ff');
+      co('c-e2', 'recording', '右クリックで\n行の追加・削除・WAIT一括変更', 0.40, 0.66, '#ffd166');
+      co('c-e3', 'recording', '備考は自由メモ\n(再生には使われない)', 0.66, 0.30, '#5ee6a8');
+
+      co('c-s1', 'main', 'Ctrl+S か「プロファイル保存」\n→ JSONファイルになる', 0.60, 0.88, '#ffd166');
+      co('c-s2', 'main', '選ぶとその内容を読み込む\n(記録中・再生中は選べない)', 0.40, 1.06, '#7ef0ff');
+
+      co('c-p1', 'playing', '再生中は「停止」に変わる', 0.74, 0.76, '#ff5f6d');
+      co('c-p2', 'playing', '今のファイル(行)が黄色', 0.76, 0.34, '#ffd166');
+      co('c-p3', 'playing', '実行中(全体1/1): ファイル名 (1/2)', 0.70, 1.08, '#5ee6a8');
+      co('c-p4', 'playing', 'ドラッグで並べ替え\n実行チェックで出し入れ', 0.76, 0.58, '#7ef0ff');
+
+      // ---- 行ハイライトの動き(黄色いバー) ----
+      function bar(id, panel, fx0, fx1) {
+        var w = (fx1 - fx0) * PW;
+        var m = new T.Mesh(new T.PlaneGeometry(w, PH * 0.05), new T.MeshBasicMaterial({ color: '#ffe066', transparent: true, opacity: 0.45, depthTest: false }));
+        m.position.set(((fx0 + fx1) / 2 - 0.5) * PW, 0, 0.05);
+        m.renderOrder = 10;
+        g.add(id, m, 'p-' + panel);
+      }
+      bar('bar-main', 'main', 0.02, 0.46);
+      bar('bar-rec', 'recording', 0.02, 0.46);
+      bar('bar-play', 'playing', 0.02, 0.46);
+      bar('bar-pl', 'playing', 0.52, 0.995);
+
+      // ---- ホットキーのキーキャップ(手前に浮かせる) ----
+      function keycap(id, x, text, color) {
+        g.box({ id: id, size: [1.1, 0.4, 1.1], pos: [x, 0.25, 2.6], color: '#2d2944', emissive: color, emissiveIntensity: 0.35, radius: 0.12, edgeColor: color });
+        g.label(text, [x, 1.2, 2.6], { id: id + '-l', size: 0.26, bg: '#000000bb', color: color, border: color });
+      }
+      keycap('key-f1', -3.2, 'F1\n記録の開始/停止', C.enemy);
+      keycap('key-conv', 3.2, '変換キー\n再生の開始/停止', C.good);
+      // キーから画面へ流れる粒
+      g.flow([-3.2, 0.6, 2.6], [-1, 2.0, 0.5], { id: 'fl-f1', color: C.enemy, count: 7, lift: 1.4 });
+      g.flow([3.2, 0.6, 2.6], [5, 2.0, 0.5], { id: 'fl-conv', color: C.good, count: 7, lift: 1.4 });
+    },
+
+    steps: [
+      {
+        title: '0. EventRecorder とは',
+        camera: WIDE,
+        focus: ['p-main', 'p-recording', 'p-playing'],
+        html:
+          '<p>マウスのクリック・ホイール・キー入力を<b>記録</b>して、あとから同じ操作を<b>自動で再生</b>するツールです。単調な繰り返し操作の自動化に使います。</p>' +
+          '<p>画面写真は、実際の EventRecorder.exe の画面(中身はダミーのデータ)です。左から順に、</p>' +
+          '<ol><li>起動直後(レコードモード)</li><li>記録中</li><li>プレイリスト再生中</li></ol>' +
+          '<p>の3つ。「次へ」で順番に寄っていきます。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. 画面の見かた',
+        camera: cam(-9),
+        focus: ['p-main'],
+        show: ['c-mode', 'c-rec', 'c-list', 'c-btn', 'c-play', 'c-prof'],
+        html:
+          '<p>画面は大きく3か所です。</p>' +
+          '<table><tr><th>場所</th><th>役割</th></tr>' +
+          '<tr><td>① 上段のラジオ</td><td><b>レコード</b>=左の記録データを再生 / <b>プレイバック</b>=右のプレイリストを順に再生</td></tr>' +
+          '<tr><td>② レコード表</td><td>記録した操作が1行ずつ並ぶ。<code>Event</code>(種類)・<code>Detail</code>(座標やキー)・<code>備考</code></td></tr>' +
+          '<tr><td>③ プレイリスト表</td><td>「どのファイルを・何回」再生するかを並べる表</td></tr>' +
+          '<tr><td>④ 記録 / クリア</td><td>記録の開始/停止、表を空にする</td></tr>' +
+          '<tr><td>⑤ ループ数・再生</td><td>繰り返す回数と、再生/停止ボタン</td></tr>' +
+          '<tr><td>⑥ プロファイル</td><td>保存ファイルの選択と保存</td></tr></table>' +
+          '<p class="gg-files">Mouse: x, y はマウスカーソルの現在座標(右上、常に表示)。</p>'
+      },
+      {
+        title: '2. 記録する(F1)',
+        camera: { pos: [0, 2.8, 11.5], target: [0, 2.0, 0.5] },
+        focus: ['p-recording', 'key-f1', 'key-f1-l', 'fl-f1'],
+        show: ['bar-rec', 'c-r1', 'c-r2', 'c-r3', 'key-f1', 'key-f1-l', 'fl-f1'],
+        update: function (g, t) {
+          var i = Math.floor(t / 0.7) % 11;
+          g.get('bar-rec').position.y = (0.5 - rowFy(i)) * PH;
+          g.pulse('key-f1', t, 0.06);
+        },
+        html:
+          '<ol><li>記録したい操作の準備ができたら、<b>F1キー</b>(既定)を押す → 記録開始。タイトルバーに「- 記録中」と出ます。</li>' +
+          '<li>普通にマウス・キーボードを操作する。</li>' +
+          '<li>もう一度 <b>F1</b> で停止。</li></ol>' +
+          '<ul><li><b>記録されるもの</b>: クリック(左/右/中/X1/X2)・ホイール(回転量つき)・キーの押下と離上</li>' +
+          '<li><b>記録されないもの</b>: カーソルの移動そのもの(クリック地点の座標だけ残る)</li>' +
+          '<li>操作と操作の<b>間隔</b>は <code>WAIT_MS</code> 行として自動で挿入される</li>' +
+          '<li>記録開始時に既存の行は<b>消さない</b>(追記)。やり直すなら「クリア」</li>' +
+          '<li>ホットキー(F1・再生キー)自体は記録データに入らない</li></ul>' +
+          '<div class="gg-note">「記録」ボタンでも開始できますが、ボタンをクリックした操作自体が記録に混ざるので、ホットキーが基本です。</div>'
+      },
+      {
+        title: '3. 記録を確認・編集する',
+        camera: cam(0, 9.2),
+        focus: ['p-recording'],
+        show: ['c-e1', 'c-e2', 'c-e3'],
+        html:
+          '<p>記録した行は、そのままセルを書き換えて直せます。</p>' +
+          '<table><tr><th>操作</th><th>できること</th></tr>' +
+          '<tr><td>Detail を編集</td><td><code>X:320 Y:240</code> / <code>Key:H</code> / <code>800</code>(WAITのms)を直接変更</td></tr>' +
+          '<tr><td>右クリック</td><td>行の追加・削除 / <b>WAIT時間を一括変更</b>(指定イベントの直前のWAIT_MSをまとめて変更)</td></tr>' +
+          '<tr><td>行の削除</td><td>KEY_DOWN を消すと、対応する KEY_UP も一緒に消える</td></tr>' +
+          '<tr><td><code>Delete</code></td><td>選択セルの中身を空にする(行は残る)</td></tr>' +
+          '<tr><td><code>Ctrl+V</code></td><td>Excel等のタブ区切りテキストを貼り付け</td></tr>' +
+          '<tr><td><code>Ctrl+Z</code> / <code>Ctrl+Y</code></td><td>元に戻す / やり直す</td></tr>' +
+          '<tr><td><code>Ctrl+F</code> / <code>Ctrl+H</code></td><td>検索 / 置換ダイアログ</td></tr></table>' +
+          '<p>再生できない値(座標が数値でない等)の行は<b>ピンク</b>になり、ツールチップに理由が出ます。再生前にも検査されます。</p>'
+      },
+      {
+        title: '4. 保存する(プロファイル)',
+        camera: cam(-9, 9.2),
+        focus: ['p-main'],
+        show: ['c-s1', 'c-s2'],
+        html:
+          '<p>記録データは<b>プロファイル</b>という1つの JSON ファイルにまとめて保存します。</p>' +
+          '<ul><li><code>Ctrl+S</code> または「プロファイル保存」</li>' +
+          '<li>プルダウンで既存ファイルを選んでいる時は「上書きしますか?」(はい=上書き / いいえ=別名保存 / キャンセル)</li>' +
+          '<li>保存されるのは、<b>記録データ・ループ数・プレイリスト・モード・最小化チェック</b>の全部</li>' +
+          '<li>プルダウンで別ファイルを選ぶと、その内容を読み込む(記録中・再生中は選べない)</li></ul>' +
+          '<div class="gg-note">保存先は既定で <code>%LOCALAPPDATA%\\EventRecorder\\</code>。タイトルバーを右クリック →「データ保存先を変更」で別の場所に移せます(次回起動から有効)。</div>'
+      },
+      {
+        title: '5. 再生する(レコードモード)',
+        camera: cam(-9, 9.2),
+        focus: ['p-main', 'key-conv', 'key-conv-l', 'fl-conv'],
+        show: ['bar-main', 'c-play', 'key-conv', 'key-conv-l', 'fl-conv'],
+        update: function (g, t) {
+          var i = Math.floor(t / 0.7) % 11;
+          g.get('bar-main').position.y = (0.5 - rowFy(i)) * PH;
+          g.pulse('key-conv', t, 0.06);
+        },
+        html:
+          '<ol><li>上段を<b>レコード</b>にする</li><li>ループ数を入れる(0以下・数字以外は1回扱い)</li>' +
+          '<li><b>再生ボタン</b>か<b>変換キー</b>(既定の再生ホットキー)を押す</li></ol>' +
+          '<ul><li>実行中の行が黄色で進み、タイトルバーに「プレイバック中：全体/ループ」の進捗が出る</li>' +
+          '<li>止めるときは、もう一度ボタン/ホットキー。長い待機中でも50ms刻みで確認するのですぐ止まる</li>' +
+          '<li>終わると<b>マウスカーソルは再生前の位置に戻る</b>。途中で止めたときは、押しっぱなしのキー/ボタンも離される</li>' +
+          '<li>「実行時にウィンドウを最小化する」をオンにすると、再生中はタスクトレイへ隠れて終了時に戻る</li></ul>'
+      },
+      {
+        title: '6. プレイリストで順番に再生する',
+        camera: cam(9, 9.2),
+        focus: ['p-playing'],
+        show: ['bar-pl', 'bar-play', 'c-p1', 'c-p2', 'c-p3', 'c-p4'],
+        update: function (g, t) {
+          var k = Math.floor(t / 1.6) % 2;
+          g.get('bar-pl').position.y = (0.5 - rowFy(k)) * PH;
+          g.get('bar-play').position.y = (0.5 - rowFy(Math.floor(t / 0.7) % 11)) * PH;
+        },
+        html:
+          '<p>複数のプロファイルを<b>順番に</b>再生したいときに使います。</p>' +
+          '<ol><li>上段を<b>プレイバック</b>にする</li>' +
+          '<li>右の表で、各行に<b>プロファイル</b>(プルダウン)と<b>ループ数</b>を決め、使う行に「実行」をチェック</li>' +
+          '<li>下の「ループ数」は<b>プレイリスト全体</b>を何周するか</li>' +
+          '<li>再生ボタン/ホットキー</li></ol>' +
+          '<ul><li>上の行から順に、そのファイルを読み込んで指定回数だけ再生する</li>' +
+          '<li>ドラッグで並べ替え、右クリックで行の追加/削除・全チェックON/OFF・「チェックONのみ表示」など</li>' +
+          '<li>ファイルが見つからない行は<b>ピンク</b>表示</li>' +
+          '<li>下部に「実行中(全体1/1): ファイル名 (1/2)」と進捗が出る</li></ul>'
+      },
+      {
+        title: '7. 便利機能・設定',
+        camera: { pos: [0, 3.0, 11], target: [0, 1.6, 1] },
+        focus: ['key-f1', 'key-f1-l', 'key-conv', 'key-conv-l', 'fl-f1', 'fl-conv', 'p-recording'],
+        show: ['key-f1', 'key-f1-l', 'key-conv', 'key-conv-l', 'fl-f1', 'fl-conv'],
+        update: function (g, t) { g.pulse('key-f1', t, 0.05); g.pulse('key-conv', t + 1, 0.05); },
+        html:
+          '<table><tr><th>機能</th><th>内容</th></tr>' +
+          '<tr><td>ホットキーの変更</td><td>タイトルバーを右クリック →「キーバインドを設定」。Ctrl/Alt/Shift の組み合わせも可。設定は <code>EventRecorder.json</code> に保存</td></tr>' +
+          '<tr><td>データ保存先の変更</td><td>同メニュー「データ保存先を変更」。既存のプロファイルも新しい場所へ移動(次回起動から反映)</td></tr>' +
+          '<tr><td>ウィンドウ設定の記憶</td><td>サイズ・左右の境界線・ホットキーを前回終了時の状態で復元</td></tr>' +
+          '<tr><td>最小化してトレイへ</td><td>「実行時にウィンドウを最小化する」オン + 最小化でタスクトレイ常駐(右クリックで「元に戻す/終了」)</td></tr></table>'
+      },
+      {
+        title: '8. 注意点・困ったとき',
+        camera: WIDE,
+        focus: ['p-main', 'p-recording', 'p-playing'],
+        html:
+          '<ul><li><b>画面ロック・ユーザー切替・リモート切断</b>をすると、記録/再生は自動で止まります(ロック中は入力が届かないため)。解除後にホットキーを張り直します。</li>' +
+          '<li>再生は座標への<b>クリックの再送信</b>です。ウィンドウの位置や画面解像度が記録時と違うと、別の場所をクリックします。</li>' +
+          '<li>再生中・記録中は設定変更(ホットキー・保存先)とプロファイルの切り替えができません。</li>' +
+          '<li>ホットキーが効かないときは、システムメニューで別のキーに変更してみてください。他のアプリのキー割り当てと重なっている場合があります。</li>' +
+          '<li>ファイルの書き込みは「一時ファイルに書いてから置き換え」なので、保存中に落ちても元のファイルは壊れません。</li></ul>' +
+          '<div class="gg-note">仕組みの詳細は「データの流れ」「内部設計」のページへ。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventRecorder データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: 入力(青)・記録バッファ/画面(水色)・ファイル(橙)・再生(緑)・安全装置(赤)
+  var COL = { input: C.me, mem: C.data, file: C.server, play: C.good, guard: C.enemy, ui: C.third };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    user: [-15, -7], hook: [-9, -7], queue: [-3, -7], buf: [3, -7], grid: [9, -7],
+    dfile: [16, -4.2], file: [16, 0], prof: [3, 0], guard: [-9, 0],
+    snap: [9, 7], play: [3, 7], build: [-3, 7], sim: [-9, 7], os: [-15, 7]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  GameGuide.start({
+    title: 'EventRecorder データの流れ',
+    back: 'index.html',
+    subtitle: '入力フック → 行データ → JSONファイル → 再生(入力の再送信)',
+    camera: { pos: [-1, 27, 25], target: [-1, 0, 0] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.4, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.38, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 記録の列(奥) ----
+      node('user', '人の操作\nマウス / キーボード', COL.input);
+      node('hook', 'GlobalHook\nKeyboardHook / MouseHook', COL.input);
+      node('queue', 'OnMouseEvent /\nOnKeyboardEvent → QueueRow', COL.mem);
+      node('buf', '_pendingRows\n(String[6] のバッファ)', COL.mem);
+      node('grid', 'EventRows\n(表の行データ)', COL.mem);
+      // ---- 保存の列(中央) ----
+      node('prof', 'EventRecorderProfile\n(Profile.cs)', COL.file);
+      node('file', 'プロファイル *.json\n(データフォルダ)', COL.file);
+      node('dfile', 'DataFolder.txt\n(exe横の案内板)', COL.file);
+      node('guard', 'SessionGuard\n(ロック時に停止)', COL.guard);
+      // ---- 再生の列(手前) ----
+      node('snap', 'SnapshotRows\n→ List<String[]>', COL.play);
+      node('play', 'PlayRowsCore\n(再生スレッド)', COL.play);
+      node('build', 'EventRules.\nBuildPlaybackInputs', COL.play);
+      node('sim', 'InputSimulator\n.SendInput', COL.play);
+      node('os', 'OS → 対象アプリ\n(入力が再現される)', COL.play);
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      arrow('user', 'hook', COL.input);
+      arrow('hook', 'queue', COL.input, 'コールバック');
+      arrow('queue', 'buf', COL.mem, 'Queue');
+      arrow('buf', 'grid', COL.mem, '150msごと', 1.2);
+      arrow('grid', 'prof', COL.file, 'BuildProfile\nFromGrids', 1.0);
+      arrow('prof', 'file', COL.file, 'JsonFileStorage\n.Save', 1.6);
+      arrow('dfile', 'file', COL.file, '場所を指す', 0.6);
+      arrow('file', 'grid', COL.file, 'LoadProfile\nFromJson', 2.2);
+      arrow('grid', 'snap', COL.play, 'ReadFromRow', 1.2);
+      arrow('snap', 'play', COL.play);
+      arrow('play', 'build', COL.play, '行ごと');
+      arrow('build', 'sim', COL.play, 'Input[]');
+      arrow('sim', 'os', COL.play, 'SendInput');
+      arrow('guard', 'play', COL.guard, '停止要求', 0.8);
+      arrow('guard', 'hook', COL.guard, '張り直し', 0.8);
+
+      // ---- 常時流れる粒(各矢印の上) ----
+      var FL = [['user', 'hook', COL.input], ['hook', 'queue', COL.input], ['queue', 'buf', COL.mem], ['buf', 'grid', COL.mem],
+        ['grid', 'prof', COL.file], ['prof', 'file', COL.file], ['file', 'grid', COL.file],
+        ['grid', 'snap', COL.play], ['snap', 'play', COL.play], ['play', 'build', COL.play], ['build', 'sim', COL.play], ['sim', 'os', COL.play]];
+      var LIFT = { 'buf-grid': 1.2, 'grid-prof': 1.0, 'prof-file': 1.6, 'file-grid': 2.2, 'grid-snap': 1.2 };
+      FL.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: f[2], count: 5, lift: LIFT[key] == null ? 0.9 : LIFT[key], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('user'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順2用: バッファに積まれる行の見本 ----
+      var rows = [['WAIT_MS 800', '#7ef0ff'], ['LEFT_DOWN X:320 Y:240', '#ffd166'], ['WAIT_MS 60', '#7ef0ff'], ['LEFT_UP X:320 Y:240', '#ffd166']];
+      rows.forEach(function (r, i) {
+        g.label(r[0], [N.buf[0], 2.6 + i * 0.55, N.buf[1] + 0.2], { id: 'row-' + i, size: 0.26, bg: '#000000cc', color: r[1], border: r[1] });
+      });
+      // ---- 手順4用: 保存データの見出し ----
+      g.label('{ LoopCount, Events[], Playlist[],\n  IsRecordMode, MinimizeOnPlay }', [N.prof[0] + 0.5, 3.4, N.prof[1]], { id: 'json-l', size: 0.28, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [-1, 27, 25], target: [-1, 0, 0] },
+        update: function (g, t) { travel(g, t, pts(['user', 'hook', 'queue', 'buf', 'grid', 'prof', 'file', 'grid', 'snap', 'play', 'build', 'sim', 'os']), 1.0, null); },
+        html:
+          '<p>EventRecorder のデータは、大きく3つの列を流れます。</p>' +
+          '<ul><li><b>奥の列(青・水色)</b>: 記録。入力を拾って、表の行データにする</li>' +
+          '<li><b>中央の列(橙)</b>: 保存と読み込み。行データ ⇄ JSONファイル</li>' +
+          '<li><b>手前の列(緑)</b>: 再生。行データから入力を作り直して、OSへ送り直す</li></ul>' +
+          '<p>金色の玉が、1回のクリックが旅する様子です(各ステップで寄って見ます)。</p>' +
+          '<div class="gg-note">「次へ」で順番に。3Dはドラッグで回せます。</div>'
+      },
+      {
+        title: '1. 入力を拾う(低レベルフック)',
+        camera: { pos: [-9, 14, 9], target: [-9, 0, -7] },
+        focus: ['user', 'hook', 'queue', 'a-user-hook', 'a-hook-queue', 'fl-user-hook', 'fl-hook-queue', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['user', 'hook', 'queue']), 1.6, ['マウス: 左クリック (320,240)', 'LEFT_DOWN  X=320 Y=240', '']); },
+        html:
+          '<p>Windows の<b>低レベルフック</b>(<code>SetWindowsHookEx</code>)で、他のアプリへの入力も含めて全部の操作を横取りせずに覗きます。実装は <code>_Common/GlobalHook.cs</code>。</p>' +
+          '<table><tr><th>フック</th><th>いつ有効か</th></tr>' +
+          '<tr><td><code>KeyboardHook</code>(WH_KEYBOARD_LL=13)</td><td>アプリ起動中ずっと(ホットキー監視のため)</td></tr>' +
+          '<tr><td><code>MouseHook</code>(WH_MOUSE_LL=14)</td><td><b>記録中だけ</b>(ToggleRecording で Start / Stop)</td></tr></table>' +
+          '<ul><li>マウスの <code>MOVE</code> と <code>UNKNOWN</code> は捨てる(クリック単位だけ記録)</li>' +
+          '<li>キーは押しっぱなしのリピート(KeyDown連発)を <code>_pressedKeys</code> で除外</li>' +
+          '<li>F1・再生キーに一致したら<b>ホットキー</b>として処理し、記録データには入れない</li></ul>'
+      },
+      {
+        title: '2. イベントを「行」にする(WAIT_MS の自動挿入)',
+        camera: { pos: [0, 14, 8], target: [0, 1, -7] },
+        focus: ['queue', 'buf', 'a-queue-buf', 'fl-queue-buf', 'pkt', 'row-0', 'row-1', 'row-2', 'row-3'],
+        show: ['row-0', 'row-1', 'row-2', 'row-3'],
+        update: function (g, t) { travel(g, t, pts(['queue', 'buf']), 2.0, ['WAIT_MS 行 + 操作行']); },
+        html:
+          '<p><code>QueueRow</code> が、1件の操作を <b><code>String[6]</code> = [Type, X, Y, Key, Wait, Delta]</b> にして <code>_pendingRows</code> へ積みます。</p>' +
+          '<ul><li>前のイベントからの経過ms(<code>Environment.TickCount</code> の差)が正なら、まず<b>待機だけの <code>WAIT_MS</code> 行</b>を積み、その次に操作の行を積む</li>' +
+          '<li>操作の行そのものの Wait は <code>"0"</code></li>' +
+          '<li>ホイールは回転量を <code>Delta</code>(WHEEL_DELTA=120が1ノッチ)に残す</li></ul>' +
+          '<pre><code>WAIT_MS        wait=800\nLEFT_DOWN  320 240  wait=0\nWAIT_MS        wait=60\nLEFT_UP    320 240  wait=0</code></pre>' +
+          '<div class="gg-note">フックのコールバックは<b>貯めるだけ</b>。画面の描画を待たせると、キー入力全体が固まるためです。</div>'
+      },
+      {
+        title: '3. バッファから画面へ(150msごと)',
+        camera: { pos: [6, 14, 8], target: [6, 0, -7] },
+        focus: ['buf', 'grid', 'a-buf-grid', 'fl-buf-grid', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['buf', 'grid']), 1.8, ['EventRow を Add']); },
+        html:
+          '<p><code>DispatcherTimer</code>(150ms)が <code>FlushPendingRows()</code> を呼び、バッファの行を表にまとめて追加します。</p>' +
+          '<ol><li><code>EventRowMapper.ApplyToRow</code> で、配列の各値を <code>EventRow</code> のプロパティへ(<b>列の並びではなくプロパティ名</b>で書き込む)</li>' +
+          '<li><code>EventRows</code>(<code>GridRowCollection&lt;EventRow&gt;</code>)へ <code>Add</code> → DataGrid が自動で再描画</li>' +
+          '<li>最新行を黄色くして自動スクロール(<code>HighlightEventRow</code>)</li></ol>' +
+          '<p>表示される <code>Detail</code> 列(<code>X:320 Y:240</code> など)は、<code>EventRow</code> が実データ(X/Y/Key/Wait/Delta)から作る表示用の値で、直接編集すると実データへ書き戻されます。</p>'
+      },
+      {
+        title: '4. 保存: 行データ → JSON',
+        camera: { pos: [9, 12, 8], target: [9, 0, -2] },
+        focus: ['grid', 'prof', 'file', 'a-grid-prof', 'a-prof-file', 'fl-grid-prof', 'fl-prof-file', 'pkt', 'json-l'],
+        show: ['json-l'],
+        update: function (g, t) { travel(g, t, pts(['grid', 'prof', 'file']), 1.8, ['行を詰め替え', 'JSON文字列 → ファイル']); },
+        html:
+          '<ol><li><code>BuildProfileFromGrids()</code> が、表の中身を <code>EventRecorderProfile</code> に詰め替える</li>' +
+          '<li><code>JsonFileStorage.Save</code> が Newtonsoft.Json で整形JSON(UTF-8・BOMなし)にする</li>' +
+          '<li><code>AtomicFile</code> が<b>一時ファイル(.tmp)に書き切ってから置き換え</b>(<code>File.Replace</code>)。書き込み中に落ちても元ファイルは無事</li></ol>' +
+          '<pre><code>{\n  "LoopCount": "1",\n  "Events": [\n    { "Type": "WAIT_MS", "X": "", "Y": "", "Key": "",\n      "Wait": "800", "Remarks": "" },\n    { "Type": "LEFT_DOWN", "X": "320", "Y": "240", ... }\n  ],\n  "Playlist": [ { "Enabled": true, "FileName": "...", "LoopCount": "2" } ],\n  "IsRecordMode": true,\n  "MinimizeOnPlay": false\n}</code></pre>' +
+          '<div class="gg-note"><b>プロパティ名がそのままJSONのキー</b>です。名前を変えると、以前の版で保存したファイルが読めなくなります(<code>ProfileCompatibilityTests</code> が守っている)。</div>'
+      },
+      {
+        title: '5. ファイルの置き場所',
+        camera: { pos: [14, 12, 6], target: [14, 0, -2] },
+        focus: ['dfile', 'file', 'a-dfile-file', 'fl-prof-file'],
+        update: function (g, t) { g.pulse('dfile', t, 0.06); },
+        html:
+          '<p><code>UserDataLocation</code> が、<b>2段構え</b>でデータの置き場所を決めます。</p>' +
+          '<ol><li><b>案内板</b> <code>DataFolder.txt</code>: exeと同じフォルダにある小さなテキスト。<b>1行目</b>にデータフォルダのパス</li>' +
+          '<li><b>実データフォルダ</b>: 既定は <code>%LOCALAPPDATA%\\EventRecorder\\</code></li></ol>' +
+          '<ul><li>案内板が無い・不正なら既定の場所を使い、案内板を作り直す(<b>自己修復</b>)</li>' +
+          '<li>ビルド出力(bin/Release)を丸ごと消しても、実データは別の場所なので無事</li>' +
+          '<li>場所の変更は、システムメニュー「データ保存先を変更」で案内板を書き換える(次回起動から反映)</li>' +
+          '<li>同じフォルダに <code>EventRecorder.json</code>(<code>AppSettings</code>: ウィンドウサイズ・境界線位置・ホットキー)も置く。プロファイル一覧には出さない</li></ul>'
+      },
+      {
+        title: '6. 読み込み: JSON → 行データ',
+        camera: { pos: [12, 14, 6], target: [12, 0, -3] },
+        focus: ['file', 'grid', 'a-file-grid', 'fl-file-grid', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['file', 'grid']), 2.2, ['LoadProfileFromJson']); },
+        html:
+          '<p>プルダウンでファイルを選ぶと <code>LoadProfileFromJson</code> が動きます。</p>' +
+          '<ol><li><code>JsonFileStorage.Load</code>: ファイルが無い・壊れている場合は <code>null</code>(何も変えずに失敗扱い)</li>' +
+          '<li>各 <code>MacroEventData</code> を <code>EventRow.FromData</code> で行にする</li>' +
+          '<li><code>EventRules.MigrateWaitColumnToRows</code>: 古い形式(各行が自分のWaitを持つ)でも、待機を <code>WAIT_MS</code> 行へ直す</li>' +
+          '<li><code>EventRows.ReplaceAll</code> で一括反映(行数が多くても遅くならない)</li>' +
+          '<li>読み込みはユーザー操作ではないので、<b>Undo履歴は消す</b></li></ol>' +
+          '<p>引数 <code>loadPlaylistAndMode</code> が true のときだけ、プレイリストと「レコード/プレイバック」モード、最小化チェックも反映します。</p>'
+      },
+      {
+        title: '7. 再生: 行データ → 入力の再送信',
+        camera: { pos: [-3, 19, 22], target: [-3, 0, 5] },
+        focus: ['grid', 'snap', 'play', 'build', 'sim', 'os', 'a-grid-snap', 'a-snap-play', 'a-play-build', 'a-build-sim', 'a-sim-os',
+                'fl-grid-snap', 'fl-snap-play', 'fl-play-build', 'fl-build-sim', 'fl-sim-os', 'pkt'],
+        update: function (g, t) {
+          travel(g, t, pts(['grid', 'snap', 'play', 'build', 'sim', 'os']), 1.2,
+            ['String[6] の配列に', 'rows を渡す', '待機→1行ずつ', 'Input[] を作る', 'SendInput', '']);
+        },
+        html:
+          '<ol><li>再生ボタン/ホットキー → <code>PlayOrStop</code> → 再生前チェック(<code>ValidateEventsForPlayback</code>)</li>' +
+          '<li><code>SnapshotRows</code> が、表を <code>String[6]</code> の一覧にコピー(再生中に表を編集されても影響しない)</li>' +
+          '<li><code>Task.Run</code> で<b>再生スレッド</b>を起動 → <code>PlayRowsCore</code></li>' +
+          '<li>行ごとに: UI側で行をハイライト → <code>WAIT_MS</code> なら <code>InterruptibleSleep</code>(50ms刻み) → <code>PlayOneEvent</code></li>' +
+          '<li><code>EventRules.BuildPlaybackInputs</code> が行から入力(座標は <code>ToAbsoluteCoordinate</code> で絶対座標)を作り、<code>InputSimulator.SendInput</code> でOSへ</li></ol>' +
+          '<p>つまり再生は「保存した<b>操作</b>」の再送信で、画面の中身を見て判断はしません。</p>'
+      },
+      {
+        title: '8. プレイリスト再生(全体ループ)',
+        camera: { pos: [6, 20, 16], target: [6, 0, 0] },
+        focus: ['file', 'grid', 'snap', 'play', 'a-file-grid', 'a-grid-snap', 'a-snap-play', 'fl-file-grid', 'fl-grid-snap', 'fl-snap-play', 'pkt'],
+        update: function (g, t) {
+          travel(g, t, pts(['file', 'grid', 'snap', 'play', 'snap', 'play']), 1.2,
+            ['行のファイルを読む', '再生用に差し替え', 'rows を渡す', 'entry.LoopCount 回 再生', '次のファイルへ', '']);
+        },
+        html:
+          '<p>プレイバックモードでは <code>PlaylistPlayLoop</code> が二重ループになります。</p>' +
+          '<pre><code>for 全体ループ(下のループ数)\n  for プレイリストの各行(実行チェックON)\n    LoadProfileForPlayback(ファイル)\n    ValidateEventsForPlayback()\n    PlayRows(rows, その行のループ数)</code></pre>' +
+          '<ul><li><code>LoadProfileForPlayback</code> は<b>記録データだけ</b>差し替える(プレイリスト・モードは触らない。途中でモードが切り替わらないように)</li>' +
+          '<li>どれか1つでも再生できない行があれば、プレイリスト全体を停止</li>' +
+          '<li>再生が終わったら、ループ数の入力欄を元の値へ戻す</li></ul>'
+      },
+      {
+        title: '9. 安全装置',
+        camera: { pos: [-8, 18, 14], target: [-6, 0, 0] },
+        focus: ['guard', 'hook', 'play', 'a-guard-play', 'a-guard-hook', 'user'],
+        update: function (g, t) { g.pulse('guard', t, 0.08); },
+        html:
+          '<table><tr><th>場面</th><th>動き</th></tr>' +
+          '<tr><td>停止</td><td><code>_stopPlayRequested</code>(volatile)を立てる → 再生スレッドが50msごとに確認して終了</td></tr>' +
+          '<tr><td>中断・例外</td><td>Downのままのキー/ボタンを全部Upに戻す(<code>ReleaseAllPressedInputs</code>)。必ず「再生中」状態を解除</td></tr>' +
+          '<tr><td>記録の停止</td><td>押しっぱなしの修飾キーのUpを補う(<code>ReleaseUnpairedModifierKeys</code>)</td></tr>' +
+          '<tr><td>画面ロック・切断</td><td><code>SessionGuard.Classify</code> が <b>Suspend</b> と判定 → 記録/再生を止める</td></tr>' +
+          '<tr><td>ロック解除</td><td><b>Resume</b> → キーボードフックを張り直す(黙って外されている場合があるため)</td></tr>' +
+          '<tr><td>アプリ終了</td><td>再生スレッドの停止を最大3秒(<code>ExitWaitTimeoutMs</code>)だけ、UIメッセージを処理しながら待つ(Invoke待ちのデッドロック回避)</td></tr></table>' +
+          '<div class="gg-note">ホットキーの処理(エラーのダイアログ等)も、フックのコールバックを抜けてから <code>Dispatcher.BeginInvoke</code> で動かします。コールバックが長く戻らないと、Windowsにフックを外されるためです。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

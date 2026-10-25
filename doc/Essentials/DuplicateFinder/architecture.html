@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuplicateFinder 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { ui: '#4fa3ff', model: '#c77dff', logic: '#ff9f43', data: '#8f89b3', ext: '#5d5a78', test: '#5ee6a8' };
+  var BASE = { ui: 16.8, model: 12.6, logic: 8.4, data: 4.2, ext: 0 };      // 各層の床の高さ
+  var BX = {};                                            // id -> { x, y, z }(箱の中心)
+
+  function cls(g, id, layer, x, z, w, label, color) {
+    var y = BASE[layer] + 0.62;
+    BX[id] = { x: x, y: y, z: z };
+    g.box({ id: id, size: [w, 1.1, 2.2], pos: [x, y, z], radius: 0.14, color: color || COL[layer], label: label, labelSize: 0.3, labelOffset: [0, 1.15, 0] });
+  }
+  // 箱から箱への依存の矢印。上下の層なら箱の下面→上面、同じ層なら上を回す
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to;
+    var zf = 1.4;                      // 箱の手前の面より前を通して、箱に隠れないようにする
+    if (Math.abs(A.y - B.y) < 0.1) {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y + 0.55, zf];
+    } else if (A.y > B.y) {
+      from = [A.x, A.y - 0.55, zf]; to = [B.x, B.y + 0.6, zf];
+    } else {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y - 0.6, zf];
+    }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.27, head: 0.32 });
+  }
+
+  var NOTE_CAM = { pos: [0, 12, 31], target: [0, 8.6, 0] };
+
+  GameGuide.start({
+    title: 'DuplicateFinder 内部設計',
+    subtitle: 'クラス・ファイルの層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: NOTE_CAM,
+    floor: false,
+
+    build: function (g) {
+      // 層の床
+      function layer(id, key, depthLabel, color, lc) {
+        g.plate({ id: id, size: [35, 3.4], pos: [0, BASE[key] + 0.03, 0], color: color, opacity: 0.55, label: depthLabel, labelSize: 0.42, labelOffset: [-15.6, 0.3, 2.3], labelColor: lc });
+      }
+      layer('L-ui', 'ui', '画面(UI)層', '#26304f', '#bcd6ff');
+      layer('L-model', 'model', '画面用モデル\n(FileRow.cs)', '#352a4f', '#e2ccff');
+      layer('L-logic', 'logic', 'ロジック層', '#4a3524', '#ffd9ae');
+      layer('L-data', 'data', 'データ型\n(FileEntry.cs)', '#34304a', '#d5d0f2');
+      layer('L-ext', 'ext', 'OS・外部・共通', '#2b2a3d', '#cfcbe8');
+
+      // 画面(UI)層
+      cls(g, 'mw', 'ui', -3, 0, 8, 'MainWindow\n(.xaml / .xaml.cs)');
+      cls(g, 'app', 'ui', 6.5, 0, 3.6, 'App\n(.xaml / .xaml.cs)');
+      // 画面用モデル(FileRow.cs)
+      cls(g, 'row', 'model', -10, 0, 3.2, 'FileRow');
+      cls(g, 'keep', 'model', -6.4, 0, 3.2, 'KeepRule\n(enum)');
+      cls(g, 'marker', 'model', -2.8, 0, 3.2, 'RowMarker\n(static)');
+      cls(g, 'cmp', 'model', 0.8, 0, 3.2, 'RowComparer');
+      cls(g, 'size', 'model', 4.4, 0, 3.2, 'SizeFormatter');
+      // ロジック層
+      cls(g, 'scan', 'logic', -9.5, 0, 5.4, 'DuplicateScanner\n(+ ChunkReader)');
+      cls(g, 'del', 'logic', -2.8, 0, 3.6, 'FileDeleter\n(static)');
+      cls(g, 'set', 'logic', 1.6, 0, 3.6, 'AppSettings');
+      // データ型(FileEntry.cs)
+      cls(g, 'fe', 'data', -10, 0, 3.2, 'FileEntry');
+      cls(g, 'dg', 'data', -6.4, 0, 3.2, 'DuplicateGroup');
+      cls(g, 'so', 'data', -2.8, 0, 3.2, 'ScanOptions');
+      cls(g, 'sp', 'data', 0.8, 0, 3.2, 'ScanProgress\n(+ ScanPhase)');
+      cls(g, 'sr', 'data', 4.4, 0, 3.2, 'ScanResult');
+      // 外部
+      cls(g, 'w-memcmp', 'ext', -11, 0, 4.2, 'msvcrt.dll\nmemcmp');
+      cls(g, 'w-k32', 'ext', -6.2, 0, 4.2, 'kernel32.dll\nファイルID取得');
+      cls(g, 'w-shell', 'ext', -1.4, 0, 4.2, 'shell32.dll\nSHFileOperation');
+      cls(g, 'json', 'ext', 3.4, 0, 4.2, 'Newtonsoft.Json\n(NuGet 13.0.3)');
+      cls(g, 'wf', 'ext', 8.2, 0, 4.2, 'System.Windows.Forms\nFolderBrowserDialog');
+      cls(g, 'guard', 'ext', 13.2, 0, 4.4, '_Common/\nStcWpfExceptionGuard.cs');
+      // テスト
+      cls(g, 'tests', 'model', 13.6, 0, 3.6, 'DuplicateFinder\n.Tests(MSTest)', COL.test);
+
+      // 依存の矢印(ステップごとに show で出し入れ)
+      arr(g, 'a-app-mw', 'app', 'mw', '起動', C.gold, 1.6);
+      arr(g, 'a-app-guard', 'app', 'guard', 'Install()', C.gold, 0.6);
+      arr(g, 'a-mw-scan', 'mw', 'scan', 'Task.Run(Scan)', C.good);
+      arr(g, 'a-scan-sr', 'scan', 'sr', 'ScanResult を返す', C.data, 0.6);
+      arr(g, 'a-scan-types', 'scan', 'fe', 'FileEntry を作る', C.data, 0.6);
+      arr(g, 'a-mw-row', 'mw', 'row', 'FileRow を作る', C.gold);
+      arr(g, 'a-mw-marker', 'mw', 'marker', 'ApplyKeepRule など', C.gold);
+      arr(g, 'a-mw-del', 'mw', 'del', 'Delete(path…)', C.enemy);
+      arr(g, 'a-mw-set', 'mw', 'set', 'Load / Save', C.gold);
+      arr(g, 'a-row-fe', 'row', 'fe', 'Entry として持つ', C.data, 0.6);
+      arr(g, 'a-scan-memcmp', 'scan', 'w-memcmp', 'バイト比較', C.gold, 0.5);
+      arr(g, 'a-scan-k32', 'scan', 'w-k32', 'ファイルID', C.gold, 0.5);
+      arr(g, 'a-del-shell', 'del', 'w-shell', 'ごみ箱へ', C.gold, 0.5);
+      arr(g, 'a-set-json', 'set', 'json', 'JSON', C.gold, 0.5);
+      arr(g, 'a-mw-wf', 'mw', 'wf', 'フォルダ選択', C.gold, 1.2);
+      arr(g, 'a-tests', 'tests', 'scan', 'InternalsVisibleTo', C.good, 1.2);
+      arr(g, 'a-tests2', 'tests', 'marker', '', C.good, 0.5);
+
+      // ステップ7: 検索の流れ(粒が流れる)
+      var A = BX.mw, S = BX.scan, Z = 1.4;
+      g.flow([A.x - 2, A.y - 0.6, Z], [S.x + 1.5, S.y + 0.6, Z], { id: 'fl-opt', color: C.gold, lift: 0.8, count: 5, size: 0.16 });
+      g.flow([S.x + 2.2, S.y + 0.6, Z], [A.x - 0.5, A.y - 0.6, Z], { id: 'fl-prog', color: C.data, lift: 1.8, count: 6, size: 0.12, speed: 0.55 });
+      g.flow([S.x + 2.6, S.y + 0.6, Z], [A.x + 1.5, A.y - 0.6, Z], { id: 'fl-res', color: C.good, lift: 3.2, count: 4, size: 0.18 });
+      g.label('① ScanOptions\n(ReadScanOptions)', [-13.2, 14.6, 1.6], { id: 't-opt', size: 0.34, color: C.gold });
+      g.label('② ScanProgress(約0.1秒ごと)\nProgress<T> でUIスレッドへ', [-1.5, 14.7, 1.8], { id: 't-prog', size: 0.34, color: C.data });
+      g.label('③ ScanResult → FileRow', [7.2, 14.6, 1.6], { id: 't-res', size: 0.34, color: C.good });
+      g.label('中止ボタン = CancellationToken', [-13.2, 10.8, 1.6], { id: 't-cancel', size: 0.32, color: C.enemy });
+    },
+
+    steps: [
+      {
+        title: '全体: 4つの層',
+        camera: NOTE_CAM,
+        show: ['a-app-mw', 'a-mw-scan', 'a-mw-row', 'a-mw-del', 'a-mw-set', 'a-scan-sr'],
+        html:
+          '<p>重複ファイル削除ツール DuplicateFinder(C# / WPF / .NET Framework 4.8)は、小さな4つの層でできています。<b>上の層が下の層を呼ぶ</b>向きで、下の層は上を知りません。</p>' +
+          '<table><tr><th>層</th><th>ファイル</th></tr>' +
+          '<tr><td>画面(UI)</td><td><code>App.xaml(.cs)</code>、<code>MainWindow.xaml(.cs)</code></td></tr>' +
+          '<tr><td>画面用モデル</td><td><code>FileRow.cs</code>(行・自動選択ルール・並べ替え)</td></tr>' +
+          '<tr><td>ロジック／データ型</td><td><code>DuplicateScanner.cs</code>、<code>FileDeleter.cs</code>、<code>AppSettings.cs</code>、<code>FileEntry.cs</code></td></tr>' +
+          '<tr><td>OS・外部</td><td>Win32 API、Newtonsoft.Json、WinForms、共通部品 <code>_Common</code></td></tr></table>' +
+          '<p><b>設計の要点</b>: 重い検索処理(<code>DuplicateScanner</code>)は画面を知らない。進捗は <code>IProgress&lt;ScanProgress&gt;</code>、中止は <code>CancellationToken</code> で受け渡すので、画面は別スレッドで動く検索を眺めるだけ。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに注目する箱が明るくなります。</p>',
+      },
+      {
+        title: '画面(UI)層: App と MainWindow',
+        camera: { pos: [1, 11, 30], target: [1, 8.4, 0] },
+        focus: ['mw', 'app', 'a-app-mw', 'a-app-guard', 'guard', 'wf', 'a-mw-wf', 'L-ui'],
+        show: ['a-app-mw', 'a-app-guard', 'a-mw-wf'],
+        html:
+          '<p><b>App</b>(<code>App.xaml.cs</code>)は <code>OnStartup</code> で共通部品 <code>StcWpfExceptionGuard.Install</code> を呼び、予期しない例外をダイアログで知らせます(画面が出る前の例外ならアプリを閉じる)。</p>' +
+          '<p><b>MainWindow</b>は画面そのものと、その操作のすべて:</p>' +
+          '<ul><li><code>MainWindow.xaml</code>: 対象フォルダの <code>ListBox</code>、検索条件、自動選択、結果の <code>DataGrid</code>(<code>ResultGrid</code>)、ステータスバー</li>' +
+          '<li><code>MainWindow.xaml.cs</code>: 検索(<code>ScanButton_Click</code>)、一覧づくり(<code>SetRows</code>)、削除(<code>DeleteButton_Click</code> / <code>DeleteRows</code> / <code>CheckBeforeDelete</code>)、フォルダ欄・ドラッグ＆ドロップ、ボタンの有効/無効(<code>UpdateControlState</code>)</li>' +
+          '<li>持っている状態: <code>_rootFolders</code>、<code>_rows</code>(<code>List&lt;FileRow&gt;</code>)、<code>_cts</code>(中止用)、<code>_isScanning</code> / <code>_isDeleting</code>、削除チェックの件数と容量</li>' +
+          '<li>フォルダ選択は WinForms の <code>FolderBrowserDialog</code></li></ul>' +
+          '<p class="gg-files">📄 <code>App.xaml.cs</code>、<code>MainWindow.xaml</code>、<code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: '画面用モデル: FileRow.cs',
+        camera: { pos: [-3, 12, 20], target: [-3, 10, 0] },
+        focus: ['row', 'keep', 'marker', 'cmp', 'size', 'a-mw-row', 'a-mw-marker', 'a-row-fe', 'fe', 'mw', 'L-model'],
+        show: ['a-mw-row', 'a-mw-marker', 'a-row-fe'],
+        html:
+          '<p>1つのファイルに、画面用の振る舞いを足した層です(WPFの型には依存しません)。</p>' +
+          '<ul><li><b><code>FileRow</code></b>: 一覧の1行。<code>FileEntry</code> を包み、<code>GroupNumber</code> / <code>GroupHeader</code> / 表示用の <code>FileName</code>・<code>Folder</code>・<code>SizeText</code> などを持つ。<code>IsMarked</code>(削除チェック)は <code>INotifyPropertyChanged</code></li>' +
+          '<li><b><code>KeepRule</code></b>(enum): <code>RootOrder</code>(既定)・<code>TopOfGroup</code>・<code>ShortestFileName</code>・<code>LongestFileName</code>・<code>ShortestFolder</code>・<code>LongestFolder</code>。設定ファイルに数値で保存されるので、廃止した番号は使い回さない</li>' +
+          '<li><b><code>RowMarker</code></b>(static): <code>ApplyKeepRule</code> / <code>PickKeeper</code> / <code>KeepOnly</code> / <code>KeepUnderFolder</code> / <code>ClearAll</code> / <code>FindFullyMarkedGroups</code>。画面から切り離してあり、テストできる</li>' +
+          '<li><b><code>RowComparer</code></b>: グループの並びは保ち、グループの中だけ列で並べる(同点はパス順)</li>' +
+          '<li><b><code>SizeFormatter</code></b>: B〜TB の表示</li></ul>' +
+          '<p class="gg-files">📄 <code>FileRow.cs</code></p>',
+      },
+      {
+        title: 'データ型: FileEntry.cs',
+        camera: { pos: [-3, 9, 20], target: [-3, 8, 0] },
+        focus: ['fe', 'dg', 'so', 'sp', 'sr', 'a-row-fe', 'a-scan-types', 'scan', 'row', 'L-data'],
+        show: ['a-row-fe', 'a-scan-types'],
+        html:
+          '<p>検索のやりとりに使う「入れ物」だけのクラス群です(<code>internal sealed</code>)。</p>' +
+          '<ul><li><b><code>FileEntry</code></b>: 見つけた1ファイル(<code>Path</code> / <code>Length</code> / <code>LastWriteTime</code> / <code>RootIndex</code>)。読み取り専用</li>' +
+          '<li><b><code>DuplicateGroup</code></b>: 中身が一致した2件以上のまとまり。<code>Files</code>(パス順)・<code>Length</code>・<code>WastedBytes</code>・<code>RootCount</code></li>' +
+          '<li><b><code>ScanOptions</code></b>: 検索条件(<code>RootFolders</code> / <code>CrossRootOnly</code> / <code>MinSizeBytes</code> / <code>Extensions</code> / <code>SkipHiddenAndSystem</code> / <code>MaxParallelism</code>)。拡張子の文字列を解釈する <code>ParseExtensions</code> も</li>' +
+          '<li><b><code>ScanProgress</code></b>(+ <code>ScanPhase</code>: <code>Enumerating</code> / <code>Comparing</code>): 進捗通知</li>' +
+          '<li><b><code>ScanResult</code></b>: <code>Groups</code>・<code>Errors</code>・<code>Cancelled</code>・<code>BytesRead</code>・<code>SkippedCloudFileCount</code>・<code>Elapsed</code> など</li></ul>' +
+          '<p class="gg-files">📄 <code>FileEntry.cs</code>(ファイル名は <code>FileEntry</code> だが、上の5種類が入っている)</p>',
+      },
+      {
+        title: '中核: DuplicateScanner',
+        camera: { pos: [-8, 8, 18], target: [-8, 6.5, 0] },
+        focus: ['scan', 'mw', 'so', 'sp', 'sr', 'fe', 'dg', 'w-memcmp', 'w-k32', 'a-mw-scan', 'a-scan-sr', 'a-scan-types', 'a-scan-memcmp', 'a-scan-k32', 'L-logic'],
+        show: ['a-mw-scan', 'a-scan-sr', 'a-scan-types', 'a-scan-memcmp', 'a-scan-k32'],
+        html:
+          '<p>入口は静的メソッド <code>Scan(options, progress, token)</code> だけ。中で自分のインスタンスを作って <code>Run()</code> を呼びます。</p>' +
+          '<ol><li><code>EnumerateFiles</code>: ファイル一覧づくり(読まない)</li>' +
+          '<li><code>CompareAll</code>: サイズでグループ分け → <code>Parallel.ForEach</code> でグループごとに</li>' +
+          '<li><code>CompareGroup</code> → <code>PartitionBySample</code>(<code>ReadSample</code>): 先頭64KB＋末尾64KB</li>' +
+          '<li><code>CompareContents</code>: 内部クラス <code>ChunkReader</code> で全員同時にチャンク読み → <code>Partition</code>(<code>QuickHash</code> は振り分けだけ・判定は <code>BytesEqual</code>=<code>memcmp</code>)</li></ol>' +
+          '<ul><li>画面を知らない: 進捗は <code>Report</code>(約100msに間引き)、中止は <code>CancellationToken</code>。中止時は例外にせず、確定した分だけ返す(<code>Cancelled</code>)</li>' +
+          '<li>並列でも壊れない: エラー一覧は <code>lock</code>、読んだ量は <code>Interlocked</code>、結果は <code>ConcurrentBag</code></li>' +
+          '<li>画面側からも使う補助: <code>TryGetFileId</code>(同じ実体の判定)、<code>SafeLastWriteTime</code></li></ul>' +
+          '<p class="gg-files">📄 <code>DuplicateScanner.cs</code>(詳しい流れは「データの流れ」ページ)</p>',
+      },
+      {
+        title: 'FileDeleter と AppSettings',
+        camera: { pos: [0, 7, 22], target: [0, 5, 0] },
+        focus: ['del', 'set', 'mw', 'w-shell', 'json', 'a-mw-del', 'a-mw-set', 'a-del-shell', 'a-set-json', 'L-logic'],
+        show: ['a-mw-del', 'a-mw-set', 'a-del-shell', 'a-set-json'],
+        html:
+          '<p><b>FileDeleter</b>(static): <code>Delete(path, toRecycleBin, ownerWindow)</code> が1件を消し、<b>成功なら null、失敗なら理由の文字列</b>を返します。ごみ箱へは <code>SHFileOperation</code>(<code>FOF_ALLOWUNDO</code> ほか)、OFFなら <code>File.Delete</code>。シェルの確認ダイアログが出ることがあるので、UIスレッドから呼びます。</p>' +
+          '<p>「消す前の確認」(変更されていないか・残す側が残っているか)は画面側 <code>MainWindow.CheckBeforeDelete</code> が担当し、<code>FileDeleter</code> は「消す」だけに絞っています。</p>' +
+          '<p><b>AppSettings</b>: 前回の入力(<code>RootFolders</code>・<code>CrossRootOnly</code>・<code>MinSizeMb</code>・<code>Extensions</code>・<code>SkipHiddenAndSystem</code>・<code>MaxParallelism</code>・<code>UseRecycleBin</code>・<code>KeepRule</code>)。<code>%LOCALAPPDATA%\\DuplicateFinder\\settings.json</code> に Newtonsoft.Json で保存し、壊れていたら既定値で起動。起動時に <code>Load</code>、<code>Window_Closing</code> で <code>Save</code>。</p>' +
+          '<p class="gg-files">📄 <code>FileDeleter.cs</code>、<code>AppSettings.cs</code></p>',
+      },
+      {
+        title: '外部への依存',
+        camera: { pos: [0, 6, 26], target: [0, 4.5, 0] },
+        focus: ['w-memcmp', 'w-k32', 'w-shell', 'json', 'wf', 'guard', 'scan', 'del', 'set', 'mw', 'app', 'a-scan-memcmp', 'a-scan-k32', 'a-del-shell', 'a-set-json', 'a-mw-wf', 'a-app-guard', 'L-ext'],
+        show: ['a-scan-memcmp', 'a-scan-k32', 'a-del-shell', 'a-set-json', 'a-mw-wf', 'a-app-guard'],
+        html:
+          '<table><tr><th>依存先</th><th>使い道</th></tr>' +
+          '<tr><td><code>msvcrt.dll</code> の <code>memcmp</code></td><td>チャンクのバイト比較(P/Invoke)。高速</td></tr>' +
+          '<tr><td><code>kernel32.dll</code></td><td><code>GetFileInformationByHandleEx</code> / <code>GetFileInformationByHandle</code> で「ボリューム＋ファイルID」を取得。ハードリンクや別名のパスで見つかった<b>同じ実体</b>を1件にまとめる(ReFSの128bit IDにも対応)</td></tr>' +
+          '<tr><td><code>shell32.dll</code> の <code>SHFileOperation</code></td><td>ごみ箱への移動</td></tr>' +
+          '<tr><td>Newtonsoft.Json 13.0.3</td><td>設定の保存・読み込み</td></tr>' +
+          '<tr><td><code>System.Windows.Forms</code></td><td>フォルダ選択ダイアログ(<code>FolderBrowserDialog</code>)</td></tr>' +
+          '<tr><td><code>_Common/StcWpfExceptionGuard.cs</code></td><td>共通の例外ガード。csproj の <code>Compile Include … Link</code> で<b>ファイルとして取り込む</b>(別DLLにしない)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>DuplicateFinder.csproj</code>、<code>Essentials\\_Common\\StcWpfExceptionGuard.cs</code></p>',
+      },
+      {
+        title: '検索ボタンを押したときの呼び出しの流れ',
+        camera: { pos: [-2, 14, 26], target: [-2, 12.5, 0] },
+        focus: ['mw', 'scan', 'sr', 'row', 'so', 'sp', 'a-mw-scan', 'a-scan-sr', 'a-mw-row', 'fl-opt', 'fl-prog', 'fl-res', 't-opt', 't-prog', 't-res', 't-cancel', 'L-ui', 'L-logic', 'L-model', 'L-data'],
+        show: ['a-mw-scan', 'a-scan-sr', 'a-mw-row', 'fl-opt', 'fl-prog', 'fl-res', 't-opt', 't-prog', 't-res', 't-cancel'],
+        html:
+          '<ol><li><code>ScanButton_Click</code> → <code>ReadScanOptions</code>: 画面の入力から <code>ScanOptions</code> を作る(入力に問題があればメッセージを出して中止)</li>' +
+          '<li><code>await Task.Run(() =&gt; DuplicateScanner.Scan(options, progress, token))</code>: 検索を別スレッドで実行</li>' +
+          '<li>検索中、<code>Progress&lt;ScanProgress&gt;</code> 経由で <code>ShowScanProgress</code> が呼ばれ、ステータスバーが更新される(UIスレッドに戻って届く)</li>' +
+          '<li>終わると <code>ScanResult</code> が返り、<code>ShowScanResult</code> が <code>DuplicateGroup</code> を <code>FileRow</code> に変換して <code>SetRows</code> で <code>DataGrid</code> に表示</li></ol>' +
+          '<p>中止ボタンは <code>_cts.Cancel()</code> を呼ぶだけ。検索側が定期的にトークンを確かめて、確定済みの結果を返します。検索中は <code>UpdateControlState</code> で操作ボタンを無効にし、二重実行や途中の条件変更を防いでいます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ScanButton_Click</code> / <code>ShowScanProgress</code> / <code>ShowScanResult</code></p>',
+      },
+      {
+        title: 'プロジェクト構成とテスト',
+        camera: { pos: [2, 13, 30], target: [2, 10.5, 0] },
+        focus: ['tests', 'scan', 'marker', 'a-tests', 'a-tests2'],
+        show: ['a-tests', 'a-tests2'],
+        html:
+          '<p><b>DuplicateFinder.csproj</b>: SDK形式、<code>net48</code>、<code>WinExe</code>、<code>UseWPF</code>、<code>LangVersion 7.3</code>。<b>x64固定・<code>Prefer32Bit=false</code></b>(4GB超の動画を何本も比べるため32bitにしない)。</p>' +
+          '<p><b>DuplicateFinder.Tests</b>(MSTest): <code>DuplicateScannerTests.cs</code> と <code>RowMarkerTests.cs</code>。<code>InternalsVisibleTo("DuplicateFinder.Tests")</code> で <code>internal</code> のクラスを直接テストします。</p>' +
+          '<p>「画面から切り離したロジック」(<code>DuplicateScanner</code>、<code>RowMarker</code>)を作ってあるのは、このためです。画面(<code>MainWindow</code>)側の判断は小さく、テストしにくい処理を最小にしています。</p>' +
+          '<p class="gg-files">📄 <code>Essentials\\DuplicateFinder\\DuplicateFinder.sln</code>、<code>Tests\\DuplicateFinder.Tests\\</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

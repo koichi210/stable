@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileArranger ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p style="margin:0 0 10px"><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>FileArranger ドキュメント</h1>
+  <p class="lead">フォルダ・ファイルの<b>移動・名前変更・並べ替え・振り分け</b>をまとめて行う、Windows デスクトップツール(C# / WPF)の「動きのある設計図」です。<br>
+  Three.js の立体図を1歩ずつ進めながら、使い方・データの流れ・内部設計を見られます。画面のフォルダ名・ファイル名は<b>すべて撮影用のダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖥️ 使い方</div>
+      <div class="tech">Three.js + 実画面のスクリーンショット / 全8ステップ</div>
+      <div class="d">実際のウィンドウを3D空間に並べ、Common・MoveDir・RenameDir・SortFileName・MoveFile・PartitionFile の6タブへカメラが寄ります。手前ではフォルダ/ファイルの塊が動いて、操作の結果を見せます。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 全9ステップ</div>
+      <div class="d">入力フォルダ → 一覧 → 新しい名前の決定 → 移動・リネーム(重複回避) → 結果。別スレッド実行、元に戻す履歴、設定のJSON保存/読込まで、ファイルの塊が動くアニメで追います。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / 階段状の5層 / 全7ステップ</div>
+      <div class="d">入口・画面(MainWindow の partial 分割)・アプリ固有ロジック(Logic/Utils/FileSorter…)・共通部品 _Common・外部ライブラリ。実際のクラス名・ファイル名と、依存の向き、1回の操作が層を降りる様子。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/FileArranger</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code>、
+    このツール用の部品は <code>fa-lib.js</code>、スクリーンショットは <code>img/</code>(3Dのテクスチャ用に <code>fa-img.js</code> へも同じ画像をデータとして持っています)。
+    HTMLをダブルクリック(file://)で開いても動きます。
+  </p>
+</div>
+</body>
+</html>

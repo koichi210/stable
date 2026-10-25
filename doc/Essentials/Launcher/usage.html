@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launcher 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="img/shots-data.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = LC.col;
+  var S = 0.012;                       // 画像1pxあたりのワールド長
+  var MW = 464, MH = 642;              // main.png のサイズ
+  var MC = [0, 4.35, 0];               // メインウィンドウのパネル中心
+  var D1 = [10.5, 7.3, 0], D2 = [10.5, 4.3, 0], D3 = [10.5, 1.6, 0];  // ダイアログ3枚の中心
+  function P(x, y, z) { return LC.px(MC, MW, MH, S, x, y, z); }
+
+  GameGuide.start({
+    title: 'Launcher 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面(ダミー設定)で、登録から起動までを順番に見ます',
+    camera: { pos: [0, 5, 14], target: [0, 4.3, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面パネル(実アプリのスクリーンショット) ----
+      LC.panel(g, 'win-main', 'main', MW, MH, MC, S, 'ランチャー(メイン画面)');
+      LC.panel(g, 'dlg-empty', 'dlg-item-empty', 444, 212, D1, S, '「＋項目」を押すと開く 項目の編集');
+      LC.panel(g, 'dlg-filled', 'dlg-item-filled', 444, 212, D2, S, '入力した状態');
+      LC.panel(g, 'dlg-section', 'dlg-section', 364, 142, D3, S, '「＋ セクション追加」を押すと開く 入力');
+
+      // ---- 強調枠(ステップごとに出し分け) ----
+      function F(id, r, color, label, off) {
+        var w = (r[2] - r[0]) * S, h = (r[3] - r[1]) * S;
+        return g.box({
+          id: id, size: [w, h, 0.05], pos: P((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, 0.1), color: color || '#ffb020',
+          emissive: color || '#ffb020', emissiveIntensity: 0.6, opacity: 0.4, edgeColor: color || '#ffb020',
+          label: label, labelOffset: off || [0, h / 2 + 0.4, 0.1], labelSize: 0.3, labelBg: '#000000cc',
+        });
+      }
+      F('f-toolbar', [8, 40, 440, 66], '#4fa3ff', 'ツールバー');
+      F('f-path', [8, 72, 300, 92], '#b8b2d6', '保存先の表示');
+      F('f-sec1', [8, 98, 456, 130], '#5ee6a8', 'セクション(折りたたみ式)', [-3.6, 0, 0.1]);
+      F('f-notepad', [24, 140, 360, 166], '#ffb020', null);
+      F('f-calc', [24, 170, 360, 196], '#ffb020', null);
+      F('f-site', [24, 285, 360, 313], '#ffb020', null);
+      F('f-chev', [12, 334, 34, 360], '#5ee6a8', '開閉', [-1.0, 0, 0.1]);
+      F('f-sec3', [8, 330, 456, 363], '#5ee6a8', null);
+      F('f-additem', [104, 102, 156, 126], '#ff5f6d', '＋項目');
+      F('f-addsec', [8, 40, 110, 66], '#ff5f6d', '＋ セクション追加');
+      F('f-edit', [362, 140, 402, 166], '#c77dff', '編集', [-0.3, 0.55, 0.1]);
+      F('f-del', [408, 140, 448, 166], '#ff5f6d', '削除', [0.9, 0, 0.1]);
+      F('f-rename', [162, 102, 226, 126], '#c77dff', '名前変更', [-1.0, 0.7, 0.1]);
+      F('f-secdel', [232, 102, 272, 126], '#ff5f6d', 'セクション削除', [1.0, 0.7, 0.1]);
+      F('f-reload', [116, 40, 192, 66], '#7ef0ff', '再読み込み', [-1.3, 0.95, 0.1]);
+      F('f-openconf', [196, 40, 303, 66], '#ffd166', '設定ファイルを開く', [0, 1.6, 0.1]);
+      F('f-chfolder', [307, 40, 440, 66], '#c77dff', '保存先フォルダを変更...', [1.0, 0.95, 0.1]);
+
+      // ---- 起動先(外部アプリ) ----
+      var ext = [
+        ['x-notepad', 'メモ帳\nnotepad.exe', 6.4],
+        ['x-calc', '電卓\ncalc.exe', 4.5],
+        ['x-browser', '既定のブラウザ\nhttps://example.com', 2.6],
+      ];
+      ext.forEach(function (e) {
+        g.box({ id: e[0], size: [3.6, 1.1, 0.5], pos: [-9.5, e[2], 0], color: C.os, radius: 0.2, label: e[1], labelSize: 0.3, labelBg: '#00000099', labelOffset: [0, 0, 0.4] });
+      });
+      function arr(id, from, to, color, lift) { g.arrow(from, to, { id: 'a-' + id, color: color, lift: lift == null ? 0.6 : lift, radius: 0.05 }); }
+      arr('l1', P(30, 153, 0.15), [-7.6, 6.4, 0.2], '#ffd166');
+      arr('l2', P(30, 183, 0.15), [-7.6, 4.5, 0.2], '#ffd166');
+      arr('l3', P(30, 299, 0.15), [-7.6, 2.6, 0.2], '#ffd166');
+      ['p1', 'p2', 'p3'].forEach(function (id) { g.sphere({ id: id, radius: 0.16, pos: [0, -50, 0], color: '#ffe38a', emissive: '#ffd166' }); });
+
+      // ---- ダイアログへの矢印 ----
+      arr('to-item', P(130, 114, 0.15), [D1[0] - 2.8, D1[1], 0.2], '#ff5f6d', 1.2);
+      arr('to-sec', P(60, 53, 0.15), [D3[0] - 2.4, D3[1] + 0.3, 0.2], '#ff5f6d', 2.2);
+      g.arrow([D1[0], D1[1] - 1.45, 0.2], [D2[0], D2[1] + 1.45, 0.2], { id: 'a-fill', color: '#ffd166', lift: 0.3 });
+    },
+
+    steps: [
+      {
+        title: '1. 起動した画面',
+        camera: { pos: [0, 5, 13], target: [0, 4.3, 0] },
+        show: ['f-toolbar', 'f-sec1', 'f-sec3'],
+        html:
+          '<p><code>Launcher.exe</code> を起動すると、登録済みのボタンが<b>セクション</b>ごとに並んで出ます。この図の画面は、図解用に作った<b>ダミー設定</b>(メモ帳・電卓・サンプルサイト)です。</p>' +
+          '<ul><li>上段: ツールバー(セクション追加 / 再読み込み / 設定ファイルを開く / 保存先フォルダを変更)</li>' +
+          '<li>その下: 設定ファイルの保存先 <code>config.json</code> の場所</li>' +
+          '<li>本体: セクション(折りたたみ)と、その中の項目ボタン</li></ul>' +
+          '<div class="gg-note">初めて起動したときは、メモ帳・電卓・Googleの3つが入ったサンプル設定が自動で作られます。</div>' +
+          '<p class="gg-files">ドラッグで回転・ホイールで拡大縮小もできます。</p>',
+        update: function (g, t) { ['f-toolbar', 'f-sec1', 'f-sec3'].forEach(function (id) { g.pulse(g.get(id), t, 0.01); }); },
+      },
+      {
+        title: '2. ボタンを押すと起動する',
+        camera: { pos: [-2, 5.5, 15], target: [-3, 4.4, 0] },
+        show: ['f-notepad', 'f-calc', 'f-site', 'x-notepad', 'x-calc', 'x-browser', 'a-l1', 'a-l2', 'a-l3', 'p1', 'p2', 'p3'],
+        html:
+          '<p>項目ボタンを<b>1回クリックするだけ</b>で、リンク先が開きます。リンク先には次のどれでも登録できます。</p>' +
+          '<table><tr><th>登録するもの</th><th>起動されるもの</th></tr>' +
+          '<tr><td><code>C:\\Windows\\System32\\notepad.exe</code></td><td>そのexe</td></tr>' +
+          '<tr><td><code>https://example.com</code></td><td>既定のブラウザ</td></tr>' +
+          '<tr><td>フォルダ・書類のパス</td><td>Windowsの関連付けで開く</td></tr></table>' +
+          '<p>ボタンにマウスを載せると、リンク先のパスがツールチップで出ます。起動に失敗したときは「起動エラー」のメッセージが出て、アプリは落ちません。</p>',
+        update: function (g, t) {
+          LC.fly(g, 'p1', 'l1', t, 0.2, 1.4, 3);
+          LC.fly(g, 'p2', 'l2', t, 0.8, 1.4, 3);
+          LC.fly(g, 'p3', 'l3', t, 1.4, 1.4, 3);
+        },
+      },
+      {
+        title: '3. セクションを開閉する',
+        camera: { pos: [-1, 4.8, 10.5], target: [-1, 4.2, 0] },
+        show: ['f-chev', 'f-sec3'],
+        html:
+          '<p>セクション名の左の<b>矢印(Expander)</b>で、中身を開いたり折りたたんだりできます。この図の「フォルダ」セクションは<b>閉じた状態</b>です。</p>' +
+          '<ul><li>開閉の状態も設定に保存され、次回の起動でも同じ状態で出ます(<code>IsExpanded</code>)。</li>' +
+          '<li>セクション・項目の数に上限はありません。</li></ul>',
+        update: function (g, t) { g.pulse(g.get('f-chev'), t, 0.12); },
+      },
+      {
+        title: '4. 項目を追加する(＋項目)',
+        camera: { pos: [5.5, 5.5, 15.5], target: [5.2, 4.8, 0] },
+        show: ['f-additem', 'a-to-item', 'a-fill', 'dlg-empty', 'dlg-filled'],
+        html:
+          '<p>セクション見出しの<b>「＋項目」</b>を押すと「項目の編集」ダイアログが開きます。</p>' +
+          '<ol><li><b>タイトル</b>: ボタンに表示する名前</li>' +
+          '<li><b>リンク先</b>: exeのパス / URL / フォルダのパス。「参照...」でファイルを選ぶこともできます(タイトルが空なら、ファイル名から自動で入ります)</li>' +
+          '<li><b>OK</b>で追加。タイトルかリンク先が空だと「入力してください」と警告されます</li></ol>' +
+          '<div class="gg-note">項目は、押した「＋項目」のセクションの末尾に追加されます。</div>',
+        update: function (g, t) { g.pulse(g.get('f-additem'), t, 0.12); },
+      },
+      {
+        title: '5. セクションを追加する',
+        camera: { pos: [6.5, 4.4, 17.5], target: [6, 3.9, 0] },
+        show: ['f-addsec', 'a-to-sec', 'dlg-section'],
+        html:
+          '<p>左上の<b>「＋ セクション追加」</b>で、セクション名だけを入力するダイアログが開きます。OKすると<b>一覧の末尾</b>に、開いた状態の新しいセクションが増えます。</p>' +
+          '<ul><li>名前が空だと「名前を入力してください」と警告されます</li>' +
+          '<li>セクションの<b>名前変更</b>も同じダイアログ(初期値に今の名前が入る)です</li></ul>',
+        update: function (g, t) { g.pulse(g.get('f-addsec'), t, 0.1); },
+      },
+      {
+        title: '6. 編集・削除',
+        camera: { pos: [1.5, 5.2, 13], target: [1.5, 5.6, 0] },
+        show: ['f-edit', 'f-del', 'f-rename', 'f-secdel'],
+        html:
+          '<table><tr><th>ボタン</th><th>できること</th></tr>' +
+          '<tr><td>編集(項目)</td><td>追加と同じダイアログで、タイトル・リンク先を直す</td></tr>' +
+          '<tr><td>削除(項目)</td><td>確認メッセージのあと、その項目を消す</td></tr>' +
+          '<tr><td>名前変更(セクション)</td><td>セクション名を直す</td></tr>' +
+          '<tr><td>削除(セクション)</td><td>確認のあと、<b>中の項目ごと</b>消す</td></tr></table>' +
+          '<div class="gg-note">削除は確認メッセージで「はい」を選んだときだけ実行されます。</div>',
+        update: function (g, t) { ['f-edit', 'f-del', 'f-rename', 'f-secdel'].forEach(function (id) { g.pulse(g.get(id), t, 0.08); }); },
+      },
+      {
+        title: '7. ツールバーのボタン',
+        camera: { pos: [0, 6.8, 13], target: [0, 6.3, 0] },
+        show: ['f-reload', 'f-openconf', 'f-chfolder'],
+        html:
+          '<table><tr><th>ボタン</th><th>動き</th></tr>' +
+          '<tr><td>再読み込み</td><td><code>config.json</code> を読み直して画面に反映(他で編集した内容を取り込む)</td></tr>' +
+          '<tr><td>設定ファイルを開く</td><td>今の内容を保存してから、関連付けられたエディタ(メモ帳など)で <code>config.json</code> を開く</td></tr>' +
+          '<tr><td>保存先フォルダを変更...</td><td>フォルダ選択ダイアログで保存先を選び直す。既存の <code>config.json</code> は新しい場所へ移動</td></tr></table>' +
+          '<div class="gg-note">JSONを手で書き間違えて読み込めないときは、エラーを表示して<b>保存を止め</b>ます(編集中のファイルを画面の内容で上書きしないため)。直して「再読み込み」すれば戻ります。</div>',
+        update: function (g, t) { ['f-reload', 'f-openconf', 'f-chfolder'].forEach(function (id) { g.pulse(g.get(id), t, 0.06); }); },
+      },
+      {
+        title: '8. 保存は自動',
+        camera: { pos: [0, 7, 18], target: [0, 4.3, 0] },
+        show: ['f-path'],
+        html:
+          '<p>セクションや項目を<b>追加・編集・削除するたびに自動で保存</b>されます。「保存」ボタンはありません。</p>' +
+          '<pre><code>{\n  "Sections": [\n    { "Name": "よく使うツール",\n      "IsExpanded": true,\n      "Items": [\n        { "Title": "メモ帳",\n          "Path": "C:\\\\Windows\\\\System32\\\\notepad.exe" }\n      ] }\n  ]\n}</code></pre>' +
+          '<ul><li>既定の保存場所は <code>%LOCALAPPDATA%\\Launcher\\config.json</code>(Windowsのユーザーごとに別ファイル)</li>' +
+          '<li>画面の「保存先:」表示で、今使っている場所を確認できます</li></ul>' +
+          '<p class="gg-files">データが実際にどう流れるかは「データの流れ」、作りは「内部設計」のページへ。</p>',
+        update: function (g, t) { g.pulse(g.get('f-path'), t, 0.03); },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

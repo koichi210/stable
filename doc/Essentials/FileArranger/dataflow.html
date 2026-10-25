@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileArranger データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body table{table-layout:fixed}.gg-body td,.gg-body th{overflow-wrap:anywhere}.gg-body th:first-child,.gg-body td:first-child{width:36%}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="fa-img.js"></script>
+<script src="fa-lib.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = FA.col;
+  var PERIOD = 8;
+  var CAM = { pos: [0, 14, 19.5], target: [0, 0, 0.8] };   // ステップ共通(中段〜手前の作業エリアを見る)
+  var STEPS = [];
+  var S = {};          // ステップごとの { ids, items, extra }
+  var Z = 1.2;         // 作業エリアの奥行き位置
+
+  // 駅(板)と、そこにいるチップ列を作る
+  function station(id, text, x, z, color, w) {
+    FA.plate(g_, { id: id, text: text, pos: [x, 0.03, z], size: [w || 4.6, 3.4], color: color || '#2d2944', size2: 0.36 });
+  }
+  var g_;
+  function chips(prefix, list, xs, z, colors, w) {
+    var ids = [];
+    list.forEach(function (txt, k) {
+      var id = prefix + k;
+      FA.chip(g_, { id: id, text: txt, pos: [xs[k], 0.2, z], color: colors ? colors[k] : C.file, w: w || 2.6 });
+      ids.push(id);
+    });
+    return ids;
+  }
+  function evenX(n, span) { var r = []; for (var i = 0; i < n; i++) r.push(-span / 2 + span * i / (n - 1)); return r; }
+
+  GameGuide.start({
+    title: 'FileArranger データの流れ',
+    subtitle: '入力フォルダ → 画面の一覧 → ルール → 実行 → 結果、そして設定と履歴の動き',
+    camera: { pos: [0, 15, 19], target: [0, 0, -5.5] },
+    build: function (g) {
+      g_ = g;
+      g.scene.fog = null;
+
+      // ================= 全体マップ(奥の列) =================
+      var zx = [-12, -6, 0, 6, 12], zz = -9;
+      var zone = [
+        ['z-in', '入力フォルダ\n(Directory.GetFiles/GetDirectories)', '#33405a'],
+        ['z-ui', '画面 MainWindow\n(ListViewRow の一覧)', '#3a2f66'],
+        ['z-rule', 'ルール\n(Logic / Utils)', '#4a2f5e'],
+        ['z-exec', '実行\n(Move / Rename / 振り分け)', '#5a3d22'],
+        ['z-out', '結果フォルダ', '#2a4a3c'],
+      ];
+      zone.forEach(function (z, k) { FA.plate(g, { id: z[0], text: z[1], pos: [zx[k], 0.03, zz], size: [5.0, 4.2], color: z[2], size2: 0.36 }); });
+      var zc = [C.folder, C.file, C.logic, C.io, C.fresh], zt = ['作品A_05.jpg', '一覧の行', '新しい名前', 'File.Move', '作品A_03\\作品A_05.jpg'];
+      zx.forEach(function (x, k) { FA.chip(g, { id: 'zc' + k, text: zt[k], color: zc[k], pos: [x, 0.2, zz], w: k === 4 ? 3.6 : 2.4 }); });
+      for (var k = 0; k < 4; k++) {
+        g.arrow([zx[k] + 2.6, 0.5, zz], [zx[k + 1] - 2.6, 0.5, zz], { color: C.gold, lift: 0.5, id: 'za' + k });
+        g.flow([zx[k] + 2.6, 0.5, zz], [zx[k + 1] - 2.6, 0.5, zz], { color: C.cyan, lift: 0.5, count: 4, id: 'zf' + k });
+      }
+      FA.plate(g, { id: 'z-cfg', text: '設定 (JSON)\n%LOCALAPPDATA%\\FileArranger', pos: [-6, 0.03, -3.4], size: [5.0, 3], color: '#233a5e', size2: 0.36 });
+      FA.plate(g, { id: 'z-his', text: '履歴 (StcProcessMemory)\nメモリ上のスタック', pos: [6, 0.03, -3.4], size: [5.0, 3], color: '#4d2a34', size2: 0.36 });
+      FA.chip(g, { id: 'zc5', text: 'FileArranger.json', color: C.store, pos: [-6, 0.2, -3.4], w: 3.2 });
+      FA.chip(g, { id: 'zc6', text: '(src, dest) の組', color: C.warn, pos: [6, 0.2, -3.4], w: 3.0 });
+      g.arrow([-6, 0.4, -6.9], [-6, 0.4, -4.9], { color: C.store, lift: 0.3, id: 'zb0' });
+      g.arrow([-3, 0.4, -7], [-5, 0.4, -4.9], { color: C.store, lift: 0.3, id: 'zb1' });
+      g.arrow([6, 0.4, -6.9], [6, 0.4, -4.9], { color: C.warn, lift: 0.3, id: 'zb2' });
+      var overview = ['z-in', 'z-ui', 'z-rule', 'z-exec', 'z-out', 'z-cfg', 'z-his', 'zc0', 'zc1', 'zc2', 'zc3', 'zc4', 'zc5', 'zc6',
+        'za0', 'za1', 'za2', 'za3', 'zf0', 'zf1', 'zf2', 'zf3', 'zb0', 'zb1', 'zb2'];
+      S.overview = { ids: overview, items: null };
+
+      // ================= 2 リストアップ =================
+      var xs = [-9.5, -3.2, 3.2, 9.5];
+      station('l-s0', '① 入力フォルダの中身\n(フルパス)', xs[0], Z, '#33405a');
+      station('l-s1', '② 表示名にする\nGetDisplayName', xs[1], Z);
+      station('l-s2', '③ 昇順に並べる\nArray.Sort', xs[2], Z);
+      station('l-s3', '④ 一覧に追加\nListViewRow / ListBox', xs[3], Z, '#3a2f66');
+      var lnames = [['D:\\…\\photo2.jpg', 'photo2.jpg', 'memo1.txt', 'memo1.txt'], ['D:\\…\\memo1.txt', 'memo1.txt', 'photo1.jpg', 'photo1.jpg'], ['D:\\…\\photo1.jpg', 'photo1.jpg', 'photo2.jpg', 'photo2.jpg']];
+      var lids = ['l-s0', 'l-s1', 'l-s2', 'l-s3'], litems = [];
+      var lz = [Z - 0.9, Z, Z + 0.9];
+      lnames.forEach(function (row, r) {
+        var cs = [C.folder, C.file, C.file, C.file], ids = [];
+        // 1つ前の駅のチップを覚えておいて、順に変身しながら進む
+        row.forEach(function (txt, k) {
+          var id = 'l-c' + r + k; ids.push(id);
+          FA.chip(g, { id: id, text: txt, pos: [xs[k], 0.2, lz[r]], color: cs[k], w: 2.8, size: 0.26, lift: 0.5 });
+        });
+        FA.chain(ids, xs, lz[r], 0.2 + r * 0.3, 1.5, 1.0).forEach(function (it) { litems.push(it); });
+        ids.forEach(function (i) { lids.push(i); });
+      });
+      S.listup = { ids: lids, items: litems };
+
+      // ================= 3 RenameDir: 変更後の名前 =================
+      xs = evenX(5, 19);
+      var rst = ['入力', 'Logic.\nChangeWide2Narrow', 'Utils.\nGetNumberFromRear', 'Logic.\nToPaddedNumberString', '結合文字+番号前+番号+番号後'];
+      var rids = [];
+      rst.forEach(function (t, k) { station('r-s' + k, t, xs[k], Z, k === 0 ? '#33405a' : '#4a2f5e', 4.4); rids.push('r-s' + k); });
+      var rc = chips('r-c', ['第３話', '第3話', '3', '03', '作品A_第03話'], xs, Z, [C.folder, C.file, C.logic, C.logic, C.fresh], 2.5);
+      S.rename = { ids: rids.concat(rc), items: FA.chain(rc, xs, Z, 0.3, 1.5, 1.0) };
+
+      // ================= 4 PartitionFile: 振り分け名の決め方 =================
+      xs = [-10.5, -4, 2.5, 9];
+      station('p-s0', '対象ファイル', xs[0], Z, '#33405a', 4.2);
+      station('p-s1', '① 選択中の別の行で\n決まっている?', xs[1], Z, '#4a2f5e', 5.4);
+      station('p-s2', '② リファレンス候補\n(コンボ)に無い?', xs[2], Z, '#4a2f5e', 5.4);
+      station('p-s3', '③ 新規作成ON なら\n新しい名前を作る', xs[3], Z, '#4a2f5e', 5.4);
+      var pz1 = Z - 0.7, pz2 = Z + 1.0;
+      FA.chip(g, { id: 'p-a0', text: '作品A_05.jpg', pos: [xs[0], 0.2, pz1], w: 2.6 });
+      FA.chip(g, { id: 'p-a1', text: '作品A_01 を発見', pos: [xs[2], 0.2, pz1], w: 3.0, color: C.folder });
+      FA.chip(g, { id: 'p-a2', text: '作品A_03', pos: [xs[3] + 1.4, 0.2, pz1], w: 2.2, color: C.fresh });
+      FA.chip(g, { id: 'p-m1', text: '✗ 未決定', pos: [xs[1], 0.2, pz1], w: 2.2, color: C.tmp });
+      FA.chip(g, { id: 'p-x0', text: '新作X_01.jpg', pos: [xs[0], 0.2, pz2], w: 2.6 });
+      FA.chip(g, { id: 'p-x1', text: '✗ 候補に無い', pos: [xs[2], 0.2, pz2], w: 2.4, color: C.tmp });
+      FA.chip(g, { id: 'p-x2', text: '新作X01', pos: [xs[3] + 1.4, 0.2, pz2], w: 2.2, color: C.fresh });
+      FA.chip(g, { id: 'p-m2', text: '✗ 未決定', pos: [xs[1], 0.2, pz2], w: 2.2, color: C.tmp });
+      S.partition = {
+        ids: ['p-s0', 'p-s1', 'p-s2', 'p-s3', 'p-a0', 'p-a1', 'p-a2', 'p-m1', 'p-x0', 'p-x1', 'p-x2', 'p-m2'],
+        items: [
+          { a: 'p-a0', b: 'p-a1', from: [xs[0], pz1], to: [xs[2], pz1], s: 0.3, d: 1.6, h: 1.4 },
+          { a: 'p-a1', b: 'p-a2', from: [xs[2], pz1], to: [xs[3] + 1.4, pz1], s: 3.0, d: 1.2, hideBefore: true, hold: 1.1 },
+          { a: 'p-x0', b: 'p-x1', from: [xs[0], pz2], to: [xs[2], pz2], s: 0.8, d: 1.6, h: 1.4 },
+          { a: 'p-x1', b: 'p-x2', from: [xs[2], pz2], to: [xs[3] + 1.4, pz2], s: 3.4, d: 1.2, hideBefore: true, hold: 1.0 },
+        ],
+      };
+
+      // ================= 5 MoveDir: 2つの移動モード =================
+      xs = [-9.5, -3.2, 3.2, 9.5];
+      station('m-s0', 'リストの選択項目', xs[0], Z, '#3a2f66');
+      station('m-s1', 'FileIO.\nGetFirst/GetLastPathName', xs[1], Z, '#4a2f5e', 5.2);
+      station('m-s2', '移動先パスを作る', xs[2], Z, '#4a2f5e');
+      station('m-s3', '格納先フォルダ', xs[3], Z, '#2a4a3c');
+      var mz1 = Z - 0.8, mz2 = Z + 0.9;
+      FA.chip(g, { id: 'm-a0', text: '旅行\\京都', pos: [xs[0], 0.2, mz1], color: C.folder, w: 2.4 });
+      FA.chip(g, { id: 'm-a1', text: 'トップ: 旅行', pos: [xs[1], 0.2, mz1], color: C.logic, w: 2.6 });
+      FA.chip(g, { id: 'm-a2', text: '旅行 (中の京都ごと)', pos: [xs[3], 0.2, mz1], color: C.fresh, w: 3.4 });
+      FA.chip(g, { id: 'm-b0', text: '旅行\\京都', pos: [xs[0], 0.2, mz2], color: C.folder, w: 2.4 });
+      FA.chip(g, { id: 'm-b1', text: 'サブ: 京都', pos: [xs[1], 0.2, mz2], color: C.logic, w: 2.6 });
+      FA.chip(g, { id: 'm-b2', text: '京都 (フォルダだけ)', pos: [xs[3], 0.2, mz2], color: C.fresh, w: 3.4 });
+      S.movedir = {
+        ids: ['m-s0', 'm-s1', 'm-s2', 'm-s3', 'm-a0', 'm-a1', 'm-a2', 'm-b0', 'm-b1', 'm-b2'],
+        items: [
+          { a: 'm-a0', b: 'm-a1', from: [xs[0], mz1], to: [xs[1], mz1], s: 0.3, d: 1.0 },
+          { a: 'm-a1', b: 'm-a2', from: [xs[1], mz1], to: [xs[3], mz1], s: 2.5, d: 1.6, hideBefore: true, hold: 1.2, h: 1.4 },
+          { a: 'm-b0', b: 'm-b1', from: [xs[0], mz2], to: [xs[1], mz2], s: 0.8, d: 1.0 },
+          { a: 'm-b1', b: 'm-b2', from: [xs[1], mz2], to: [xs[3], mz2], s: 3.0, d: 1.6, hideBefore: true, hold: 1.2, h: 1.4 },
+        ],
+      };
+
+      // ================= 6 実行: 重複回避 =================
+      xs = [-8, 0, 8];
+      station('c-s0', '移動元', xs[0], Z, '#33405a', 5);
+      station('c-s1', '移動先を調べる\nAvoidFileNameConflict', xs[1], Z, '#4a2f5e', 6);
+      station('c-s2', '移動先フォルダ', xs[2], Z, '#2a4a3c', 6.4);
+      var cz1 = Z - 0.9, cz2 = Z + 1.0;
+      FA.chip(g, { id: 'c-ex', text: 'a.jpg (既にある)', pos: [xs[2] - 1.3, 0.2, cz1], color: C.tmp, w: 3.0 });
+      FA.chip(g, { id: 'c-f0', text: 'a.jpg', pos: [xs[0], 0.2, cz1], w: 2.0 });
+      FA.chip(g, { id: 'c-f1', text: '同名あり → 拡張子の前に付ける', pos: [xs[1], 0.2, cz1], color: C.warn, w: 5.0, size: 0.26 });
+      FA.chip(g, { id: 'c-f2', text: 'a_Cnt0_日時.jpg', pos: [xs[2] + 1.6, 0.2, cz1], color: C.fresh, w: 3.2 });
+      FA.chip(g, { id: 'c-ex2', text: 'Dir (既にある)', pos: [xs[2] - 1.3, 0.2, cz2], color: C.tmp, w: 3.0 });
+      FA.chip(g, { id: 'c-d0', text: 'Dir', pos: [xs[0], 0.2, cz2], color: C.folder, w: 2.0 });
+      FA.chip(g, { id: 'c-d1', text: '同名あり → 末尾に付ける', pos: [xs[1], 0.2, cz2], color: C.warn, w: 4.4, size: 0.26 });
+      FA.chip(g, { id: 'c-d2', text: 'Dir_Cnt0_日時', pos: [xs[2] + 1.6, 0.2, cz2], color: C.fresh, w: 3.2 });
+      S.conflict = {
+        ids: ['c-s0', 'c-s1', 'c-s2', 'c-ex', 'c-f0', 'c-f1', 'c-f2', 'c-ex2', 'c-d0', 'c-d1', 'c-d2'],
+        items: [
+          { a: 'c-f0', b: 'c-f1', from: [xs[0], cz1], to: [xs[1], cz1], s: 0.3, d: 1.2 },
+          { a: 'c-f1', b: 'c-f2', from: [xs[1], cz1], to: [xs[2] + 1.6, cz1], s: 3.0, d: 1.4, hideBefore: true, hold: 1.5, h: 1.3 },
+          { a: 'c-d0', b: 'c-d1', from: [xs[0], cz2], to: [xs[1], cz2], s: 0.8, d: 1.2 },
+          { a: 'c-d1', b: 'c-d2', from: [xs[1], cz2], to: [xs[2] + 1.6, cz2], s: 3.5, d: 1.4, hideBefore: true, hold: 1.5, h: 1.3 },
+        ],
+      };
+
+      // ================= 7 バックグラウンド実行 =================
+      FA.plate(g, { id: 'b-ui', text: 'UI スレッド', pos: [0, 0.03, Z - 2.3], size: [23, 3.2], color: '#2c2552', size2: 0.36, labelOffset: [-8.5, 0.4, -1.1] });
+      FA.plate(g, { id: 'b-wk', text: 'ワーカースレッド (BackgroundWorker)', pos: [0, 0.03, Z + 2.3], size: [23, 3.2], color: '#4d3320', size2: 0.36, labelOffset: [-6.5, 0.4, 1.9] });
+      var uz = Z - 2.3, wz = Z + 2.3;
+      FA.chip(g, { id: 'b-btn', text: 'ボタン押下', pos: [-9.5, 0.2, uz], w: 2.4, color: C.ui });
+      FA.chip(g, { id: 'b-prm', text: 'MoveFileWorkerParam', pos: [-4, 0.2, wz], w: 4.4, color: C.logic, size: 0.28 });
+      FA.chip(g, { id: 'b-dw', text: 'DoWork: 1件ずつ File.Move', pos: [2.5, 0.2, wz], w: 5.2, color: C.io, size: 0.28 });
+      FA.chip(g, { id: 'b-p1', text: 'ReportProgress(1)', pos: [2.5, 0.2, wz], w: 3.2, color: C.cyan, size: 0.26 });
+      FA.chip(g, { id: 'b-p2', text: 'ReportProgress(2)', pos: [2.5, 0.2, wz], w: 3.2, color: C.cyan, size: 0.26 });
+      FA.chip(g, { id: 'b-p3', text: 'ReportProgress(3)', pos: [2.5, 0.2, wz], w: 3.2, color: C.cyan, size: 0.26 });
+      FA.chip(g, { id: 'b-end', text: 'RunWorkerCompleted\n→ 再リストアップ', pos: [9, 0.2, uz], w: 4.4, color: C.fresh, size: 0.26 });
+      g.box({ id: 'b-bar0', size: [8, 0.12, 0.5], pos: [-1.5, 0.08, uz], color: '#3a3650', edges: false });
+      g.box({ id: 'b-bar', size: [8, 0.16, 0.5], pos: [-1.5, 0.1, uz], color: C.fresh, edges: false, label: '進捗バー  n/m 完了', labelOffset: [0, 0.5, 0], labelSize: 0.28, labelBg: '#000000a0' });
+      S.bg = {
+        ids: ['b-ui', 'b-wk', 'b-btn', 'b-prm', 'b-dw', 'b-p1', 'b-p2', 'b-p3', 'b-end', 'b-bar0', 'b-bar'],
+        items: [
+          { a: 'b-btn', from: [-9.5, uz], to: [-4, wz], s: 0.2, d: 1.2, y: 0.2, h: 1.6, b: 'b-prm' },
+          { a: 'b-p1', from: [2.5, wz], to: [7.5, uz], s: 2.6, d: 1.0, hideBefore: true, vanish: true, h: 1.8 },
+          { a: 'b-p2', from: [2.5, wz], to: [7.5, uz], s: 3.6, d: 1.0, hideBefore: true, vanish: true, h: 1.8 },
+          { a: 'b-p3', from: [2.5, wz], to: [7.5, uz], s: 4.6, d: 1.0, hideBefore: true, vanish: true, h: 1.8 },
+        ],
+        bg: true,
+      };
+
+      // ================= 8 履歴と復元 =================
+      FA.plate(g, { id: 'h-fl', text: 'フォルダ', pos: [-5.5, 0.03, Z], size: [6, 5], color: '#33405a', size2: 0.36 });
+      FA.plate(g, { id: 'h-st', text: 'StcProcessMemory\n(src, dest) を積むスタック', pos: [7, 0.03, Z], size: [6.4, 5], color: '#4d2a34', size2: 0.36 });
+      var hz = [Z - 1.6, Z, Z + 1.6], hids = ['h-fl', 'h-st'];
+      var hold = ['第1話', '第2話', '第3話'], hnew = ['作品A_第01話', '作品A_第02話', '作品A_第03話'];
+      for (var q = 0; q < 3; q++) {
+        FA.chip(g, { id: 'h-o' + q, text: hold[q], pos: [-5.5, 0.2, hz[q]], color: C.folder, w: 2.4 });
+        FA.chip(g, { id: 'h-n' + q, text: hnew[q], pos: [-5.5, 0.2, hz[q]], color: C.fresh, w: 3.6 });
+        FA.chip(g, { id: 'h-e' + q, text: '#' + (q + 1) + ' ' + hold[q].replace('第', '第') + ' ⇄ ' + hnew[q].replace('作品A_', ''), pos: [7, 0.2 + q * 0.55, Z + 1.2], color: C.warn, w: 4.6, h: 0.45, size: 0.24, lift: 0.45 });
+        hids.push('h-o' + q, 'h-n' + q, 'h-e' + q);
+      }
+      FA.chip(g, { id: 'h-no', text: 'スタックは空', pos: [7, 0.2, Z - 0.8], color: C.tmp, w: 3.0, size: 0.26 });
+      hids.push('h-no');
+      S.history = { ids: hids, custom: true };
+
+      // ================= 9 設定の保存と読込 =================
+      xs = evenX(5, 19);
+      var cst = ['画面の入力欄', 'WpfSaveRestore.\nBuildGenericProfile', 'JsonFileStorage.\nSave', 'AtomicFile.\nWriteAllText', '設定フォルダ'];
+      var cids = [];
+      cst.forEach(function (t, k) { station('s-s' + k, t, xs[k], Z - 1.4, k === 0 ? '#3a2f66' : k === 4 ? '#233a5e' : '#2d3a5e', 4.4); cids.push('s-s' + k); });
+      var sz = Z - 1.4;
+      var sc = chips('s-c', ['入力値', 'GenericProfile', 'JSON文字列', 'FileArranger.json.tmp', 'FileArranger.json'], xs, sz, [C.ui, C.store, C.store, C.tmp, C.store], 2.9);
+      var lz2 = Z + 2.6;
+      cids.push('s-lb');
+      FA.plate(g, { id: 's-lb', text: '読込 (起動時 / プルダウン選択)', pos: [0, 0.03, lz2], size: [23, 2.6], color: '#1f2c44', size2: 0.36, labelOffset: [-6.5, 0.4, 1.0] });
+      var lx = [xs[4], xs[2], xs[0]];
+      var lc = chips('s-l', ['FileArranger.json', 'GenericProfile', 'ApplyGenericProfile\n→ 画面へ反映'], lx, lz2, [C.store, C.store, C.fresh], 3.4);
+      var sitems = FA.chain(sc, xs, sz, 0.3, 1.3, 0.9);
+      FA.chain(lc, lx, lz2, 6.0, 1.0, 0.9).forEach(function (it) { it.hideBefore = it.hideBefore; sitems.push(it); });
+      S.config = { ids: cids.concat(sc, lc), items: sitems };
+      // 読込の最初のチップは最初から見えているのではなく、6秒で出る
+      S.config.items[sitems.length - 2].hideBefore = true;
+      S.config.items[sitems.length - 2].hold = 0.5;
+      S.config.period = 9;
+
+      // ---- 各ステップの focus/show/update を作る ----
+      STEPS.forEach(function (st) {
+        var d = S[st._d];
+        st.focus = d.ids;
+        st.show = d.ids === S.overview.ids ? null : d.ids;
+        if (st._d === 'overview') { st.show = null; }
+        st.update = function (gg, t) {
+          if (d.items) FA.run(gg, d.items, t, d.period || PERIOD);
+          if (d.bg) {
+            var tb = t % PERIOD, v = tb < 3.6 ? 0 : tb < 4.6 ? 1 / 3 : tb < 5.6 ? 2 / 3 : 1;
+            var bar = gg.get('b-bar');
+            bar.scale.x = Math.max(v, 0.001);
+            bar.position.x = -5.5 + 4 * Math.max(v, 0.001);
+            gg.get('b-end').visible = tb >= 5.6;
+          }
+          if (d.custom) {
+            var tt = t % PERIOD, push = [0.8, 1.5, 2.2], pop = [5.9, 5.1, 4.3];
+            for (var q = 0; q < 3; q++) {
+              var renamed = tt >= push[q] && tt < pop[q];
+              gg.get('h-o' + q).visible = !renamed;
+              gg.get('h-n' + q).visible = renamed;
+              gg.get('h-e' + q).visible = renamed;
+              var e = gg.get('h-e' + q);
+              if (renamed) { var drop = gg.phase(tt, push[q], 0.6); e.position.y = 0.2 + q * 0.55 + (1 - drop) * 2.2; }
+            }
+            gg.get('h-no').visible = tt < push[0] || tt >= pop[2] + 0.4;
+          }
+        };
+      });
+    },
+    steps: STEPS,
+  });
+
+  function mk(d, title, html) { return { title: title, html: html, camera: CAM, _d: d }; }
+
+  [
+    {
+      title: '全体の流れ', _d: 'overview',
+      camera: { pos: [0, 15, 19], target: [0, 0, -5.5] },
+      html: '<p>FileArranger のデータは、基本的にこの順で流れます。</p><ol>' +
+        '<li><b>入力フォルダ</b>: <code>Directory.GetFiles</code> / <code>GetDirectories</code> で中身を取る</li>' +
+        '<li><b>画面</b>: 名前を表示用に整えて、一覧(<code>ListViewRow</code> など)に並べる</li>' +
+        '<li><b>ルール</b>: <code>Logic</code> / <code>Utils</code> が「新しい名前」を決める</li>' +
+        '<li><b>実行</b>: 移動・リネーム・フォルダ作成(重複は回避)</li>' +
+        '<li><b>結果フォルダ</b>に反映され、一覧が再取得される</li></ol>' +
+        '<p>手前の2つは<b>設定(JSON)</b>と<b>履歴</b>。画面の入力値は設定ファイルへ、リネームした記録は「元に戻す」用にメモリへ溜まります。</p>' +
+        '<p class="gg-note">「次へ」で各段階を拡大して、ファイルの塊が動くところを見ます。</p>',
+    },
+  ].forEach(function (x) { STEPS.push(x); });
+  STEPS.push(mk('listup', 'リストアップ: フルパス → 表示名 → 一覧',
+    '<p>どのタブでも最初は「リストアップ」。共通処理 <code>ListupInto</code> が次をします。</p><ol>' +
+    '<li>入力フォルダが存在するか確認(<code>IsValidFolderPath</code>)</li>' +
+    '<li>取得したフルパスから、基準フォルダの部分を取り除いた<b>表示名</b>にする(<code>GetDisplayName</code>)</li>' +
+    '<li><code>Array.Sort</code> で昇順に並べる</li><li>一覧に入れ、件数を表示する</li></ol>' +
+    '<p>取得元は、MoveDir=サブフォルダも含むフォルダ(直下にファイルがあるもの)、MoveFile=<code>GetFiles</code>、SortFileName=<code>GetDirectories</code>、RenameDir=<code>GetDirectories</code>(行は <code>ListViewRow</code>)、PartitionFile=<code>GetFiles</code>(行は <code>ListViewRow</code>)。</p>' +
+    '<p class="gg-files">MainWindow.xaml.cs の ListupInto / GetSortedDisplayNames</p>'));
+  STEPS.push(mk('rename', 'RenameDir: 「変更後」の名前を組み立てる',
+    '<p>行を選ぶたびに、<code>UpdateRenameDestNames</code> が選択行の「変更後」を作り直します(プレビュー)。</p><ol>' +
+    '<li><code>Logic.ChangeWide2Narrow</code>: 全角の数字・英字・空白を半角へ</li>' +
+    '<li><code>GetNumberFromRear</code>: 末尾の数字を取り出す(検索の後部・検索長で調整)</li>' +
+    '<li><code>Logic.ToPaddedNumberString</code>: 1〜2桁なら2桁にゼロ埋め</li>' +
+    '<li>結合文字 + 番号前に追加 + 番号 + 番号後に追加 をつなぐ</li></ol>' +
+    '<p>「リネーム実行」までは、実際のフォルダには何も起きません。</p>'));
+  STEPS.push(mk('partition', 'PartitionFile: 振り分け先の名前を決める',
+    '<p><code>UpdatePartitionFileList</code> は、選択した各ファイルについて<b>3段階</b>で振り分け先を探します。</p><ol>' +
+    '<li><b>選択中の別の行</b>で、同じ区切り文字の前の名前が既に決まっていれば流用(<code>TryGetPartitionNameFromListView</code>)</li>' +
+    '<li>無ければ<b>リファレンス候補(コンボ)</b>から検索(<code>TryGetPartitionNameFromComboBox</code>)</li>' +
+    '<li>それも無く「フォルダを新規作成」がONなら、ファイル名から新しい名前(<code>CreatePartitionName</code>)</li></ol>' +
+    '<p>番号は <code>Logic.GetAddCount</code>(選択中で同じ名前の数)と <code>Logic.ReplaceRearNumber</code> で足されます。例: 作品A の2件が選ばれていると、<code>作品A_01</code> → <code>作品A_03</code>。</p>'));
+  STEPS.push(mk('movedir', 'MoveDir: トップ / サブ、2つの移動モード',
+    '<p><code>MoveSelectedDirectories(isMoveTopDir)</code> が、同じ選択項目から移動する対象を変えます。</p><ul>' +
+    '<li><b>トップ</b>: <code>GetFirstPathName</code> で格納元直下の最上位フォルダを取り、同じ名前で格納先へ(中の階層ごと)</li>' +
+    '<li><b>サブ</b>: 選んだフォルダを、<code>GetLastPathName</code> の末尾名だけで格納先の直下へ</li></ul>' +
+    '<p>親と子を両方選んだ場合は、親を動かした時点で子は無くなっているので<b>飛ばします</b>(<code>Directory.Exists</code> で確認)。移動後は一覧をリストアップし直します。</p>'));
+  STEPS.push(mk('conflict', '実行: 同名があるときの重複回避',
+    '<p>移動先に同名のファイル/フォルダがあるときは、<code>Utils</code> が名前を変えて上書きや失敗を避けます。</p><ul>' +
+    '<li><code>AvoidFileNameConflict</code>: <b>拡張子の前</b>に <code>_Cnt番号_yyyy_MM_dd_HH_mm_ss</code> を付ける(<code>a_Cnt0_….jpg</code>)</li>' +
+    '<li><code>AvoidFolderNameConflict</code>: 名前の<b>末尾</b>に同じ接尾辞を付ける</li></ul>' +
+    '<p>PartitionFile の振り分けだけは、ファイル名が重複したら<b>移動せずスキップ</b>して、完了時にまとめて「ファイル名が重複したので処理をスキップしました」と表示します。</p>' +
+    '<p>大文字小文字だけ違う名前へのフォルダ名変更は、いったん別名を経由します(<code>Utils.RenameDirectory</code>)。</p>'));
+  STEPS.push(mk('bg', 'MoveFile / PartitionFile: 別スレッドで実行',
+    '<p>件数が多くても画面が固まらないよう、実行は <code>BackgroundWorker</code> で行います。</p><ol>' +
+    '<li>ボタンで、必要な値を <code>MoveFileWorkerParam</code> / <code>PartitionWorkerParam</code> にまとめて <code>RunWorkerAsync</code></li>' +
+    '<li><code>DoWork</code> は別スレッド。<b>画面には触りません</b>。1件ごとに <code>ReportProgress</code></li>' +
+    '<li><code>ProgressChanged</code>(UIスレッド)で進捗バーと「n/m 完了」を更新</li>' +
+    '<li><code>RunWorkerCompleted</code> でエラー表示と再リストアップ</li></ol>' +
+    '<p class="gg-note">実行中にもう一度ボタンを押しても、<code>IsBusy</code> を見て何もしません(二重実行の防止)。</p>'));
+  STEPS.push(mk('history', '履歴と「元に戻す」',
+    '<p>RenameDir と SortFileName は、操作を <code>StcProcessMemory</code> に記録します(メモリ上だけ。アプリを閉じると消えます)。</p><ul>' +
+    '<li>リネームのたび <code>AddRestoreItem(src, dest)</code> で1件ずつ積む</li>' +
+    '<li>1回の実行が終わると <code>IncrementSerialNumber</code> で「1回分」を確定</li>' +
+    '<li>「復元」は <code>RestoreLastBatch</code>: 番号を1つ戻し、積んだものを<b>逆順</b>に取り出して <code>move(dest, src)</code></li></ul>' +
+    '<p>SortFileName は「一時名にする」「最終名にする」の2段階を1件ずつ積むので、逆順に戻すと元の名前に戻ります。</p>' +
+    '<p>MoveDir / MoveFile / PartitionFile には復元はありません。</p>'));
+  STEPS.push(mk('config', '設定の保存と読込',
+    '<p>各入力欄は起動時に <code>RegisterLoadItem</code> で「キー」と一緒に登録されています(<code>RegisterCtrl</code> / <code>RegisterList</code>)。</p><p><b>保存</b></p><ol>' +
+    '<li>コンボボックスの入力値を履歴に足し、<code>BuildGenericProfile</code> で <code>GenericProfile</code>(Values / Lists / Grids)にまとめる</li>' +
+    '<li><code>JsonFileStorage.Save</code> が整形JSONにして、<code>AtomicFile</code> が <code>.tmp</code> に書き切ってから置き換え(書込み中に落ちても元のファイルは壊れない)</li></ol>' +
+    '<p><b>読込</b>(起動時 / プルダウン選択)</p><ol><li><code>JsonFileStorage.Load</code> → <code>ApplyGenericProfile</code>(いったん既定値に戻してから上書き)</li>' +
+    '<li><code>RefreshAfterLoad</code> で候補を更新し、各タブの一覧を空にする</li></ol>' +
+    '<p>保存先は <code>UserDataLocation</code> が決めます。exe の隣の <code>DataFolder.txt</code>(案内板)が指すフォルダで、既定は <code>%LOCALAPPDATA%\\FileArranger\\</code>。</p>'));
+})();
+</script>
+</body>
+</html>

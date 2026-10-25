@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventRecorder 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:    { y: 12,  color: C.third,  name: 'UI層\n(EventRecorder/ 画面)' },
+    rule:  { y: 8,  color: C.good,   name: 'ルール・行モデル層\n(EventRecorder/ 画面に依存しない判定)' },
+    data:  { y: 4,  color: C.server, name: 'データ層\n(JSONになる形)' },
+    com:   { y: 0,  color: C.data,   name: '共通部品 _Common\n(ソースを取り込んで共有)' },
+    os:    { y: -4, color: C.neutral, name: 'OS・ライブラリ' }
+  };
+  // クラスの配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    // UI
+    ['App', 'App\n(App.xaml.cs)', 'ui', -13, 0],
+    ['MainWindow', 'MainWindow\n(partial 5ファイル)', 'ui', -8, 0],
+    ['HotkeyWin', 'HotkeySettings\nWindow', 'ui', -3, 0],
+    ['FindWin', 'FindReplace\nWindow', 'ui', 2, 0],
+    ['WaitWin', 'EventWaitBulk\nChangeWindow', 'ui', 7, 0],
+    ['DialogBase', 'DialogWindow\nBase', 'ui', 12, 0],
+    // ルール
+    ['EventRules', 'EventRules\n(static)', 'rule', -13, 0],
+    ['EventRow', 'EventRow', 'rule', -8.5, 0],
+    ['PlaylistRow', 'PlaylistRow', 'rule', -4, 0],
+    ['Mapper', 'EventRowMapper', 'rule', 0.5, 0],
+    ['FindEngine', 'FindReplace\nEngine', 'rule', 5, 0],
+    ['SessionGuard', 'SessionGuard', 'rule', 9, 0],
+    ['Hotkey', 'HotkeyDefaults /\nHotkeyFormatter', 'rule', 13.5, 0],
+    // データ
+    ['Profile', 'EventRecorderProfile', 'data', -8, 0],
+    ['MacroData', 'MacroEventData', 'data', -2, 0],
+    ['PlaylistData', 'PlaylistEntryData', 'data', 4, 0],
+    ['AppSettings', 'AppSettings', 'data', 10, 0],
+    // 共通(_Common)  z=-1.6 / _Common/Wpf  z=+1.8
+    ['GlobalHook', 'GlobalHook\n(Keyboard/MouseHook)', 'com', -12, -2.3],
+    ['InputSim', 'InputSimulator', 'com', -6, -2.3],
+    ['Json', 'JsonFileStorage', 'com', -0.5, -2.3],
+    ['Atomic', 'AtomicFile', 'com', 5, -2.3],
+    ['UserData', 'UserDataLocation', 'com', 10.5, -2.3],
+    ['FolderMenu', 'DataFolderMenu /\nDataFolderChooser', 'com', 15.5, -2.3],
+    ['StcUtils', 'StandardTemplate\nClass (StcUtils)', 'com', 15.5, 2.3],
+    ['GridRows', 'GridRowCollection /\nGridUndoRedo', 'com', -12, 2.3],
+    ['GridHelper', 'WpfGridHelper', 'com', -6, 2.3],
+    ['WpfParts', 'TextBoxEx / ComboBoxEx /\nPlaceholder', 'com', -0.5, 2.3],
+    ['WpfFolder', 'WpfDataFolderMenu', 'com', 5.5, 2.3],
+    ['ExGuard', 'StcWpfException\nGuard', 'com', 10.5, 2.3],
+    // OS・ライブラリ
+    ['Win32', 'Win32 API (user32)\nSetWindowsHookEx / SendInput', 'os', -9, 0],
+    ['Newtonsoft', 'Newtonsoft.Json', 'os', -1, 0],
+    ['Fx', '.NET Framework 4.8\nWPF + WinForms', 'os', 6, 0],
+    ['ApiPack', 'WindowsAPICodePack\n-Shell', 'os', 13, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  // 同じ層のid一覧
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色, ラベル]
+  var DEPS = [
+    ['MainWindow', 'EventRules', '#ffd166', '判定・変換'],
+    ['MainWindow', 'EventRow', '#ffd166', '行を持つ'],
+    ['MainWindow', 'Mapper', '#ffd166', ''],
+    ['MainWindow', 'SessionGuard', '#ffd166', ''],
+    ['EventRow', 'EventRules', '#5ee6a8', ''],
+    ['MainWindow', 'Profile', '#ffd166', '保存・読込の形'],
+    ['MainWindow', 'AppSettings', '#ffd166', ''],
+    ['MainWindow', 'GlobalHook', '#7ef0ff', '入力を拾う'],
+    ['MainWindow', 'InputSim', '#7ef0ff', '入力を送る'],
+    ['MainWindow', 'Json', '#7ef0ff', ''],
+    ['Json', 'Atomic', '#7ef0ff', ''],
+    ['MainWindow', 'UserData', '#7ef0ff', ''],
+    ['GlobalHook', 'Win32', '#b8b2d6', ''],
+    ['InputSim', 'Win32', '#b8b2d6', ''],
+    ['Json', 'Newtonsoft', '#b8b2d6', '']
+  ];
+
+  GameGuide.start({
+    title: 'EventRecorder 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・主要クラスの責務・依存の向き(実際のクラス名・ファイル名)',
+    camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [34, 7], pos: [1, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-17, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- クラスの箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.4, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.36, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- MainWindow の分割ファイル(手順2でだけ見せる) ----
+      var PARTS = [
+        ['MainWindow.xaml.cs', '起動・ウィンドウ・トレイ\n設定・終了・セッション通知'],
+        ['MainWindow.Recording.cs', '記録(フック処理・\nQueueRow・Flush)'],
+        ['MainWindow.Playback.cs', '再生スレッド・Undo/Redo\n貼り付け・右クリックメニュー'],
+        ['MainWindow.Playlist.cs', 'プレイリスト表の操作\nStartPlaylistRun / ループ'],
+        ['MainWindow.Profile.cs', '保存・読み込み・\nプロファイル一覧']
+      ];
+      PARTS.forEach(function (p, i) {
+        var x = -12 + i * 6;
+        g.box({ id: 'part-' + i, size: [5, 0.9, 1.7], pos: [x, 15.4, 3.2], color: '#2d2944', emissive: C.third, emissiveIntensity: 0.4, radius: 0.1, edgeColor: C.third,
+          label: p[0] + '\n' + p[1], labelSize: 0.27, labelOffset: [0, 1.5, 0], labelBg: '#000000cc' });
+        g.arrow([x, 15.9, 3.2], [-8, 12.95, 0.4], { id: 'part-a-' + i, color: C.third, lift: 0.3, head: 0.2 });
+      });
+      // ---- テスト(右端) ----
+      g.box({ id: 'tests', size: [4.6, 1.2, 2.6], pos: [21.5, 8.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'EventRecorder.Tests\n(MSTest)\nEventRowTests / FindReplaceEngineTests\nMainWindowTests / SessionGuardTests ほか', labelSize: 0.27, labelOffset: [0, 1.8, 0], labelBg: '#000000cc' });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+      g.arrow([19.3, 8.8, 0], [15.6, 8.9, 0], { id: 'dep-tests', color: C.gold, lift: 1.2, head: 0.25, label: '実クラスを直接テスト\n(InternalsVisibleTo)', labelSize: 0.26 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+        update: function (g, t) { g.pulse('MainWindow', t, 0.04); },
+        html:
+          '<p>EventRecorder は <b>WPF(.NET Framework 4.8)</b> のデスクトップアプリで、上から下へだけ依存する層構造です。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>UI層</td><td><code>MainWindow</code> と各ダイアログ(画面・イベント処理)</td></tr>' +
+          '<tr><td>ルール・行モデル層</td><td>画面に依存しない判定・変換(<code>EventRules</code>、<code>EventRow</code> ほか)</td></tr>' +
+          '<tr><td>データ層</td><td>JSONにする形(<code>EventRecorderProfile</code> ほか)</td></tr>' +
+          '<tr><td>共通部品</td><td><code>Essentials/_Common</code> のフック・入力送信・JSON保存など</td></tr>' +
+          '<tr><td>OS・ライブラリ</td><td>Win32 API、Newtonsoft.Json、WPF/WinForms</td></tr></table>' +
+          '<p>右端の黄色い箱は単体テスト(<code>Tests/EventRecorder.Tests</code>)です。</p>'
+      },
+      {
+        title: '1. UI層',
+        camera: { pos: [0, 20, 26], target: [0, 11.5, 0] },
+        focus: ['L-ui', 'Ln-ui'].concat(ids('ui')),
+        html:
+          '<table><tr><th>クラス / ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>App</code> (App.xaml.cs)</td><td>起動。<code>StcWpfExceptionGuard.Install</code> で、画面スレッドの未処理例外を共通のエラー通知へ</td></tr>' +
+          '<tr><td><code>MainWindow</code></td><td>メイン画面。記録・再生・プロファイルの全体を制御(下の「5分割」参照)</td></tr>' +
+          '<tr><td><code>HotkeySettingsWindow</code></td><td>記録/再生ホットキーの設定画面</td></tr>' +
+          '<tr><td><code>FindReplaceWindow</code></td><td>Ctrl+F / Ctrl+H の検索・置換(判定は <code>FindReplaceEngine</code>)</td></tr>' +
+          '<tr><td><code>EventWaitBulkChangeWindow</code></td><td>WAIT時間の一括変更</td></tr>' +
+          '<tr><td><code>DialogWindowBase</code></td><td>ダイアログ共通の基底。Escで閉じる・アイコン非表示・タスクバー非表示</td></tr></table>'
+      },
+      {
+        title: '2. MainWindow の5分割(partial class)',
+        camera: { pos: [2, 24, 28], target: [2, 13, 1] },
+        focus: ['MainWindow', 'part-0', 'part-1', 'part-2', 'part-3', 'part-4', 'part-a-0', 'part-a-1', 'part-a-2', 'part-a-3', 'part-a-4', 'L-ui'],
+        show: ['part-0', 'part-1', 'part-2', 'part-3', 'part-4', 'part-a-0', 'part-a-1', 'part-a-2', 'part-a-3', 'part-a-4'],
+        html:
+          '<p><code>MainWindow</code> は約2,800行あるため、関心ごとに5ファイルへ分けた <code>partial class</code> です。</p>' +
+          '<table><tr><th>ファイル</th><th>主な中身</th></tr>' +
+          '<tr><td>MainWindow.xaml.cs</td><td>コンストラクタ・状態(<code>_isRecording</code> 等)・トレイ・設定の読み書き・終了処理・画面ロック通知</td></tr>' +
+          '<tr><td>MainWindow.Recording.cs</td><td><code>ToggleRecording</code>・<code>OnMouseEvent</code>/<code>OnKeyboardEvent</code>・<code>QueueRow</code>・<code>FlushPendingRows</code></td></tr>' +
+          '<tr><td>MainWindow.Playback.cs</td><td><code>PlayOrStop</code>・<code>RunPlayback</code>・<code>PlayRowsCore</code>・表のキー操作・右クリックメニュー</td></tr>' +
+          '<tr><td>MainWindow.Playlist.cs</td><td>プレイリストの行操作・ドラッグ並べ替え・<code>PlaylistPlayLoop</code></td></tr>' +
+          '<tr><td>MainWindow.Profile.cs</td><td><code>LoadProfileFromJson</code>・<code>SaveProfile</code>・プロファイル一覧</td></tr></table>' +
+          '<div class="gg-note">画面(xaml)は <code>MainWindow.xaml</code> と <code>HotkeySettingsWindow.xaml</code> の2つだけ。ダイアログ類はコードで組み立てています。</div>'
+      },
+      {
+        title: '3. ルール・行モデル層',
+        camera: { pos: [0, 15, 26], target: [0, 7.5, 0] },
+        focus: ['L-rule', 'Ln-rule'].concat(ids('rule')),
+        html:
+          '<p>画面部品(WPFのコントロール)を直接触らない、<b>テストしやすい</b>部分です。</p>' +
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>EventRules</code></td><td>静的メソッドの集まり。Detail表示の生成/解析(<code>FormatDetail</code>/<code>ParseDetail</code>)、再生前の検査(<code>IsRowInvalidForPlayback</code>)、行→入力への変換(<code>BuildPlaybackInputs</code>)、行の削除範囲・WAIT一括変更・修飾キー解放 など</td></tr>' +
+          '<tr><td><code>EventRow</code></td><td>表の1行。Type/Detail/Wait/X/Y/Key/Remarks/Delta。Detailと実データの相互同期、変更通知(<code>INotifyPropertyChanged</code>)、Undo用のセル変更通知</td></tr>' +
+          '<tr><td><code>PlaylistRow</code></td><td>プレイリスト表の1行(実行チェック・ファイル名・ループ数)</td></tr>' +
+          '<tr><td><code>EventRowMapper</code></td><td><code>String[6]</code> ⇄ <code>EventRow</code>。配列順との対応をここ1か所に閉じ込める(過去の列ずれ不具合の再発防止)</td></tr>' +
+          '<tr><td><code>FindReplaceEngine</code></td><td>検索・置換の判定(画面なし)</td></tr>' +
+          '<tr><td><code>SessionGuard</code></td><td>ロック等の通知を Suspend/Resume に振り分ける。終了時の待機(<code>WaitWhilePumping</code>)</td></tr>' +
+          '<tr><td><code>HotkeyDefaults</code> / <code>HotkeyFormatter</code></td><td>既定ホットキー(F1・変換キー)と「Ctrl+Shift+F2」形式の表示文字列</td></tr></table>'
+      },
+      {
+        title: '4. データ層(JSONの形)',
+        camera: { pos: [0, 10, 22], target: [0, 3.5, 0] },
+        focus: ['L-data', 'Ln-data'].concat(ids('data')),
+        html:
+          '<table><tr><th>クラス (ファイル)</th><th>保存される項目</th></tr>' +
+          '<tr><td><code>EventRecorderProfile</code> (Profile.cs)</td><td><code>LoopCount</code>・<code>Events</code>・<code>Playlist</code>・<code>IsRecordMode</code>・<code>MinimizeOnPlay</code></td></tr>' +
+          '<tr><td><code>MacroEventData</code> (Profile.cs)</td><td>1行分: <code>Type X Y Key Wait Remarks Delta</code>。Deltaは空なら書き出さない(<code>ShouldSerializeDelta</code>)</td></tr>' +
+          '<tr><td><code>PlaylistEntryData</code> (Profile.cs)</td><td><code>Enabled</code>・<code>FileName</code>・<code>LoopCount</code></td></tr>' +
+          '<tr><td><code>AppSettings</code> (AppSettings.cs)</td><td><code>Width Height SplitterDistance RecordHotkey PlayHotkey</code>(EventRecorder.json)</td></tr></table>' +
+          '<div class="gg-note"><b>プロパティ名がそのままJSONのキー</b>。名前の変更は過去に保存したファイルを壊すので、<code>ProfileCompatibilityTests</code> で互換性を守っています。WinForms版とも同じファイルを共有できます。</div>'
+      },
+      {
+        title: '5. 共通部品 _Common(ソース共有)',
+        camera: { pos: [2, 8, 27], target: [2, 0, 0] },
+        focus: ['L-com', 'Ln-com'].concat(ids('com')),
+        html:
+          '<p><code>EventRecorder.csproj</code> が <code>..\\..\\_Common\\*.cs</code> を <b>ファイルとして取り込み</b>(<code>Compile Include</code>)ます。DLLではないので、複数のツールで同じソースを共有しつつ、ツールごとに単独でビルドできます。</p>' +
+          '<table><tr><th>部品</th><th>責務</th></tr>' +
+          '<tr><td><code>GlobalHook</code></td><td><code>KeyboardHook</code> / <code>MouseHook</code>。低レベルフックの開始・停止・イベント登録</td></tr>' +
+          '<tr><td><code>InputSimulator</code></td><td><code>SendInput</code> のラッパ。マウス/キー入力の組み立てと送信、絶対座標への変換</td></tr>' +
+          '<tr><td><code>JsonFileStorage</code></td><td>JSONの <code>Save&lt;T&gt;</code> / <code>Load&lt;T&gt;</code>(壊れていれば default)</td></tr>' +
+          '<tr><td><code>AtomicFile</code></td><td>一時ファイル経由の安全な書き込み</td></tr>' +
+          '<tr><td><code>UserDataLocation</code></td><td>DataFolder.txt と %LOCALAPPDATA% によるデータ置き場の決定</td></tr>' +
+          '<tr><td><code>DataFolderMenu</code>/<code>Chooser</code>、<code>WpfDataFolderMenu</code></td><td>システムメニュー「データ保存先を変更」と、プロファイルの引っ越し</td></tr>' +
+          '<tr><td><code>GridRowCollection</code>/<code>GridUndoRedo</code>/<code>WpfGridHelper</code></td><td>行番号つきコレクション・Undo/Redo・スクロール補助(<code>_Common/Wpf</code>)</td></tr>' +
+          '<tr><td><code>TextBoxEx</code>/<code>ComboBoxEx</code>/<code>Placeholder</code></td><td>入力欄の部品(<code>Wpf/WpfPathDropControls.cs</code>・<code>Wpf/WpfPlaceholder.cs</code>)</td></tr>' +
+          '<tr><td><code>StcWpfExceptionGuard</code></td><td>未処理例外を共通形式で通知</td></tr></table>'
+      },
+      {
+        title: '6. 依存の向き',
+        camera: { pos: [4, 24, 40], target: [4, 4, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-tests']),
+        update: function (g, t) { g.pulse('MainWindow', t, 0.05); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li><code>MainWindow</code> だけが、フック・入力送信・JSON保存などの共通部品と、ルール層・データ層をつなぐ(<b>司令塔</b>)</li>' +
+          '<li>ルール層(<code>EventRules</code> など)は、画面にもOS APIにも直接依存しない → 単体テストで直接呼べる</li>' +
+          '<li>OS依存(<code>SetWindowsHookEx</code>、<code>SendInput</code>)は、<code>GlobalHook</code> と <code>InputSimulator</code> の2つに閉じ込めてある</li>' +
+          '<li>JSON保存は <code>JsonFileStorage</code> → <code>AtomicFile</code> → Newtonsoft.Json の一本道</li></ul>' +
+          '<p>テストは <code>EventRowTests</code> / <code>FindReplaceEngineTests</code> / <code>SessionGuardTests</code> / <code>ProfileCompatibilityTests</code> / <code>MainWindowTests</code> など。<code>MainWindow</code> には<b>フックを張らないテスト用コンストラクタ</b>(データフォルダだけ受け取る)があり、テスト実行中のPCの入力に反応しません。</p>'
+      },
+      {
+        title: '7. スレッドと設計上の工夫',
+        camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+        focus: ['MainWindow', 'GlobalHook', 'InputSim', 'EventRow', 'Mapper', 'SessionGuard', 'GridRows', 'Atomic'],
+        update: function (g, t) { g.pulse('GlobalHook', t, 0.05); g.pulse('InputSim', t + 1, 0.05); },
+        html:
+          '<table><tr><th>スレッド</th><th>やること</th></tr>' +
+          '<tr><td>UIスレッド</td><td>画面・表・タイマー(150msの <code>FlushPendingRows</code>)</td></tr>' +
+          '<tr><td>フックのコールバック</td><td>行を<b>バッファに積むだけ</b>(重い処理・ダイアログは禁止。長くかかるとOSにフックを外される)</td></tr>' +
+          '<tr><td>再生スレッド(<code>Task.Run</code>)</td><td><code>PlayRowsCore</code>。画面更新は <code>InvokeOnUi</code> でUIスレッドへ依頼</td></tr></table>' +
+          '<ul><li><b>プロパティ名ベースの変換</b>: 列の並びではなく名前で読み書き(<code>EventRowMapper</code>)</li>' +
+          '<li><b>実データと表示の分離</b>: <code>EventRow</code> が Detail と X/Y/Key を相互に同期</li>' +
+          '<li><b>安全な保存</b>: 一時ファイルに書いて置き換え(<code>AtomicFile</code>)</li>' +
+          '<li><b>安全な停止</b>: 中断時は押しっぱなしの入力をすべて離す</li>' +
+          '<li><b>Undo/Redo</b>: セル変更を <code>GridUndoRedo</code> が記録(複数セルは1バッチにまとめる)</li></ul>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

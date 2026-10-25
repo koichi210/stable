@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuplicateFinder 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="img-data.js"></script>
+<script src="df-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var X0 = -11, X1 = 0, X2 = 11;        // 3枚のスクショパネルの中心x(左から 起動直後 / 検索結果 / 自動選択のあと)
+  var GOLD = C.gold;
+
+  GameGuide.start({
+    title: 'DuplicateFinder 使い方',
+    subtitle: '実際の画面で、フォルダを選ぶ → 検索 → 残すものを決める → 削除、までを1歩ずつ',
+    camera: { pos: [0, 5, 31], target: [0, 3.9, 0] },
+    floor: false,
+
+    build: function (g) {
+      DF.panel(g, 'p-start', 'start', X0);
+      DF.panel(g, 'p-result', 'result', X1);
+      DF.panel(g, 'p-marked', 'marked', X2);
+      g.label('① 起動直後\n(対象フォルダを入れた状態)', [X0, DF.H + 1.5, 0.3], { size: 0.5, color: '#fff' });
+      g.label('② 検索が終わったところ', [X1, DF.H + 1.5, 0.3], { size: 0.5, color: '#fff' });
+      g.label('③ 自動選択「適用」のあと', [X2, DF.H + 1.5, 0.3], { size: 0.5, color: '#fff' });
+      g.arrow([X0 + 5.2, 3.8, 0.3], [X1 - 5.2, 3.8, 0.3], { color: GOLD, lift: 0.5, label: '検索開始', labelSize: 0.3 });
+      g.arrow([X1 + 5.2, 3.8, 0.3], [X2 - 5.2, 3.8, 0.3], { color: GOLD, lift: 0.5, label: '適用', labelSize: 0.3 });
+
+      // ステップごとに出す注目枠（ピクセルはスクショ上の座標）
+      DF.hl(g, 'h-folders', X0, 82, 38, 956, 134);
+      DF.hl(g, 'h-fbtn', X0, 962, 38, 1032, 137, C.good);
+      DF.hl(g, 'h-opts', X0, 14, 141, 982, 167);
+      DF.hl(g, 'h-scan', X0, 1040, 38, 1136, 96, C.good);
+      DF.hl(g, 'h-status', X1, 8, 692, 1140, 713, C.good);
+      DF.hl(g, 'h-groups', X1, 16, 232, 1134, 420);
+      DF.hl(g, 'h-heads', X1, 16, 207, 1134, 228, C.good);
+      DF.hl(g, 'h-rule', X2, 16, 174, 548, 199);
+      DF.hl(g, 'h-summary', X2, 556, 176, 724, 197, C.enemy);
+      DF.hl(g, 'h-marks', X2, 20, 256, 1134, 420, C.enemy);
+      DF.hl(g, 'h-del', X2, 878, 174, 1136, 199, C.enemy);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: { pos: [0, 5, 31], target: [0, 3.9, 0] },
+        html:
+          '<p>重複ファイル削除ツール <b>DuplicateFinder</b> は、フォルダ以下で<b>中身がバイナリまで完全に同じ</b>ファイルを探して、選んだ方を消すWindowsアプリ(WPF)です。</p>' +
+          '<ol><li>対象フォルダを入れる</li><li>「検索開始」</li><li>各グループで残す1件を決める(自動選択もできる)</li><li>「削除」</li></ol>' +
+          '<p>写っているのは、このガイド用に作った<b>ダミーフォルダ</b>(同じ中身の画像・動画が数個)です。ドラッグで回転、ホイールで拡大できます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: '1. 対象フォルダを入れる',
+        camera: DF.cam(X0, 560, 130, 9.6),
+        show: ['h-folders', 'h-fbtn'],
+        html:
+          '<p>左上の「対象フォルダ」に、探したいフォルダ(<b>サブフォルダも含めて</b>)を登録します。<b>複数入れて</b>、フォルダをまたいだ重複も探せます。</p>' +
+          '<ul><li><b>追加(B)...</b> ボタンでフォルダ選択</li><li>フォルダを<b>ウィンドウへドラッグ＆ドロップ</b>(複数可)</li>' +
+          '<li><b>外す</b> / <code>Delete</code> キーでリストから外す(<b>フォルダ自体は消えません</b>)</li>' +
+          '<li><b>▲▼</b> で順番を変える。<b>上にあるフォルダほど優先</b>で、後の「自動選択」で残す側になります(上=本体、下=バックアップ、という使い方)</li></ul>' +
+          '<div class="gg-note">フォルダが入れ子(例: <code>Videos</code> とその中の <code>Videos\\本体</code>)なら、外側だけを探索して二重に数えません。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>AddFolders</code> / <code>Window_PreviewDrop</code>、<code>DuplicateScanner.StartFolders</code></p>',
+      },
+      {
+        title: '2. 検索の条件を決める',
+        camera: DF.cam(X0, 500, 200, 9.8),
+        show: ['h-opts'],
+        html:
+          '<table><tr><th>項目</th><th>意味</th></tr>' +
+          '<tr><td>別々の対象フォルダにまたがる重複だけ</td><td>同じ対象フォルダの中だけの重複は無視。比べる量が減って速い</td></tr>' +
+          '<tr><td>最小サイズ(MB)</td><td>これより小さいファイルは対象外。小数可(0.5など)。<b>0バイトは常に対象外</b></td></tr>' +
+          '<tr><td>拡張子</td><td><code>mp4;mkv;avi</code> のように <code>;</code> 区切り。空欄ならすべて</td></tr>' +
+          '<tr><td>隠し・システムファイルを除外</td><td>既定でON。<code>desktop.ini</code> や <code>Thumbs.db</code> が大量に重複扱いになるのを防ぐ</td></tr>' +
+          '<tr><td>同時比較数</td><td>1/2/4/8/16/32。<b>HDD・外付け・NASは1が最速</b>、SSDなら4〜8以上。メモリは全体で1GBまでに抑える</td></tr></table>' +
+          '<p class="gg-files">📄 <code>FileEntry.cs</code> の <code>ScanOptions</code>(<code>ParseExtensions</code> など)、<code>MainWindow.xaml.cs</code> の <code>ReadScanOptions</code></p>',
+      },
+      {
+        title: '3. 検索開始(中止もできる)',
+        camera: DF.cam(X0, 900, 200, 10.5),
+        show: ['h-scan', 'h-status'],
+        enter: function (g) { },
+        html:
+          '<p><b>検索開始(S)</b> を押すと、別スレッド(<code>Task.Run</code>)で検索が走るので、画面は固まりません。進み具合は下のステータスバーとプログレスバーに出ます。</p>' +
+          '<p><b>中止</b>を押すと途中で止められ、<b>それまでに「重複」と確定した分だけ</b>が一覧に出ます(確定していない分は出しません)。</p>' +
+          '<p>終わるとステータスバーに結果が出ます。例(ダミー): <code>完了: 9 ファイル中、重複 3 グループ・6 件 / 1件ずつ残すと 13.64 MB 空きます (所要 0.0秒、読み込み 28.16 MB)</code></p>' +
+          '<div class="gg-note">「読み込み」は比較のために<b>実際に読んだ量</b>。同じサイズでも別物のファイル(ダミーの <code>other.mp4</code>)は、先頭と末尾を少し読んだだけで脱落するので、全部は読みません。仕組みは「データの流れ」ページへ。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ScanButton_Click</code> / <code>ShowScanResult</code></p>',
+      },
+      {
+        title: '4. 結果の見かた',
+        camera: DF.cam(X1, 575, 330, 9.6),
+        show: ['h-groups', 'h-heads'],
+        html:
+          '<p>中身が一致したファイルが<b>グループ</b>にまとまって並びます。見出しの例:</p>' +
+          '<p><code>#1　2 件 × 8.58 MB　(1件残すと 8.58 MB 空きます)　[対象 3]</code></p>' +
+          '<ul><li>グループは<b>消したときに空く容量が大きい順</b>。いちばん効くものから見られます</li>' +
+          '<li><b>対象</b>列 = そのファイルが何番目の対象フォルダにあるか(<code>[対象 1・2]</code> はフォルダをまたいだ重複)</li>' +
+          '<li><b>列ヘッダを押すと、グループの中だけ</b>並べ替え(グループ自体の順番は変わりません)</li></ul>' +
+          '<p>ダミーでは、動画 <code>sports_day.mp4</code> と <code>sports_day_final.mp4</code>、写真 <code>beach</code> / <code>sunset</code> が、別フォルダのコピーと一致しています。</p>' +
+          '<p class="gg-files">📄 <code>FileRow.cs</code> の <code>FileRow</code> / <code>RowComparer</code>、<code>MainWindow.xaml.cs</code> の <code>SetRows</code></p>',
+      },
+      {
+        title: '5. 一覧での操作',
+        camera: DF.cam(X1, 575, 380, 10.5),
+        show: ['h-groups'],
+        html:
+          '<p>一覧のファイルは、ダブルクリックで開いて中身を確かめられます。<b>右クリックメニュー</b>:</p>' +
+          '<ul><li>このファイルを残す(同じグループの他を削除対象に)</li><li>このフォルダ以下のファイルを<b>全グループで</b>残す</li>' +
+          '<li>削除チェックを切り替え(<code>Space</code>)</li><li>開く / エクスプローラーで表示 / パスをコピー</li></ul>' +
+          '<p>「削除」列のチェックが入ったファイルだけが削除対象です。<b>このあとボタンを押すまで、何も消えません。</b></p>' +
+          '<p class="gg-files">📄 <code>FileRow.cs</code> の <code>RowMarker.KeepOnly</code> / <code>KeepUnderFolder</code></p>',
+      },
+      {
+        title: '6. 自動選択で「残す1件」を決める',
+        camera: DF.cam(X2, 575, 250, 10),
+        show: ['h-rule', 'h-summary', 'h-marks'],
+        html:
+          '<p>「自動選択」でルールを選び、<b>適用(A)</b> を押すと、各グループで<b>1件だけ残し、残りすべてに削除チェック</b>(赤い行)が付きます。</p>' +
+          '<table><tr><th>ルール(<code>KeepRule</code>)</th></tr>' +
+          '<tr><td>対象フォルダ欄で上のフォルダにあるものを残す(既定)</td></tr>' +
+          '<tr><td>一覧で各グループの一番上にあるものを残す</td></tr>' +
+          '<tr><td>ファイル名が短い／長いものを残す</td></tr>' +
+          '<tr><td>フォルダのパスが短い／長いものを残す</td></tr></table>' +
+          '<p>同じ条件のものが複数あるときは、一覧で上にある方を残します。ダミーでは <code>Photos\\Trip</code>(1番目)が残り、<code>Backup</code>(2番目)側にチェックが付きました。赤字のまとめ「<b>削除チェック: 3 件 / 13.64 MB</b>」で、消す量をすぐ確認できます。</p>' +
+          '<p>やり直すときは「チェックをすべて外す」。</p>' +
+          '<p class="gg-files">📄 <code>FileRow.cs</code> の <code>RowMarker.ApplyKeepRule</code> / <code>PickKeeper</code></p>',
+      },
+      {
+        title: '7. 確認して削除',
+        camera: DF.cam(X2, 700, 250, 10),
+        show: ['h-del'],
+        html:
+          '<p><b>チェックしたファイルを削除(D)</b> を押すと、「<code>3 件 (13.64 MB) をごみ箱へ移動します。よろしいですか？</code>」と確認が出ます(既定は「いいえ」)。</p>' +
+          '<ul><li><b>ごみ箱へ移動</b>がON(既定)なら元に戻せます。<b>OFFにすると完全削除</b>で、元に戻せません</li></ul>' +
+          '<p>消す前の安全装置:</p>' +
+          '<ul><li>グループの<b>全件</b>にチェックが付いていたら、消さずに警告(最低1件は残す)</li>' +
+          '<li>検索したあとに<b>変更・移動されたファイル</b>は消さない</li>' +
+          '<li><b>残す側がちゃんと残っているか</b>を消す直前に確認。ハードリンクなど「消す側と同じ実体」は、残す側に数えない</li></ul>' +
+          '<p>終わるとグループが1件だけになった行は一覧から消え、ステータスバーに結果が出ます。</p>' +
+          '<div class="gg-note">このガイドの撮影では、削除ボタンは押していません(ダミーフォルダでも)。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>DeleteButton_Click</code> / <code>CheckBeforeDelete</code>、<code>FileDeleter.cs</code></p>',
+      },
+      {
+        title: 'おまけ: 前回の設定・対象外のもの',
+        camera: { pos: [0, 5, 31], target: [0, 3.9, 0] },
+        html:
+          '<p>終了時に、フォルダ・各条件・自動選択ルール・「ごみ箱へ移動」の状態を <code>%LOCALAPPDATA%\\DuplicateFinder\\settings.json</code> へ保存し、次回起動で復元します(壊れていたら既定値で起動)。</p>' +
+          '<p>次のものは、そもそも比較の対象にしません:</p>' +
+          '<ul><li>ジャンクション・シンボリックリンクのフォルダ(同じファイルの二重カウントや無限ループを避けるため)</li>' +
+          '<li>クラウド上にしかない未ダウンロードのファイル(読むとダウンロードが始まってしまうため。件数はステータスバーに表示)</li>' +
+          '<li>0バイトのファイル、最小サイズ未満、拡張子の指定外</li></ul>' +
+          '<p class="gg-files">📄 <code>AppSettings.cs</code> / <code>DuplicateScanner.cs</code> の <code>EnumerateFiles</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

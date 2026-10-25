@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileArranger 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body table{table-layout:fixed}.gg-body td,.gg-body th{overflow-wrap:anywhere}.gg-body th:first-child,.gg-body td:first-child{width:36%}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="fa-img.js"></script>
+<script src="fa-lib.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = FA.col;
+  var KEYS = ['common', 'movedir', 'renamedir', 'sortfile', 'movefile', 'partition'];
+  var CAPS = ['Common', 'MoveDir', 'RenameDir', 'SortFileName', 'MoveFile', 'PartitionFile'];
+  // 画面パネルの置き場所(横一列で、両端がこちらを向く)
+  function P(i) { return { x: (i - 2.5) * 10.5, z: -Math.abs(i - 2.5) * 1.2, r: -(i - 2.5) * 0.08 }; }
+  // その画面を見るカメラ
+  function cam(i, back) {
+    var p = P(i);
+    return { pos: [p.x, 11.5, p.z + (back || 18)], target: [p.x, 3.7, p.z + 2.5] };
+  }
+  var PERIOD = 6;
+  // 画面の手前の床で動かすデモ。各ステップに { ids, items } を持たせる
+  function demo(i, ids, items) {
+    return { ids: ids, items: items, panel: 'p-' + KEYS[i] };
+  }
+  var D = {};
+  var STEPS = [];
+
+  GameGuide.start({
+    title: 'FileArranger 使い方',
+    subtitle: '実際の画面を3D空間に並べて、タブごとの操作を1歩ずつ説明します',
+    camera: { pos: [0, 14, 57], target: [0, 3, 0] },
+    build: function (g) {
+      g.scene.fog = null; // 遠くの画面パネルが霞まないように
+      KEYS.forEach(function (k, i) {
+        var p = P(i);
+        FA.shot(g, { id: 'p-' + k, key: k, pos: [p.x, 0.3, p.z], rotY: p.r, width: 8.4, caption: CAPS[i] });
+      });
+
+      var x, z;
+      // ---- 1 Common: 候補づくり ----
+      x = P(0).x; z = P(0).z + 3.2;
+      FA.plate(g, { id: 'c-pl1', text: 'リファレンスフォルダ直下\n+ 新規追加リスト', pos: [x - 4, 0.03, z + 0.6], size: [3.2, 6.2] });
+      FA.plate(g, { id: 'c-pl2', text: '候補リスト', pos: [x + 3.4, 0.03, z + 0.6], size: [3.2, 6.2], color: '#2a3550' });
+      FA.chip(g, { id: 'c-r1', text: '作品A_01', color: C.folder, pos: [x - 4, 0.2, z - 1.2] });
+      FA.chip(g, { id: 'c-r2', text: '作品B_03', color: C.folder, pos: [x - 4, 0.2, z] });
+      FA.chip(g, { id: 'c-r3', text: '作品C_02', color: C.folder, pos: [x - 4, 0.2, z + 1.2] });
+      FA.chip(g, { id: 'c-n', text: '新作X_new', color: C.fresh, pos: [x - 4, 0.2, z + 2.6] });
+      D.common = demo(0, ['c-pl1', 'c-pl2', 'c-r1', 'c-r2', 'c-r3', 'c-n'], [
+        { a: 'c-r1', from: [x - 4, z - 1.2], to: [x + 3.4, z - 1.2], s: 0.3, d: 1 },
+        { a: 'c-r2', from: [x - 4, z], to: [x + 3.4, z], s: 0.6, d: 1 },
+        { a: 'c-r3', from: [x - 4, z + 1.2], to: [x + 3.4, z + 1.2], s: 0.9, d: 1 },
+        { a: 'c-n', from: [x - 4, z + 2.6], to: [x + 3.4, z + 2.6], s: 1.6, d: 1 },
+      ]);
+
+      // ---- 2 MoveDir ----
+      x = P(1).x; z = P(1).z + 3.2;
+      FA.plate(g, { id: 'm-pl1', text: 'フォルダ格納元', pos: [x - 4, 0.03, z + 0.2], size: [3.2, 4.4] });
+      FA.plate(g, { id: 'm-pl2', text: 'フォルダ格納先', pos: [x + 3.4, 0.03, z + 0.2], size: [3.4, 4.4], color: '#2a3550' });
+      FA.chip(g, { id: 'm-a1', text: '旅行\\京都', color: C.folder, pos: [x - 4, 0.2, z - 1.0] });
+      FA.chip(g, { id: 'm-b1', text: '旅行 (丸ごと)', color: C.folder, w: 2.6, pos: [x + 3.4, 0.2, z - 1.0] });
+      FA.chip(g, { id: 'm-a2', text: '写真\\春', color: C.folder, pos: [x - 4, 0.2, z + 1.2] });
+      FA.chip(g, { id: 'm-b2', text: '春 (末尾だけ)', color: C.folder, w: 2.6, pos: [x + 3.4, 0.2, z + 1.2] });
+      D.movedir = demo(1, ['m-pl1', 'm-pl2', 'm-a1', 'm-b1', 'm-a2', 'm-b2'], [
+        { a: 'm-a1', b: 'm-b1', from: [x - 4, z - 1.0], to: [x + 3.4, z - 1.0], s: 0.4, d: 1.2 },
+        { a: 'm-a2', b: 'm-b2', from: [x - 4, z + 1.2], to: [x + 3.4, z + 1.2], s: 1.6, d: 1.2 },
+      ]);
+
+      // ---- 3 RenameDir ----
+      x = P(2).x; z = P(2).z + 3.2;
+      FA.plate(g, { id: 'r-pl1', text: '変更前', pos: [x - 4, 0.03, z + 0.1], size: [2.6, 5.4] });
+      FA.plate(g, { id: 'r-pl2', text: '変更後 (プレビュー → 実行)', pos: [x + 3.2, 0.03, z + 0.1], size: [4.2, 5.4], color: '#2a3550' });
+      var rsrc = ['第1話', '第2話', '第3話', '第10話'], rdst = ['作品A_第01話', '作品A_第02話', '作品A_第03話', '作品A_第10話'];
+      var rids = ['r-pl1', 'r-pl2'], ritems = [];
+      rsrc.forEach(function (s, k) {
+        var zz = z - 1.8 + k * 1.2;
+        FA.chip(g, { id: 'r-a' + k, text: s, color: C.folder, w: 1.8, pos: [x - 4, 0.2, zz] });
+        FA.chip(g, { id: 'r-b' + k, text: rdst[k], color: C.fresh, w: 3.4, pos: [x + 3.2, 0.2, zz] });
+        rids.push('r-a' + k, 'r-b' + k);
+        ritems.push({ a: 'r-a' + k, b: 'r-b' + k, from: [x - 4, zz], to: [x + 3.2, zz], s: 0.3 + k * 0.5, d: 1.0 });
+      });
+      D.renamedir = demo(2, rids, ritems);
+
+      // ---- 4 SortFileName ----
+      x = P(3).x; z = P(3).z + 3.2;
+      FA.plate(g, { id: 's-pl1', text: '元の名前', pos: [x - 4.4, 0.03, z], size: [2.4, 4.2] });
+      FA.plate(g, { id: 's-pl2', text: '① 一時名', pos: [x, 0.03, z], size: [2.4, 4.2], color: '#35323f' });
+      FA.plate(g, { id: 's-pl3', text: '② 連番', pos: [x + 4.4, 0.03, z], size: [2.4, 4.2], color: '#2a3550' });
+      var sids = ['s-pl1', 's-pl2', 's-pl3'], sitems = [], sn = ['IMG_a.jpg', 'IMG_b.jpg', 'IMG_c.jpg'];
+      sn.forEach(function (n, k) {
+        var zz = z - 1.2 + k * 1.2;
+        FA.chip(g, { id: 's-a' + k, text: n, w: 1.9, pos: [x - 4.4, 0.2, zz] });
+        FA.chip(g, { id: 's-t' + k, text: 'xxxx.tmp', w: 1.9, color: C.tmp, pos: [x, 0.2, zz] });
+        FA.chip(g, { id: 's-f' + k, text: '00' + k + '.jpg', w: 1.9, color: C.fresh, pos: [x + 4.4, 0.2, zz] });
+        sids.push('s-a' + k, 's-t' + k, 's-f' + k);
+        sitems.push({ a: 's-a' + k, b: 's-t' + k, from: [x - 4.4, zz], to: [x, zz], s: 0.2 + k * 0.25, d: 0.8 });
+        sitems.push({ a: 's-t' + k, b: 's-f' + k, from: [x, zz], to: [x + 4.4, zz], s: 2.4 + k * 0.25, d: 0.8, hideBefore: true, hold: 1.4 });
+      });
+      D.sortfile = demo(3, sids, sitems);
+
+      // ---- 5 MoveFile ----
+      x = P(4).x; z = P(4).z + 3.2;
+      FA.plate(g, { id: 'f-pl1', text: 'ファイル移動元', pos: [x - 4, 0.03, z], size: [3.2, 4.2] });
+      FA.plate(g, { id: 'f-pl2', text: 'ファイル移動先', pos: [x + 3.4, 0.03, z], size: [3.2, 4.2], color: '#2a3550' });
+      FA.chip(g, { id: 'f-a', text: 'memo1.txt', pos: [x - 4, 0.2, z - 1.0] });
+      FA.chip(g, { id: 'f-b', text: 'memo2.txt', pos: [x - 4, 0.2, z + 0.2] });
+      FA.chip(g, { id: 'f-c', text: 'photo1.jpg', color: C.tmp, pos: [x - 4, 0.2, z + 1.4] });
+      g.box({ id: 'f-bar0', size: [6, 0.12, 0.5], pos: [x, 0.08, z + 3.0], color: '#3a3650', edges: false });
+      g.box({ id: 'f-bar', size: [6, 0.16, 0.5], pos: [x, 0.1, z + 3.0], color: C.fresh, edges: false, label: '進捗バー', labelOffset: [0, 0.55, 0], labelSize: 0.3, labelBg: '#000000a0' });
+      D.movefile = demo(4, ['f-pl1', 'f-pl2', 'f-a', 'f-b', 'f-c', 'f-bar0', 'f-bar'], [
+        { a: 'f-a', from: [x - 4, z - 1.0], to: [x + 3.4, z - 1.0], s: 0.4, d: 1.2 },
+        { a: 'f-b', from: [x - 4, z + 0.2], to: [x + 3.4, z + 0.2], s: 1.8, d: 1.2 },
+      ]);
+      D.movefile.bar = { id: 'f-bar', x: x, z: z + 3.0, w: 6 };
+
+      // ---- 6 PartitionFile ----
+      x = P(5).x; z = P(5).z + 3.2;
+      FA.plate(g, { id: 'x-pl1', text: 'ファイル格納元', pos: [x - 4.2, 0.03, z + 0.4], size: [3.0, 5.4] });
+      FA.plate(g, { id: 'x-pl2', text: 'フォルダ格納先 (リファレンス)', pos: [x + 3.6, 0.03, z + 0.4], size: [4.2, 5.4], color: '#2a3550' });
+      FA.chip(g, { id: 'x-a1', text: '作品A_05.jpg', w: 2.3, pos: [x - 4.2, 0.2, z - 1.2] });
+      FA.chip(g, { id: 'x-a2', text: '作品A_06.jpg', w: 2.3, pos: [x - 4.2, 0.2, z - 0.1] });
+      FA.chip(g, { id: 'x-a3', text: '新作X_01.jpg', w: 2.3, pos: [x - 4.2, 0.2, z + 1.8] });
+      FA.chip(g, { id: 'x-f1', text: '作品A_01 → 作品A_03', color: C.folder, w: 3.6, h: 0.5, pos: [x + 3.6, 0.3, z - 0.6] });
+      FA.chip(g, { id: 'x-f2', text: '新作X01 (新規作成)', color: C.fresh, w: 3.6, h: 0.5, pos: [x + 3.6, 0.3, z + 1.8] });
+      D.partition = demo(5, ['x-pl1', 'x-pl2', 'x-a1', 'x-a2', 'x-a3', 'x-f1', 'x-f2'], [
+        { a: 'x-a1', from: [x - 4.2, z - 1.2], to: [x + 3.2, z - 0.6], s: 0.4, d: 1.2, y2: 0.75 },
+        { a: 'x-a2', from: [x - 4.2, z - 0.1], to: [x + 4.0, z - 0.6], s: 1.0, d: 1.2, y2: 1.0 },
+        { a: 'x-a3', from: [x - 4.2, z + 1.8], to: [x + 3.6, z + 1.8], s: 1.8, d: 1.2, y2: 0.75 },
+      ]);
+
+      // ---- 7 設定の保存 ----
+      x = P(0).x; z = P(0).z + 3.2;
+      FA.plate(g, { id: 'j-pl1', text: '画面の入力値', pos: [x - 4, 0.03, z], size: [3.2, 3.6] });
+      FA.plate(g, { id: 'j-pl2', text: '設定フォルダ\n(JSONファイル)', pos: [x + 3.4, 0.03, z], size: [3.4, 3.6], color: '#2a3550' });
+      FA.chip(g, { id: 'j-s', text: 'FileArranger.json', color: C.store, w: 3.0, pos: [x - 4, 0.2, z - 0.5] });
+      FA.chip(g, { id: 'j-l', text: '読込(コピー)', color: C.cyan, w: 2.4, pos: [x + 3.4, 0.2, z + 0.9] });
+      D.save = demo(0, ['j-pl1', 'j-pl2', 'j-s', 'j-l'], [
+        { a: 'j-s', from: [x - 4, z - 0.5], to: [x + 3.4, z - 0.5], s: 0.3, d: 1.3 },
+        { a: 'j-l', from: [x + 3.4, z + 0.9], to: [x - 4, z + 0.9], s: 3.2, d: 1.3, hideBefore: true },
+      ]);
+      // 各ステップの「見せる物・動かす物」を、デモの定義から組み立てる
+      STEPS.forEach(function (st) {
+        var d = D[st._d];
+        if (!d) return;
+        st.focus = [d.panel].concat(d.ids);
+        st.show = d.ids;
+        st.update = function (gg, t) {
+          FA.hl(gg, d.panel, true);
+          FA.run(gg, d.items, t, PERIOD);
+          if (d.bar) {
+            var k = gg.linear(t % PERIOD, 0.4, 2.6), b = gg.get(d.bar.id);
+            b.scale.x = Math.max(k, 0.001);
+            b.position.x = d.bar.x - d.bar.w / 2 + d.bar.w * k / 2;
+          }
+        };
+      });
+    },
+    steps: STEPS,
+  });
+  var STEPS_SRC = [
+      stepOverview(),
+      mk(0, 'common', 'Common: 候補の元になるフォルダを決める', '<p>起動すると最初に出るタブ。ほかのタブで使う<b>候補</b>を作ります。</p><ul>' +
+        '<li><b>リファレンスフォルダ</b>: 振り分け・リネームの見本になるフォルダが並んでいる親フォルダ。ここを入れると、RenameDir・PartitionFileの「フォルダ格納先」にも同じパスが入ります。</li>' +
+        '<li><b>リストアップ</b>: 直下のフォルダを候補にします。</li>' +
+        '<li><b>新規追加リスト</b>: まだフォルダが無い名前を1行に1つ。リストアップ時に候補へ足されます(既存の名前に含まれるものは除外)。</li>' +
+        '<li><b>新規追加Suffix</b>: 新規追加名の末尾に付ける文字列(例 <code>_new</code>)。</li></ul>' +
+        '<p class="gg-note">この画面ではフォルダは作られません。候補が増えるだけです。</p>'),
+      mk(1, 'movedir', 'MoveDir: フォルダをまとめて移動', '<p>格納元の<b>サブフォルダも含めて</b>、直下にファイルがあるフォルダを一覧にします。</p><ol>' +
+        '<li>フォルダ格納元を入れて「リストアップ」。</li><li>フォルダ格納先を指定(履歴のプルダウン付き)。</li><li>一覧で複数選択して、下のボタンを押す。</li></ol><table>' +
+        '<tr><th>ボタン</th><th>動き</th></tr>' +
+        '<tr><td>トップディレクトリを移動</td><td>格納元直下の最上位フォルダごと(例: <code>旅行</code>)</td></tr>' +
+        '<tr><td>サブディレクトリを移動</td><td>選んだフォルダだけ、末尾の名前で格納先の直下へ(例: <code>春</code>)</td></tr>' +
+        '<tr><td>削除</td><td>確認ダイアログのあと、ごみ箱に入れず中身ごと削除</td></tr></table>' +
+        '<p>格納先に同名があると、名前の末尾に <code>_Cnt番号_日時</code> が付いて上書きを避けます。ダブルクリックでそのフォルダを開きます。</p>'),
+      mk(2, 'renamedir', 'RenameDir: 番号つきの名前にそろえる', '<p>フォルダ名の<b>末尾の数字</b>を取り出し、<code>結合文字 + 番号前に追加 + 番号(2桁) + 番号後に追加</code> の形に直します。</p><ol>' +
+        '<li>フォルダ格納元を入れて「リストアップ」(左列が変更前)。</li><li>結合文字は候補のプルダウンから選べます(例 <code>作品A_</code>)。</li>' +
+        '<li>リネームしたい行を選ぶと、右列に<b>変更後がプレビュー</b>されます。</li><li>「リネーム実行」(Ctrl+Enter)。間違えたら「復元」で1回分を戻せます。</li></ol>' +
+        '<p>全角数字は半角に直し、番号が1桁なら <code>01</code> のようにゼロ埋めします。</p>'),
+      mk(3, 'sortfile', 'SortFileName: 連番にリネーム', '<p>選んだフォルダの<b>中のファイル</b>を、名前順に <code>000.拡張子</code>、<code>001…</code> と並べ直します。</p><ol>' +
+        '<li>ファイル格納元を入れて「リストアップ」(その直下のフォルダが並ぶ)。</li><li>対象のフォルダを選んで「ソート」。</li><li>「復元」で直前のソートをまとめて元に戻せます。</li></ol>' +
+        '<p>いったん衝突しない<b>一時名</b>にしてから最終名にするので、<code>000.txt</code> のような名前が元からあっても失敗しません。</p>'),
+      mk(4, 'movefile', 'MoveFile: ファイルをまとめて移動', '<p>移動元フォルダ直下のファイルを選んで、移動先へ運びます。</p><ol>' +
+        '<li>ファイル移動元を入れて「リストアップ」。</li><li>ファイル移動先を指定。</li><li>ファイルを選んで「ファイル移動」。</li></ol>' +
+        '<p>別スレッド(BackgroundWorker)で動くので、件数が多くても画面は固まらず、下部の<b>進捗バー</b>が進みます。同名があれば拡張子の<b>前</b>に <code>_Cnt番号_日時</code> が付きます。</p>'),
+      mk(5, 'partition', 'PartitionFile: ファイルをフォルダへ振り分け', '<p>ファイル名の<b>区切り文字(例 <code>_</code>)より前</b>をキーにして、振り分け先のフォルダを探します。</p><ol>' +
+        '<li>ファイル格納元と区切り文字を入れて「リストアップ」。</li><li>ファイルを選ぶと、<b>移動前名称</b>(今あるフォルダ)と<b>移動後名称</b>(番号を足した名前)が出ます。</li>' +
+        '<li>「フォルダを新規作成」ON なら、候補に無いファイルは新しいフォルダ名を作ります。</li><li>「ファイル移動」(Ctrl+Enter)で、フォルダの作成/リネームとファイル移動を実行。</li></ol>' +
+        '<p>例: <code>作品A_05.jpg</code>・<code>作品A_06.jpg</code> の2件は、<code>作品A_01</code> を <code>作品A_03</code> に改名して入ります。</p>' +
+        '<p class="gg-note">移動後名称は、下のコンボボックスに入力して手で直すこともできます。</p>'),
+      mk(0, 'save', '設定の保存と読込', '<p>画面右下の「<b>設定値保存</b>」(Ctrl+S)で、入力値をJSONファイルに保存します。左のプルダウンで保存済みの設定を選ぶと、すぐ読み込まれます。</p><ul>' +
+        '<li>起動時は <code>FileArranger.json</code> を自動で読みます。</li><li>保存先は既定で <code>%LOCALAPPDATA%\\FileArranger\\</code>。タイトルバーを右クリックして「データ保存先を変更」で変えられます。</li>' +
+        '<li>読込むとタブの一覧はいったん空になります(リストアップし直し)。</li></ul>' +
+        '<p>画面の仕組みは「<a href="dataflow.html">データの流れ</a>」と「<a href="architecture.html">内部設計</a>」で詳しく。</p>'),
+  ];
+  STEPS_SRC.forEach(function (x) { STEPS.push(x); });
+
+
+  function stepOverview() {
+    return {
+      title: 'FileArranger とは',
+      html: '<p>フォルダ・ファイルの<b>移動・名前変更・並べ替え・振り分け</b>をまとめて行う、Windows のデスクトップツール(C# / WPF)です。</p>' +
+        '<p>画面上部の<b>6つのタブ</b>が機能ごとに分かれています。奥の画面パネルは実際のウィンドウを撮ったものです。</p><ul>' +
+        '<li><b>Common</b> 候補づくり</li><li><b>MoveDir</b> フォルダ移動</li><li><b>RenameDir</b> フォルダ名の番号そろえ</li><li><b>SortFileName</b> 連番リネーム</li><li><b>MoveFile</b> ファイル移動</li><li><b>PartitionFile</b> フォルダへ振り分け</li></ul>' +
+        '<p class="gg-note">「次へ」で各タブに寄ります。ドラッグで回転、ホイールで拡大縮小もできます。</p>' +
+        '<p class="gg-files">画面のフォルダ名・ファイル名はすべて撮影用のダミーです。</p>',
+      camera: { pos: [0, 14, 57], target: [0, 3, 0] },
+      update: function (g, t) { for (var i = 0; i < KEYS.length; i++) FA.hl(g, 'p-' + KEYS[i], Math.floor(t / 1.2) % 6 === i); },
+    };
+  }
+
+  function mk(i, dname, title, html) {
+    return { title: title, html: html, camera: cam(i), _d: dname };
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventRecorder ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>EventRecorder ドキュメント</h1>
+  <p class="lead">マウス・キーボード操作を「記録」して「再生」する Windows 用ツール(C# / WPF / .NET Framework 4.8)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(ファイル名・メモ・座標)は<b>すべてダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎬 使い方</div>
+      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
+      <div class="d">実際の画面を3D空間に並べて、記録 → 編集 → 保存 → 再生 → プレイリストの順に、カメラが寄りながら手順を説明します。ホットキーや最小化などの便利機能も。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
+      <div class="d">入力フック → イベント → 行データ → JSONファイル → 再生 → 入力の再送信、までを光の粒の流れで追います。保存先の決まり方や、停止・ロック時の安全装置も。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
+      <div class="d">UI層・ルール層・データ層・共通部品(_Common)・OS の5層に、実際のクラス名・ファイル名を並べて、責務と依存の向きを説明します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/EventRecorder</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

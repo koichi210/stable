@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launcher 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = LC.col;
+  // レイヤ(上から下へ依存する)。y は各レイヤの板の高さ
+  var Y = { view: 9, model: 6, service: 3, common: 0, ext: -3 };
+  // クラスの座標 [x, レイヤ]
+  var K = {
+    app: [-8.3, 'view'], main: [-2.8, 'view'], itemdlg: [2.8, 'view'], textdlg: [8.3, 'view'],
+    cfg: [-5.5, 'model'], sec: [0, 'model'], item: [5.5, 'model'],
+    cs: [-4.5, 'service'], ls: [4.5, 'service'],
+    udl: [-6.2, 'common'], dfc: [0, 'common'], ph: [6.2, 'common'],
+    json: [-8.3, 'ext'], ptr: [-2.8, 'ext'], win: [2.8, 'ext'], api: [8.3, 'ext'],
+  };
+  function p(k, dz) { return [K[k][0], Y[K[k][1]] + 0.55, dz || 0]; }
+  function ids(list, arrows) { return list.concat((arrows || []).map(function (a) { return 'a-' + a; })); }
+  var LAYER = {
+    view: ['view-plate', ['app', 'main', 'itemdlg', 'textdlg']],
+    model: ['model-plate', ['cfg', 'sec', 'item']],
+    service: ['service-plate', ['cs', 'ls']],
+    common: ['common-plate', ['udl', 'dfc', 'ph']],
+    ext: ['ext-plate', ['json', 'ptr', 'win', 'api']],
+  };
+  function layerIds(name) { return [LAYER[name][0]].concat(LAYER[name][1]); }
+
+  GameGuide.start({
+    title: 'Launcher 内部設計',
+    back: 'index.html',
+    subtitle: '画面 → モデル → サービス → 共有部品 → 外部、の4層+外部。実際のクラス名・ファイル名で',
+    camera: { pos: [16, 11, 24], target: [0, 3, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- レイヤの板 ----
+      var plates = [
+        ['view', '画面層 (View / XAML)', C.view],
+        ['model', 'モデル層 (Models/)', C.model],
+        ['service', 'サービス層 (Services/)', C.service],
+        ['common', '共有部品 (_Common/ をリンク参照)', C.common],
+        ['ext', '外部 (ファイル・OS・NuGet)', '#8a8399'],
+      ];
+      plates.forEach(function (pl) {
+        g.box({ id: pl[0] + '-plate', size: [22, 0.2, 5.4], pos: [0, Y[pl[0]], 0], color: pl[2], opacity: 0.28, edges: true, edgeColor: pl[2], radius: 0.3 });
+        g.label(pl[1], [-6.2, 0.35, 3.1], { size: 0.34, bg: '#000000aa', color: '#ffffff', parent: pl[0] + '-plate' });
+      });
+
+      // ---- クラスの箱 ----
+      function cls(id, label, color, w) {
+        var k = K[id];
+        g.box({ id: id, size: [w || 4.6, 0.9, 2.0], pos: [k[0], Y[k[1]] + 0.55, 0], color: color, radius: 0.15, label: label, labelSize: 0.38, labelBg: '#000000aa', labelOffset: [0, 1.2, 0.4] });
+      }
+      cls('app', 'App\nApp.xaml(.cs)', C.view);
+      cls('main', 'MainWindow\nMainWindow.xaml(.cs)', C.view);
+      cls('itemdlg', 'ItemEditDialog\nDialogs/', C.view);
+      cls('textdlg', 'TextInputDialog\nDialogs/', C.view);
+      cls('cfg', 'LauncherConfig\nSections', C.model);
+      cls('sec', 'SectionModel\nName / IsExpanded / Items', C.model);
+      cls('item', 'ItemModel\nTitle / Path', C.model);
+      cls('cs', 'ConfigService\nLoad / Save / ChangeDataFolder', C.service, 5.4);
+      cls('ls', 'LaunchService\nLaunch(path) static', C.service);
+      cls('udl', 'UserDataLocation\n_Common/UserDataLocation.cs', C.common, 5);
+      cls('dfc', 'DataFolderChooser\n_Common/DataFolderChooser.cs', C.common, 5);
+      cls('ph', 'Placeholder\n_Common/Wpf/WpfPlaceholder.cs', C.common, 5);
+      cls('json', 'config.json', C.file);
+      cls('ptr', 'DataFolder.txt', C.file);
+      cls('win', 'Windows シェル\nProcess.Start', C.os);
+      cls('api', 'WindowsAPICodePack-Shell\n(NuGet 1.1.1)', '#8a8399', 5);
+
+      // ---- 依存の矢印(id は 'a-' + 名前)。「使う側 → 使われる側」 ----
+      function A(name, from, to, color, lift, label) {
+        g.arrow(from, to, { id: 'a-' + name, color: color || '#ffd166', lift: lift == null ? 0.7 : lift, radius: 0.05, label: label, labelSize: 0.25, labelBg: '#000000bb' });
+      }
+      A('app-main', p('app'), p('main'), C.view, 1.2, 'StartupUri');
+      A('main-itemdlg', p('main', 0.5), p('itemdlg', 0.5), C.view, 1.4, 'ShowDialog');
+      A('main-textdlg', p('main', -0.5), p('textdlg', -0.5), C.view, 2.4, 'ShowDialog');
+      A('main-cs', p('main', 0.4), p('cs', 0.4), C.service, 0.4, null);
+      A('main-ls', p('main', 0.3), p('ls', 0.3), C.service, 0.4, 'Launch()');
+      A('main-cfg', p('main', -0.6), p('cfg', -0.6), C.model, 0.3, 'Sections');
+      A('cfg-sec', p('cfg', 1.0), p('sec', 1.0), C.model, 1.0, 'ObservableCollection');
+      A('sec-item', p('sec', 1.0), p('item', 1.0), C.model, 1.0, 'ObservableCollection');
+      A('cs-cfg', p('cs', -0.8), p('cfg', -0.8), C.model, 0.3, 'Load / Save');
+      A('cs-udl', p('cs', 0.3), p('udl', 0.3), C.common, 0.4, null);
+      A('cs-dfc', p('cs', -0.3), p('dfc', -0.3), C.common, 0.4, 'ChooseFolder');
+      A('cs-json', p('cs', 1.0), p('json', 1.0), C.file, 2.2, 'ReadAll / WriteAll');
+      A('ls-win', p('ls', 0.5), p('win', 0.5), C.os, 1.0, 'UseShellExecute');
+      A('udl-ptr', p('udl', 0.5), p('ptr', 0.5), C.file, 1.2, 'Get / SetUserDataFolder');
+      A('dfc-api', p('dfc', 0.5), p('api', 0.5), '#b8b2d6', 1.8, 'CommonOpenFileDialog');
+      A('itemdlg-ph', p('itemdlg', -0.6), p('ph', -0.6), C.common, 0.6, 'stw:Placeholder.Text');
+      A('textdlg-ph', p('textdlg', 0.4), p('ph', 0.4), C.common, 0.6, null);
+    },
+
+    steps: [
+      {
+        title: '1. 5つの段(レイヤ)',
+        camera: { pos: [16, 11, 24], target: [0, 3, 0] },
+        html:
+          '<p>Launcherは、<b>1つのプロジェクト</b>(<code>Launcher.csproj</code>、<code>net10.0-windows</code> / WPF)で、役割ごとにフォルダ・クラスを分けています。</p>' +
+          '<table><tr><th>段</th><th>置き場</th><th>役割</th></tr>' +
+          '<tr><td>画面</td><td>ルート / <code>Dialogs/</code></td><td>見た目と操作の受け付け</td></tr>' +
+          '<tr><td>モデル</td><td><code>Models/</code></td><td>設定データそのもの</td></tr>' +
+          '<tr><td>サービス</td><td><code>Services/</code></td><td>設定の読み書き・起動</td></tr>' +
+          '<tr><td>共有部品</td><td><code>_Common/</code></td><td>他のツールと共通の部品</td></tr>' +
+          '<tr><td>外部</td><td>-</td><td>ファイル・Windows・NuGet</td></tr></table>' +
+          '<p class="gg-files">ドラッグで回転して、層を横から眺めることもできます。</p>',
+      },
+      {
+        title: '2. 画面層: MainWindow と3つの仲間',
+        camera: { pos: [2, 14, 19], target: [0, 8, 0] },
+        focus: ids(layerIds('view'), ['app-main', 'main-itemdlg', 'main-textdlg']),
+        show: ['a-app-main', 'a-main-itemdlg', 'a-main-textdlg'],
+        html:
+          '<ul><li><b><code>App</code></b>: <code>StartupUri="MainWindow.xaml"</code>で<code>MainWindow</code>を開くだけ</li>' +
+          '<li><b><code>MainWindow</code></b>: 画面の本体。ボタンのイベントハンドラ(コードビハインド)を全部持つ<br>' +
+          '<code>LaunchItemButton_Click</code> / <code>Add・Rename・DeleteSectionButton_Click</code> / <code>Add・Edit・DeleteItemButton_Click</code> / <code>OpenConfigButton_Click</code> / <code>ReloadButton_Click</code> / <code>ChangeDataFolderButton_Click</code></li>' +
+          '<li><b><code>ItemEditDialog</code></b>: タイトル+リンク先の入力(「参照...」でファイル選択、空欄チェック付き)</li>' +
+          '<li><b><code>TextInputDialog</code></b>: 1行入力(セクション名の追加・変更)</li></ul>' +
+          '<div class="gg-note">ViewModelは作らず、<b>コードビハインド + データバインディング</b>の小さな構成です。<code>MainWindow</code>が<code>LoadConfig()</code> / <code>SaveConfig()</code>で全体をつなぎます。</div>',
+        update: function (g, t) { g.pulse(g.get('main'), t, 0.04); },
+      },
+      {
+        title: '3. モデル層: 入れ子の3クラス',
+        camera: { pos: [3, 11, 18], target: [0, 5.5, 0] },
+        focus: ids(layerIds('model'), ['cfg-sec', 'sec-item']),
+        show: ['a-cfg-sec', 'a-sec-item'],
+        html:
+          '<p>設定JSONと1対1に対応する、3つのクラスです。</p>' +
+          '<table><tr><th>クラス</th><th>持つもの</th></tr>' +
+          '<tr><td><code>LauncherConfig</code></td><td><code>Sections</code>(<code>ObservableCollection&lt;SectionModel&gt;</code>)。JSONのルート</td></tr>' +
+          '<tr><td><code>SectionModel</code></td><td><code>Name</code> / <code>IsExpanded</code> / <code>Items</code></td></tr>' +
+          '<tr><td><code>ItemModel</code></td><td><code>Title</code> / <code>Path</code></td></tr></table>' +
+          '<p><code>SectionModel</code>と<code>ItemModel</code>は<code>INotifyPropertyChanged</code>を実装し、値が変わると画面へ通知します。一覧は<code>ObservableCollection</code>なので、追加・削除も画面に自動反映されます。</p>' +
+          '<div class="gg-note">モデルは画面のことを何も知りません(上の層を参照しない)。</div>',
+        update: function (g, t) { g.pulse(g.get('sec'), t, 0.04); },
+      },
+      {
+        title: '4. サービス層: 読み書きと起動',
+        camera: { pos: [4, 8, 18], target: [0, 2.5, 0] },
+        focus: ids(layerIds('service').concat(['main', 'cfg', 'win', 'json']), ['main-cs', 'main-ls', 'cs-cfg', 'ls-win', 'cs-json']),
+        show: ['a-main-cs', 'a-main-ls', 'a-cs-cfg', 'a-ls-win', 'a-cs-json'],
+        html:
+          '<p><b><code>ConfigService</code></b>(設定の読み書き)</p>' +
+          '<ul><li><code>DataFolder</code> / <code>ConfigFilePath</code>: 保存先(コンストラクタで <code>UserDataLocation</code> から取得)</li>' +
+          '<li><code>Load()</code>: JSON → <code>LauncherConfig</code>。無ければサンプル作成、<code>null</code>は補正</li>' +
+          '<li><code>Save()</code>: <code>LauncherConfig</code> → インデント付きJSON(日本語は<code>UnsafeRelaxedJsonEscaping</code>でそのまま)</li>' +
+          '<li><code>ChangeDataFolder()</code>: 保存先の切り替え(ファイル移動 + 案内板更新)</li></ul>' +
+          '<p><b><code>LaunchService</code></b>(起動): <code>static Launch(string path)</code> 1つだけ。<code>UseShellExecute = true</code> で<code>Process.Start</code>。</p>' +
+          '<div class="gg-note">「ファイルを読み書きする」「プロセスを起動する」は、画面ではなくここ1か所にまとまっています。</div>',
+        update: function (g, t) { g.pulse(g.get('cs'), t, 0.04); },
+      },
+      {
+        title: '5. 共有部品: _Common をリンクして使う',
+        camera: { pos: [4, 5.5, 18], target: [0, 0.5, 0] },
+        focus: ids(layerIds('common').concat(['cs', 'itemdlg', 'textdlg', 'ptr', 'api']), ['cs-udl', 'cs-dfc', 'udl-ptr', 'dfc-api', 'itemdlg-ph', 'textdlg-ph']),
+        show: ['a-cs-udl', 'a-cs-dfc', 'a-udl-ptr', 'a-dfc-api', 'a-itemdlg-ph', 'a-textdlg-ph'],
+        html:
+          '<p><code>Launcher.csproj</code>が、<code>Essentials\\_Common</code>のファイルを<b>コピーせずリンク参照</b>(<code>Compile Include ... Link</code>)しています。</p>' +
+          '<table><tr><th>ファイル</th><th>役割</th></tr>' +
+          '<tr><td><code>UserDataLocation.cs</code></td><td>保存先フォルダの決定(<code>DataFolder.txt</code>方式、既定は<code>%LOCALAPPDATA%</code>)</td></tr>' +
+          '<tr><td><code>DataFolderChooser.cs</code></td><td>フォルダ選択ダイアログ(<code>WindowsAPICodePack-Shell</code>)</td></tr>' +
+          '<tr><td><code>Wpf/WpfPlaceholder.cs</code></td><td>入力欄の薄い入力例(添付プロパティ <code>Placeholder.Text</code>)</td></tr></table>' +
+          '<div class="gg-note">保存先の仕組みは、Cheetos / FFEdit / FileArranger など他のツールと同じ部品です。直すと全ツールに効きます。</div>',
+        update: function (g, t) { g.pulse(g.get('udl'), t, 0.04); },
+      },
+      {
+        title: '6. 外部とのつながり',
+        camera: { pos: [5, 3, 19], target: [0, -2, 0] },
+        focus: ids(layerIds('ext').concat(['cs', 'ls', 'udl', 'dfc']), ['cs-json', 'ls-win', 'udl-ptr', 'dfc-api']),
+        show: ['a-cs-json', 'a-ls-win', 'a-udl-ptr', 'a-dfc-api'],
+        html:
+          '<table><tr><th>外部</th><th>誰が使う</th></tr>' +
+          '<tr><td><code>config.json</code></td><td><code>ConfigService</code>が読み書き(<code>File.ReadAllText</code> / <code>WriteAllText</code>)</td></tr>' +
+          '<tr><td><code>DataFolder.txt</code></td><td><code>UserDataLocation</code>。exeの隣の案内板(1行目=実データフォルダ)</td></tr>' +
+          '<tr><td>Windows(シェル)</td><td><code>LaunchService</code>が <code>Process.Start</code> で依頼</td></tr>' +
+          '<tr><td><code>WindowsAPICodePack-Shell</code></td><td><code>DataFolderChooser</code>。古い.NET Framework向けNuGetで、警告<code>NU1701</code>は抑止</td></tr></table>' +
+          '<p class="gg-files">データが実際に流れる順序は「データの流れ」のページへ。</p>',
+        update: function (g, t) { g.pulse(g.get('json'), t, 0.05); },
+      },
+      {
+        title: '7. 依存の向きと設計のねらい',
+        camera: { pos: [16, 11, 24], target: [0, 3, 0] },
+        show: ['a-app-main', 'a-main-itemdlg', 'a-main-textdlg', 'a-main-cs', 'a-main-ls', 'a-main-cfg', 'a-cfg-sec', 'a-sec-item', 'a-cs-cfg', 'a-cs-udl', 'a-cs-dfc', 'a-cs-json', 'a-ls-win', 'a-udl-ptr', 'a-dfc-api', 'a-itemdlg-ph', 'a-textdlg-ph'],
+        html:
+          '<p>矢印は<b>上の層から下の層へ</b>だけ向いています(下の層は上を知りません)。</p>' +
+          '<ol><li><b>画面は薄く</b>: 読み書き・起動はサービスに任せ、<code>MainWindow</code>は「受け付けてモデルを変え、<code>SaveConfig()</code>」に徹する</li>' +
+          '<li><b>起動は1か所</b>: exe・URL・フォルダの区別なく <code>LaunchService.Launch</code> へ(OSの関連付けに丸投げ)</li>' +
+          '<li><b>変更は即保存</b>: 各ハンドラの最後で保存。保存ボタン不要</li>' +
+          '<li><b>壊れた設定から守る</b>: 読めない間は保存しない(<code>_isConfigBroken</code>)</li>' +
+          '<li><b>保存先は別部品</b>: 保存先の決め方は <code>_Common</code> に分け、他ツールと共有</li></ol>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

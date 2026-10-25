@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launcher データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = LC.col;
+  var H = 0.7;   // 矢印の高さ(箱の上面あたり)
+
+  // ノードの座標 [x, z]
+  var N = {
+    file2: [-17, 3], ptr: [-17, -5], loc: [-10, -5], file: [-10, 3], chooser: [-10, 9],
+    svc: [-2, -0.5], model: [6, -0.5], dlg: [6, 6.5],
+    ui: [14, -0.5], launch: [14, 6.5], os: [21, 6.5], user: [21, -0.5],
+  };
+  function at(k, dz, dy) { return [N[k][0], dy == null ? H : dy, N[k][1] + (dz || 0)]; }
+
+  var ALL_NODES = ['ptr', 'loc', 'file', 'svc', 'model', 'ui', 'dlg', 'launch', 'os', 'user'];
+  function ids(nodes, arrows) {
+    return nodes.concat((arrows || []).map(function (a) { return 'a-' + a; }));
+  }
+
+  GameGuide.start({
+    title: 'Launcher データの流れ',
+    back: 'index.html',
+    subtitle: '設定JSON → 画面 → クリック → プロセス起動、編集 → 保存 を、粒の動きで追います',
+    camera: { pos: [3, 31, 25], target: [3, 0, 1.5] },
+
+    build: function (g) {
+      // ---- 箱 ----
+      LC.node(g, 'ptr', [N.ptr[0], 0, N.ptr[1]], [4.4, 1.2, 2.2], C.file, 'DataFolder.txt\n(exe と同じフォルダ)', { labelSize: 0.36 });
+      LC.node(g, 'loc', [N.loc[0], 0, N.loc[1]], [4.6, 1.2, 2.2], C.common, 'UserDataLocation\n.GetUserDataFolder()', { labelSize: 0.36 });
+      LC.node(g, 'file', [N.file[0], 0, N.file[1]], [4.6, 1.2, 2.2], C.file, 'config.json\n(既定: %LOCALAPPDATA%\\Launcher)', { labelSize: 0.36 });
+      LC.node(g, 'svc', [N.svc[0], 0, N.svc[1]], [4.6, 1.2, 2.4], C.service, 'ConfigService\nLoad() / Save()', { labelSize: 0.36 });
+      LC.node(g, 'model', [N.model[0], 0, N.model[1]], [4.8, 1.2, 2.4], C.model, 'LauncherConfig\nSections → Items', { labelSize: 0.36 });
+      LC.node(g, 'ui', [N.ui[0], 0, N.ui[1]], [4.8, 1.2, 2.4], C.view, 'MainWindow\nItemsControl + ボタン', { labelSize: 0.36 });
+      LC.node(g, 'dlg', [N.dlg[0], 0, N.dlg[1]], [4.8, 1.2, 2.2], C.view, 'ItemEditDialog /\nTextInputDialog', { labelSize: 0.36 });
+      LC.node(g, 'launch', [N.launch[0], 0, N.launch[1]], [4.6, 1.2, 2.2], C.service, 'LaunchService\n.Launch(path)', { labelSize: 0.36 });
+      LC.node(g, 'os', [N.os[0], 0, N.os[1]], [4.4, 1.2, 2.2], C.os, 'Windows\nProcess.Start', { labelSize: 0.36 });
+      LC.node(g, 'chooser', [N.chooser[0], 0, N.chooser[1]], [4.8, 1.2, 2.2], C.common, 'DataFolderChooser\n(フォルダ選択)', { labelSize: 0.36 });
+      // 保存先を変えたあとの新しい置き場(ステップ8だけ)
+      g.box({ id: 'file2', size: [4.4, 1.2, 2.2], pos: [-17, 0.6, 3], color: C.file, radius: 0.18, label: '新しい保存先の\nconfig.json', labelSize: 0.3, labelBg: '#00000088' });
+
+      // ユーザー(人の形)
+      g.group('user', { pos: [N.user[0], 0, N.user[1]] });
+      g.cylinder({ parent: 'user', radius: 0.55, height: 1.2, pos: [0, 0.6, 0], color: '#4fa3ff' });
+      g.sphere({ parent: 'user', radius: 0.4, pos: [0, 1.6, 0], color: '#4fa3ff' });
+      g.label('ユーザー', [0, 2.7, 0], { parent: 'user', size: 0.32, bg: '#00000088' });
+
+      // ---- 矢印(id は 'a-' + 名前) ----
+      function A(name, from, to, color, lift, label) { g.arrow(from, to, { id: 'a-' + name, color: color, lift: lift == null ? 1 : lift, radius: 0.05, label: label, labelSize: 0.26, labelBg: '#000000aa' }); }
+      A('ptr-loc', at('ptr', 0), at('loc', 0), C.file, 0.6, '保存先の案内');
+      A('loc-svc', at('loc', -0.6), at('svc', -0.6), C.common, 1.4, 'フォルダのパス');
+      A('file-svc', at('file', 0), at('svc', 0.6), C.data, 1.0, 'JSON文字列');
+      A('svc-file', at('svc', 0.9), at('file', 0.9), '#ff9ecb', 2.4, 'WriteAllText');
+      A('svc-model', at('svc', 0), at('model', 0), C.model, 0.8, 'Deserialize');
+      A('model-ui', at('model', -0.4), at('ui', -0.4), C.view, 0.9, 'ItemsSource / Binding');
+      A('user-ui', at('user', 0), at('ui', 0), '#ffd166', 0.8, 'クリック');
+      A('ui-launch', at('ui', 0.2), at('launch', -0.2), '#ffd166', 0.8, 'item.Path');
+      A('launch-os', at('launch', 0), at('os', 0), C.os, 0.7, 'ShellExecute');
+      A('ui-dlg', at('ui', 0.5), at('dlg', -0.2), C.view, 1.6, '＋項目 / 編集');
+      A('dlg-model', at('dlg', -0.5), at('model', 0.5), C.model, 0.6, 'Title / Path');
+      A('model-svc', at('model', 0.9), at('svc', 0.9), '#ff9ecb', 1.8, 'SaveConfig()');
+      A('ui-chooser', at('ui', -0.9), at('chooser', 0), C.common, 5.5, '保存先フォルダを変更...');
+      A('chooser-svc', at('chooser', -0.3), at('svc', 0.4), C.common, 1.2, '選んだフォルダ');
+      A('svc-file2', at('file', -0.2), at('file2', 0), C.file, 1.2, 'config.json を移動');
+      A('svc-ptr', at('loc', 0.9), at('ptr', 0.9), C.file, 1.2, 'SetUserDataFolder');
+      g.sphere({ id: 'x-broken', radius: 0.5, pos: [-6, 1.6, 1.3], color: '#ff3b4a', emissive: '#ff3b4a', label: '✕ 保存しない\n(_isConfigBroken)', labelSize: 0.3 });
+
+      // ---- 粒 ----
+      [['pk1', '#7ef0ff'], ['pk2', '#ffd166'], ['pk3', '#ff9ecb'], ['pk4', '#7ef0ff']].forEach(function (p) {
+        g.sphere({ id: p[0], radius: 0.22, pos: [0, -50, 0], color: p[1], emissive: p[1] });
+      });
+    },
+
+    steps: [
+      {
+        title: '1. 全体像',
+        camera: { pos: [3, 31, 25], target: [3, 0, 1.5] },
+        show: ['a-ptr-loc', 'a-loc-svc', 'a-file-svc', 'a-svc-file', 'a-svc-model', 'a-model-ui', 'a-user-ui', 'a-ui-launch', 'a-launch-os', 'a-ui-dlg', 'a-dlg-model', 'a-model-svc'],
+        html:
+          '<p>Launcherのデータの動きは、大きく<b>4本</b>です。</p>' +
+          '<table><tr><th>色</th><th>流れ</th></tr>' +
+          '<tr><td>水色</td><td>設定の読み込み(ファイル → モデル → 画面)</td></tr>' +
+          '<tr><td>黄色</td><td>クリックして外部アプリを起動</td></tr>' +
+          '<tr><td>青</td><td>項目・セクションの追加/編集(ダイアログ → モデル)</td></tr>' +
+          '<tr><td>ピンク</td><td>変更の保存(モデル → ファイル)</td></tr></table>' +
+          '<p>箱の色: 青=画面 / 緑=データ(モデル) / オレンジ=サービス / 紫=<code>_Common</code>共有部品 / 黄=ファイル / 赤=OS。</p>' +
+          '<p class="gg-files">各ステップで光る箱だけが、そのステップの登場人物です。</p>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['file-svc', 'svc-model', 'model-ui'], t, 1.2, 5);
+          LC.chain(g, 'pk2', ['user-ui', 'ui-launch', 'launch-os'], t + 2.4, 1.2, 5);
+        },
+      },
+      {
+        title: '2. 保存先を決める(起動の最初)',
+        camera: { pos: [-9, 12, 14], target: [-9, 0, -0.5] },
+        focus: ids(['ptr', 'loc', 'file', 'svc'], ['ptr-loc', 'loc-svc']),
+        show: ['a-ptr-loc', 'a-loc-svc'],
+        html:
+          '<p>アプリは起動すると、まず<b>設定を置くフォルダ</b>を決めます(<code>ConfigService</code>のコンストラクタ → <code>UserDataLocation.GetUserDataFolder("Launcher")</code>)。</p>' +
+          '<ol><li>exeと同じフォルダの<code>DataFolder.txt</code>(案内板)を読み、1行目のパスが実在すればそれを使う</li>' +
+          '<li>無い・壊れている場合は既定の<code>%LOCALAPPDATA%\\Launcher\\</code>を使い、案内板を作り直す</li></ol>' +
+          '<div class="gg-note">案内板があるおかげで、ビルド出力(bin/Release)を消しても設定は消えません。実データはexeの外にあります。</div>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['ptr-loc', 'loc-svc'], t, 1.4, 5);
+        },
+      },
+      {
+        title: '3. 設定を読み込む',
+        camera: { pos: [-1, 12, 13], target: [-1, 0, 0.5] },
+        focus: ids(['file', 'svc', 'model'], ['file-svc', 'svc-model']),
+        show: ['a-file-svc', 'a-svc-model'],
+        html:
+          '<p><code>MainWindow</code>のコンストラクタが<code>LoadConfig()</code>を呼び、<code>ConfigService.Load()</code>が次の順で読みます。</p>' +
+          '<ol><li><code>config.json</code>が無い → サンプル設定(メモ帳・電卓・Google)を作って保存</li>' +
+          '<li>ファイルが空 → サンプル設定</li>' +
+          '<li><code>JsonSerializer.Deserialize&lt;LauncherConfig&gt;</code>でJSONからモデルへ</li>' +
+          '<li>手編集で<code>null</code>が書かれていても落ちないよう、空の一覧や要素の除去で補正</li></ol>' +
+          '<p>モデルは <code>LauncherConfig</code> → <code>SectionModel</code>(複数) → <code>ItemModel</code>(複数) の入れ子です。</p>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['file-svc', 'svc-model'], t, 1.5, 5);
+        },
+      },
+      {
+        title: '4. 画面に表示する',
+        camera: { pos: [10, 12, 12], target: [10, 0, -0.5] },
+        focus: ids(['model', 'ui'], ['model-ui']),
+        show: ['a-model-ui'],
+        html:
+          '<p><code>SectionsItemsControl.ItemsSource = Sections</code>で、モデルの一覧を画面に結び付けます(データバインディング)。</p>' +
+          '<ul><li>セクション1つにつき <b>Expander</b>(開閉は <code>IsExpanded</code> と双方向バインド)</li>' +
+          '<li>項目1つにつき <b>ボタン</b>(表示は <code>Title</code>、ツールチップは <code>Path</code>、<code>Tag</code>に項目そのもの)</li></ul>' +
+          '<div class="gg-note">モデルは <code>INotifyPropertyChanged</code> / <code>ObservableCollection</code> なので、中身が変わると画面が自動で更新されます。</div>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['model-ui'], t, 1.6, 3);
+          g.pulse(g.get('ui'), t, 0.05);
+        },
+      },
+      {
+        title: '5. ボタンをクリックして起動',
+        camera: { pos: [17, 12, 13], target: [17, 0, 3] },
+        focus: ids(['user', 'ui', 'launch', 'os'], ['user-ui', 'ui-launch', 'launch-os']),
+        show: ['a-user-ui', 'a-ui-launch', 'a-launch-os'],
+        html:
+          '<ol><li>ユーザーがボタンをクリック → <code>LaunchItemButton_Click</code></li>' +
+          '<li>ボタンの<code>Tag</code>から<code>ItemModel</code>を取り出す</li>' +
+          '<li><code>LaunchService.Launch(item.Path)</code></li>' +
+          '<li><code>ProcessStartInfo { FileName = path, UseShellExecute = true }</code>で<code>Process.Start</code></li></ol>' +
+          '<p><code>UseShellExecute = true</code> なので、exe・URL・フォルダ・書類のどれでも<b>Windowsに「開いて」と頼む</b>だけで動きます(種類ごとの分岐はありません)。</p>' +
+          '<div class="gg-note">失敗(ファイルが無い等)は<code>try/catch</code>で受け、「起動エラー」のメッセージを出します。</div>',
+        update: function (g, t) {
+          LC.chain(g, 'pk2', ['user-ui', 'ui-launch', 'launch-os'], t, 1.2, 5);
+        },
+      },
+      {
+        title: '6. 追加・編集して自動保存',
+        camera: { pos: [4, 20, 17], target: [4, 0, 2.5] },
+        focus: ids(['ui', 'dlg', 'model', 'svc', 'file'], ['ui-dlg', 'dlg-model', 'model-svc', 'svc-file', 'model-ui']),
+        show: ['a-ui-dlg', 'a-dlg-model', 'a-model-svc', 'a-svc-file', 'a-model-ui'],
+        html:
+          '<ol><li>「＋項目」「編集」「＋ セクション追加」「名前変更」→ ダイアログ(<code>ItemEditDialog</code> / <code>TextInputDialog</code>)</li>' +
+          '<li>OKで入力値(<code>ItemTitle</code> / <code>ItemPath</code> / <code>InputText</code>)を受け取り、モデルへ追加・更新</li>' +
+          '<li>モデルの変更が画面へ即反映</li>' +
+          '<li><code>SaveConfig()</code> → <code>ConfigService.Save()</code> → インデント付きJSONを<code>config.json</code>へ書く</li></ol>' +
+          '<p>削除も同じ流れです(確認メッセージで「はい」のときだけ、モデルから消して保存)。</p>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['ui-dlg', 'dlg-model', 'model-ui'], t, 1.2, 6);
+          LC.chain(g, 'pk3', ['model-svc', 'svc-file'], t + 3.6, 1.4, 6);
+        },
+      },
+      {
+        title: '7. 読み込みに失敗したとき',
+        camera: { pos: [-3, 11, 13], target: [-3, 0, 0.5] },
+        focus: ids(['file', 'svc', 'model', 'x-broken'], ['file-svc', 'svc-file']),
+        show: ['a-file-svc', 'a-svc-file', 'x-broken'],
+        html:
+          '<p>手で編集した<code>config.json</code>にJSONの書き間違いがあると、<code>Load()</code>が例外(<code>JsonException</code> 等)を投げます。</p>' +
+          '<ul><li>エラーメッセージを表示し、<b>アプリは落ちません</b>(起動時は空の一覧で開く)</li>' +
+          '<li><code>_isConfigBroken = true</code> にして、この間は<b>保存しない</b>(編集中のファイルを画面の内容で上書きしないため)</li>' +
+          '<li>ファイルを直して「再読み込み」すると、読めた時点で通常に戻る</li></ul>' +
+          '<div class="gg-note">手編集した内容が守られるよう、「書き込み側の矢印」を止める作りです。</div>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['file-svc'], t, 1.4, 4);
+          g.pulse(g.get('x-broken'), t, 0.25);
+        },
+      },
+      {
+        title: '8. 保存先フォルダを変える',
+        camera: { pos: [-2, 26, 22], target: [-2, 0, 1.5] },
+        focus: ids(['ui', 'chooser', 'svc', 'file', 'file2', 'loc', 'ptr'], ['ui-chooser', 'chooser-svc', 'svc-file2', 'svc-ptr']),
+        show: ['a-ui-chooser', 'a-chooser-svc', 'a-svc-file2', 'a-svc-ptr', 'file2'],
+        html:
+          '<p>「保存先フォルダを変更...」を押したときの流れです(<code>ConfigService.ChangeDataFolder</code>)。</p>' +
+          '<ol><li><code>DataFolderChooser</code>でフォルダを選ぶ(キャンセルなら何もしない)</li>' +
+          '<li>選んだ先に<code>config.json</code>が<b>既にあれば</b>それを使う。<b>無ければ</b>今のファイルを移動</li>' +
+          '<li><code>UserDataLocation.SetUserDataFolder</code>で<code>DataFolder.txt</code>を書き換え → 次回以降もそのフォルダ</li>' +
+          '<li>新しい場所から<code>LoadConfig()</code>で読み直して画面に反映</li></ol>' +
+          '<p>共有フォルダなどに置けば、複数のPCで同じボタン一覧を使えます。</p>',
+        update: function (g, t) {
+          LC.chain(g, 'pk1', ['ui-chooser', 'chooser-svc', 'svc-file2'], t, 1.4, 6);
+          LC.chain(g, 'pk3', ['svc-ptr'], t + 0.6, 1.4, 6);
+        },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

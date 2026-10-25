@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launcher ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>Launcher ドキュメント</h1>
+  <p class="lead">exe・URL・フォルダなどをボタンとして登録しておき、ワンクリックで起動できるランチャー(.NET 10 / WPF)の仕組みと使い方を、Three.jsの立体図で1歩ずつ解説します。<br>
+  図の中の画面は、図解用に作った<b>ダミー設定</b>(メモ帳・電卓・サンプルサイト)で撮影したものです。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全8ステップ</div>
+      <div class="d">起動画面 → ボタンで起動 → セクション開閉 → 項目・セクションの追加 → 編集・削除 → ツールバー → 自動保存。実際の画面を3D空間に並べて、ステップごとにカメラが寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🔀 データの流れ</div>
+      <div class="tech">Three.js / 粒と矢印のアニメーション / 全8ステップ</div>
+      <div class="d">保存先の決定 → 設定JSONの読み込み → 画面表示 → クリックして起動 → 編集して自動保存 → 読み込み失敗時の保護 → 保存先の変更、を光る粒で追えます。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / レイヤの立体図 / 全7ステップ</div>
+      <div class="d">画面・モデル・サービス・共有部品(_Common)・外部の5段構成。MainWindow / ConfigService / LaunchService などの実クラス名と、依存の向きを3Dで。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/Launcher</code>(共有部品は <code>Essentials/_Common</code>)にあります。
+    3D図解の共通フレームワーク(<code>../lib/guide.js</code> / <code>../lib/guide.css</code>)は
+    Essentialsの図解ページで共有しています。
+  </p>
+</div>
+</body>
+</html>

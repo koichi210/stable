@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileArranger 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body table{table-layout:fixed}.gg-body td,.gg-body th{overflow-wrap:anywhere}.gg-body th:first-child,.gg-body td:first-child{width:36%}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="fa-img.js"></script>
+<script src="fa-lib.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = FA.col;
+  // 階段状に積んだ5つの層。下ほど手前・低い(= 土台)
+  var LY = [{ y: 0, z: 10 }, { y: 3, z: 4.8 }, { y: 6, z: 0.2 }, { y: 9, z: -4.2 }, { y: 12, z: -8.6 }];
+  var LNAME = ['外部ライブラリ・.NET', '共通部品 _Common (ソースをリンクして共有)', 'アプリ固有のロジック', '画面 MainWindow (partial class を7ファイルに分割)', '入口'];
+  var LCOL = ['#2a2f3c', '#233a5e', '#4a2f5e', '#3a2f66', '#2f4a45'];
+  var BOX = {};   // id -> 中心の座標 [x,y,z]
+  var ALL = {};   // 層ごとの id 一覧
+  var STEPS = [];
+
+  // 層に箱を並べる。rows: 行ごとの [id, 色, 'クラス名\nファイル名'] の配列
+  function layer(g, li, rows, colorOf) {
+    var L = LY[li], ids = ['slab' + li, 'ln' + li];
+    FA.plate(g, { id: 'slab' + li, text: '', pos: [0, L.y + 0.03, L.z], size: [31, rows.length > 1 ? 7.4 : 4.2], color: LCOL[li], size2: 0.3 });
+    g.label('L' + li + '  ' + LNAME[li], [-8.5, L.y + 0.5, L.z + (rows.length > 1 ? 4.2 : 2.6)], { id: 'ln' + li, size: 0.42, bg: '#000000b4', color: '#ffffff' });
+    rows.forEach(function (row, r) {
+      var zz = L.z + (rows.length > 1 ? (r === 0 ? -1.9 : 1.9) : 0);
+      row.forEach(function (b, k) {
+        var x = (k - (row.length - 1) / 2) * 4.7;
+        FA.chip(g, { id: b[0], text: b[2], color: b[1], w: 3.9, h: 0.8, d: 1.8, pos: [x, L.y + 0.45, zz], size: 0.32, lift: 0.95 });
+        BOX[b[0]] = [x, L.y + 0.45, zz];
+        ids.push(b[0]);
+      });
+    });
+    ALL[li] = ids;
+  }
+  function P(id, dy) { var p = BOX[id]; return [p[0], p[1] + (dy || 0), p[2]]; }
+
+  var DEPS = {};  // 依存矢印のグループ: name -> [[from, to, color], ...]
+  function drawDeps(g, name, list, col) {
+    var ids = [];
+    list.forEach(function (d, i) {
+      var id = 'dep-' + name + i, a = P(d[0], 0.45), b = P(d[1], 0.45);
+      g.arrow(a, b, { id: id, color: d[2] || col, lift: 1.4, radius: 0.05, head: 0.3 });
+      g.flow(a, b, { id: id + 'f', color: '#ffffff', lift: 1.4, count: 3, size: 0.07, speed: 0.3 });
+      ids.push(id, id + 'f');
+    });
+    DEPS[name] = ids;
+  }
+
+  var tokLabel, TRACE = [];
+
+  GameGuide.start({
+    title: 'FileArranger 内部設計',
+    subtitle: 'クラス/レイヤ構成・主要クラスの責務・依存関係を、階段状の3D図で',
+    camera: { pos: [0, 19, 38], target: [0, 6, -2] },
+    build: function (g) {
+      g.scene.fog = null;
+      var U = C.ui, A = C.logic, M = C.store, X = C.tmp;
+      layer(g, 4, [[['e-app', C.fresh, 'App\nApp.xaml / App.xaml.cs'], ['e-asm', C.fresh, 'AssemblyInfo.cs\nInternalsVisibleTo(Tests)']]]);
+      layer(g, 3, [[['u-xaml', U, 'MainWindow.xaml\n画面の定義'], ['u-main', U, 'MainWindow.xaml.cs\n共通・設定の保存/読込'], ['u-md', U, 'MainWindow.\nMoveDirectory.cs'], ['u-rd', U, 'MainWindow.\nRenameDirectory.cs'],
+        ['u-sf', U, 'MainWindow.\nSortFile.cs'], ['u-mf', U, 'MainWindow.\nMoveFile.cs'], ['u-pf', U, 'MainWindow.\nPartitionFile.cs']]]);
+      layer(g, 2, [[['a-logic', A, 'Logic\n(static・純粋な規則)'], ['a-utils', A, 'Utils : StcUtils\n重複回避・名前検索'], ['a-sorter', A, 'FileSorter\n連番リネーム'], ['a-pmx', A, 'ProcessMemoryExtensions\nRestoreLastBatch'],
+        ['a-row', A, 'ListViewRow\n一覧の1行'], ['a-wp', A, 'WorkerParams\n(MoveFile/Partition)'], ['a-wch', A, 'WpfControlHelper\n選択行・列の操作']]]);
+      layer(g, 1, [
+        [['c-stc', M, 'StandardTemplateClass.cs\nStcUtils / StcFileInputOutput'], ['c-pm', M, 'ProcessMemory.cs\nStcProcessMemory'], ['c-wsr', M, 'Wpf/WpfSaveRestore.cs\nWpfSaveRestore'], ['c-wprof', M, 'Wpf/WpfProfile.cs\n設定ファイル一覧・保存ダイアログ'], ['c-wcu', M, 'Wpf/WpfControlUtils.cs\nコンボ/リスト操作'], ['c-pdc', M, 'Wpf/WpfPathDropControls.cs\nTextBoxEx / ComboBoxEx']],
+        [['c-ph', M, 'Wpf/WpfPlaceholder.cs\n入力欄の薄い例文'], ['c-json', M, 'JsonFileStorage.cs\nSave / Load'], ['c-atomic', M, 'AtomicFile.cs\n一時ファイル経由の書込'], ['c-udl', M, 'UserDataLocation.cs\nデータ保存先'], ['c-dfm', M, 'DataFolderMenu.cs ほか\n保存先の変更メニュー'], ['c-guard', M, 'StcWpfExceptionGuard.cs\n未処理例外の受け皿']],
+      ]);
+      layer(g, 0, [[['x-net', X, '.NET Framework / WPF\nSystem.IO・BackgroundWorker'], ['x-json', X, 'Newtonsoft.Json 13\n(NuGet)'], ['x-api', X, 'WindowsAPICodePack-Shell\n(NuGet)'], ['x-vb', X, 'Microsoft.VisualBasic\nStrings.StrConv'], ['x-test', C.gold, 'FileArranger.Tests\n(単体テスト)']]]);
+
+      // 依存矢印(ステップ用)
+      drawDeps(g, 'ui', [
+        ['u-main', 'a-logic'], ['u-rd', 'a-logic'], ['u-pf', 'a-logic'], ['u-rd', 'a-utils'], ['u-md', 'a-utils'], ['u-mf', 'a-utils'], ['u-pf', 'a-utils'],
+        ['u-sf', 'a-sorter'], ['u-rd', 'a-pmx'], ['u-rd', 'a-row'], ['u-pf', 'a-row'], ['u-mf', 'a-wp'], ['u-pf', 'a-wp'], ['u-rd', 'a-wch'], ['u-pf', 'a-wch'],
+      ], C.gold);
+      drawDeps(g, 'low', [
+        ['a-utils', 'c-stc'], ['a-sorter', 'c-pm'], ['a-pmx', 'c-pm'], ['u-main', 'c-wsr'], ['u-main', 'c-wprof'], ['u-main', 'c-udl'], ['u-main', 'c-dfm'], ['u-md', 'c-stc'], ['u-mf', 'c-stc'],
+        ['c-wsr', 'c-stc'], ['c-wsr', 'c-json'], ['c-json', 'c-atomic'], ['e-app', 'c-guard'], ['a-wch', 'a-row'],
+      ], C.cyan);
+      drawDeps(g, 'ext', [
+        ['c-json', 'x-json'], ['c-dfm', 'x-api'], ['a-logic', 'x-vb'], ['u-mf', 'x-net'], ['c-atomic', 'x-net'], ['x-test', 'a-logic'], ['x-test', 'u-main'],
+      ], C.warn);
+
+      // 1操作のトレース用の玉(ステップ「1回の操作」)
+      g.sphere({ id: 'tok', radius: 0.38, color: C.gold, emissive: '#ffb000', emissiveIntensity: 0.6, pos: P('u-rd', 2.2) });
+      tokLabel = g.label('start', [0, 1.1, 0], { parent: 'tok', size: 0.4, bg: '#000000c8', color: '#ffe38a' });
+      TRACE = [
+        ['u-rd', 'rd_button_RenameDir_Click\n→ ExecuteRenameFolder'],
+        ['a-utils', 'Utils.\nAvoidFolderNameConflict'],
+        ['c-stc', 'StcFileInputOutput.\nMoveDirectory'],
+        ['x-net', 'System.IO\n(Directory.Move)'],
+        ['c-pm', 'StcProcessMemory.\nAddRestoreItem'],
+        ['u-rd', 'ListupRenameTargetDirectory\n→ 一覧を再取得'],
+      ];
+
+      // ステップに見せる範囲を割り当てる
+      var layerIds = [].concat(ALL[0], ALL[1], ALL[2], ALL[3], ALL[4]);
+      STEPS.forEach(function (st) {
+        var f = st._focus ? st._focus() : layerIds;
+        st.focus = f;
+        if (st._show) st.show = st._show();
+      });
+    },
+    steps: STEPS,
+  });
+
+  function step(title, html, cam, focus, show, update) {
+    return { title: title, html: html, camera: cam, _focus: focus, _show: show, update: update };
+  }
+  var CAM_ALL = { pos: [0, 19, 38], target: [0, 6, -2] };
+  function camLayer(li) { var L = LY[li]; return { pos: [0, L.y + 11, L.z + 29], target: [0, L.y + 0.5, L.z] }; }
+  function depShow() { return [].concat(DEPS.ui, DEPS.low, DEPS.ext); }
+  function layerFocus(li) { return function () { return ALL[li]; }; }
+
+  STEPS.push(step('5つの層で出来ている',
+    '<p>FileArranger は、<b>画面 → アプリ固有のロジック → 共通部品 → 外部ライブラリ</b>と、下に向かって依存する層構造です。階段状の図の、<b>上が呼ぶ側・下が呼ばれる側</b>です。</p><ul>' +
+    '<li><b>L4 入口</b>: <code>App</code>(起動時に例外の受け皿を設置)</li>' +
+    '<li><b>L3 画面</b>: <code>MainWindow</code>。タブごとに partial class のファイルを分割</li>' +
+    '<li><b>L2 アプリ固有のロジック</b>: <code>Logic</code> / <code>Utils</code> / <code>FileSorter</code> など</li>' +
+    '<li><b>L1 共通部品 <code>_Common</code></b>: 複数のツールで共有。<b>dll ではなく、csproj の <code>&lt;Link&gt;</code> でソースを取り込む</b></li>' +
+    '<li><b>L0</b>: .NET Framework(WPF)・NuGet・テスト</li></ul>' +
+    '<p class="gg-note">ドラッグで回転・ホイールで拡大縮小できます。「次へ」で層ごとに寄ります。</p>',
+    CAM_ALL, null, null, function (g, t) {
+      for (var i = 0; i < 5; i++) { var id = 'slab' + i; g.get(id); }
+    }));
+  STEPS.push(step('入口と画面(L4 / L3)',
+    '<p><code>App.OnStartup</code> が <code>StcWpfExceptionGuard.Install</code> で未処理例外の受け皿を付けてから、<code>MainWindow</code> が開きます。</p>' +
+    '<p><b>MainWindow</b> は1つの <code>partial class</code> を、タブごとのファイルに分けています。</p><table>' +
+    '<tr><th>ファイル</th><th>担当</th></tr>' +
+    '<tr><td>MainWindow.xaml</td><td>6つのタブの画面定義</td></tr>' +
+    '<tr><td>MainWindow.xaml.cs</td><td>起動・設定の保存/読込・共通処理(<code>ListupInto</code> など)・Common タブ</td></tr>' +
+    '<tr><td>.MoveDirectory.cs</td><td>MoveDir タブ</td></tr><tr><td>.RenameDirectory.cs</td><td>RenameDir タブ</td></tr>' +
+    '<tr><td>.SortFile.cs</td><td>SortFileName タブ</td></tr><tr><td>.MoveFile.cs</td><td>MoveFile タブ</td></tr><tr><td>.PartitionFile.cs</td><td>PartitionFile タブ</td></tr></table>' +
+    '<p>画面側が持つ主な部品: <code>_fio</code>(StcFileInputOutput)、<code>_util</code>(Utils)、<code>_sorter</code>(FileSorter)、<code>_renameDirMemory</code>(履歴)、<code>SaveRestore</code>(設定)、<code>BackgroundWorker</code> ×2(mf/pf)。</p>',
+    { pos: [0, 21, 14], target: [0, 10.2, -6.5] }, function () { return ALL[3].concat(ALL[4]); }, null, function (g, t) { g.pulse(g.get('u-main'), t, 0.05); }));
+  STEPS.push(step('アプリ固有のロジック(L2)',
+    '<p>画面から切り離した、このアプリだけの規則と部品です(<code>InternalsVisibleTo</code> でテストから呼べる)。</p><table>' +
+    '<tr><th>クラス</th><th>責務</th></tr>' +
+    '<tr><td><code>Logic</code></td><td>static。番号のゼロ埋め(<code>ToPaddedNumberString</code>)、末尾番号の付け替え(<code>ReplaceRearNumber</code>)、全角→半角、区切り文字より前の切り出し、<code>GetAddCount</code>、<code>DeleteDuplicate</code></td></tr>' +
+    '<tr><td><code>Utils : StcUtils</code></td><td>重複回避(<code>AvoidFolderNameConflict</code> / <code>AvoidFileNameConflict</code>)、大文字小文字だけ違う改名(<code>RenameDirectory</code>)、一覧の行検索(<code>FindRow</code>)</td></tr>' +
+    '<tr><td><code>FileSorter</code></td><td>フォルダ内を <code>000.ext</code>… に連番リネーム(2段階)。<code>Restore</code> で元に戻す</td></tr>' +
+    '<tr><td><code>ProcessMemoryExtensions</code></td><td>履歴を逆順に戻す <code>RestoreLastBatch</code>(拡張メソッド)</td></tr>' +
+    '<tr><td><code>ListViewRow</code></td><td>一覧の1行(<code>row[0]</code>…)。値を書き換えると画面にも反映(INotifyPropertyChanged)</td></tr>' +
+    '<tr><td><code>WorkerParams.cs</code></td><td><code>MoveFileWorkerParam</code> / <code>PartitionWorkerParam</code>。別スレッドへ渡す値のまとまり</td></tr>' +
+    '<tr><td><code>WpfControlHelper</code></td><td>選択行の取得・列の一括設定・コンボからの検索</td></tr></table>',
+    camLayer(2), layerFocus(2), null, function (g, t) { g.pulse(g.get('a-logic'), t, 0.05); }));
+  STEPS.push(step('共通部品 _Common(L1)',
+    '<p>複数のツールで使い回すクラスです。FileArranger の <code>csproj</code> が、必要なファイルだけを <code>&lt;Compile Include="..\\..\\_Common\\…"&gt;</code> + <code>&lt;Link&gt;</code> で取り込みます。</p><table>' +
+    '<tr><th>ファイル</th><th>主なクラス</th></tr>' +
+    '<tr><td>StandardTemplateClass.cs</td><td><code>StcUtils</code>(パス・プロセス)、<code>StcFileInputOutput</code>(<code>MoveDirectory</code> / <code>EnsureDirectory</code> …)、<code>GenericProfile</code></td></tr>' +
+    '<tr><td>ProcessMemory.cs</td><td><code>StcProcessMemory</code>(元に戻す用スタック)</td></tr>' +
+    '<tr><td>Wpf/WpfSaveRestore.cs</td><td><code>WpfSaveRestore</code>(入力欄の値を登録→保存/復元)</td></tr>' +
+    '<tr><td>Wpf/WpfProfile.cs / WpfControlUtils.cs</td><td>設定ファイル一覧・保存ダイアログ / コンボ・リスト操作</td></tr>' +
+    '<tr><td>Wpf/WpfPathDropControls.cs</td><td><code>TextBoxEx</code> / <code>ComboBoxEx</code>(パスのドロップ)</td></tr>' +
+    '<tr><td>JsonFileStorage.cs / AtomicFile.cs</td><td>JSONの保存/読込 / 一時ファイル経由の安全な書込</td></tr>' +
+    '<tr><td>UserDataLocation.cs ほか</td><td>データ保存先(<code>DataFolder.txt</code>)と、変更メニュー</td></tr></table>',
+    camLayer(1), layerFocus(1), null, function (g, t) { g.pulse(g.get('c-wsr'), t, 0.05); }));
+  STEPS.push(step('依存の向き① 画面 → ロジック',
+    '<p>各タブのファイルが、どの部品を使うかの主な線です(矢印は「使う」向き)。</p><ul>' +
+    '<li>RenameDir・PartitionFile → <code>Logic</code>(名前の組み立て)、<code>ListViewRow</code>(一覧の行)、<code>WpfControlHelper</code></li>' +
+    '<li>MoveDir・MoveFile・RenameDir・PartitionFile → <code>Utils</code>(重複回避)</li>' +
+    '<li>SortFileName → <code>FileSorter</code></li>' +
+    '<li>RenameDir → <code>ProcessMemoryExtensions</code>(復元)</li>' +
+    '<li>MoveFile・PartitionFile → <code>WorkerParams</code>(別スレッドへの受け渡し)</li></ul>' +
+    '<p>ロジック側(<code>Logic</code> など)は画面を知りません。だから画面なしでテストできます。</p>',
+    { pos: [0, 15, 28], target: [0, 7.5, -2] }, function () { return ALL[3].concat(ALL[2], DEPS.ui, ['ln3', 'ln2']); }, function () { return DEPS.ui; }));
+  STEPS.push(step('依存の向き② 共通部品と外部',
+    '<p>下の層への線です。</p><ul>' +
+    '<li><code>Utils</code> は <code>StcUtils</code> を継承、<code>FileSorter</code> / <code>ProcessMemoryExtensions</code> は <code>StcProcessMemory</code> を使う</li>' +
+    '<li>設定の保存: <code>MainWindow</code> → <code>WpfSaveRestore</code> → <code>GenericProfile</code> → <code>JsonFileStorage</code> → <code>AtomicFile</code>、保存先は <code>UserDataLocation</code></li>' +
+    '<li><code>JsonFileStorage</code> → <b>Newtonsoft.Json</b>、保存先変更ダイアログ → <b>WindowsAPICodePack-Shell</b>、<code>Logic.ChangeWide2Narrow</code> → <b>Microsoft.VisualBasic</b></li>' +
+    '<li>MoveFile の別スレッドは <b>BackgroundWorker</b>(.NET)</li>' +
+    '<li><code>App</code> → <code>StcWpfExceptionGuard</code></li></ul>' +
+    '<p>テスト(<code>FileArranger.Tests</code>)は <code>InternalsVisibleTo</code> で内部クラスを直接呼びます。</p>',
+    { pos: [0, 17, 32], target: [0, 5, 0] }, function () { return [].concat(ALL[4], ALL[3], ALL[2], ALL[1], ALL[0], DEPS.low, DEPS.ext, ['ln0', 'ln1', 'ln2', 'ln3', 'ln4']); }, function () { return [].concat(DEPS.low, DEPS.ext); }));
+  STEPS.push(step('1回の操作を追う: 「リネーム実行」',
+    '<p>RenameDir の「リネーム実行」が、層をどう降りて戻ってくるかを玉が辿ります。</p><ol>' +
+    '<li><b>L3</b> <code>ExecuteRenameFolder</code>: 選択行ごとに変更前/変更後のパスを作る</li>' +
+    '<li><b>L2</b> <code>Utils.AvoidFolderNameConflict</code>: 同名があれば接尾辞で回避</li>' +
+    '<li><b>L1</b> <code>StcFileInputOutput.MoveDirectory</code>: フォルダを移動(改名)</li>' +
+    '<li><b>L0</b> <code>System.IO</code>: 実際のファイル操作</li>' +
+    '<li><b>L1</b> <code>StcProcessMemory.AddRestoreItem</code>: 「元に戻す」用に記録</li>' +
+    '<li><b>L3</b> <code>ListupRenameTargetDirectory</code>: 一覧を取り直す</li></ol>' +
+    '<p class="gg-note">1回の実行が終わると <code>IncrementSerialNumber</code> で「1回分」を確定します。</p>',
+    { pos: [0, 19, 38], target: [0, 5.5, 0] }, function () { return ['slab0', 'slab1', 'slab2', 'slab3', 'ln0', 'ln1', 'ln2', 'ln3', 'tok', 'u-rd', 'a-utils', 'c-stc', 'x-net', 'c-pm']; }, function () { return ['tok']; },
+    function (g, t) {
+      var n = TRACE.length, seg = 1.7, T = n * seg, tt = t % T, i = Math.floor(tt / seg), k = g.phase(tt - i * seg, 0.35, 1.0);
+      var a = P(TRACE[i][0], 2.2), b = P(TRACE[(i + 1) % n][0], 2.2);
+      g.arcPos('tok', a, b, k, 1.2);
+      g.pulse(g.get(TRACE[i][0]), t, 0.06);
+      if (g._traceIdx !== i) { g._traceIdx = i; g.setLabel(tokLabel, TRACE[i][1], { size: 0.4, bg: '#000000c8', color: '#ffe38a' }); }
+    }));
+  STEPS[STEPS.length - 1].enter = function (g) { g._traceIdx = -1; };
+})();
+</script>
+</body>
+</html>
