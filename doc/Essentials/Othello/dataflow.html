@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Othello データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="board3d.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, PI = Math.PI;
+  // 色の意味: 入力(青)・ルール(緑)・画面(水色)・COM(紫)・履歴/棋譜(橙)・注意(赤)
+  var COL = { input: C.me, rule: C.good, view: C.data, com: C.third, hist: C.server, warn: C.enemy };
+
+  // ノード座標 [x, z] と表示。y は箱の中心 0.6
+  var N = {
+    click: [-18, -13], hbc: [-12, -13], put: [-6, -13], apply: [0, -13], adv: [6, -13], hist: [12, -13], redraw: [18, -13],
+    tmr: [-18, -21], docom: [-12, -21], tgm: [-6, -21], cand: [0, -21], sortn: [6, -21], det: [12, -21],
+    um: [-18, -5], undo: [-12, -5], replay: [-6, -5], reset: [0, -5],
+    d1: [12, -9], d2: [5, -9], d3: [-2, -9], d4: [-9, -9],
+    k1: [-15, -1], k2: [-9, -1], k3: [-3, -1], k4: [3, -1], k5: [9, -1], k6: [15, -1]
+  };
+  var TXT = {
+    click: ['ユーザーのクリック\nboardHost_MouseDown / MouseUp', COL.input],
+    hbc: ['HandleBoardClick\n(MainWindow.xaml.cs)', COL.input],
+    put: ['GameMaster.TryPut\n(x, y)', COL.rule],
+    apply: ['ApplyMove\nCanPut → 置く・裏返す', COL.rule],
+    adv: ['AdvanceTurn\n手番交代 / パス / 終局', COL.rule],
+    hist: ['History.Add(KifuMove)\nTurnCount++', COL.hist],
+    redraw: ['RedrawBoard\n(MainWindow)', COL.view],
+    tmr: ['_comMoveTimer\nDispatcherTimer 150ms', COL.com],
+    docom: ['DoComMove\n(Tick の本体)', COL.com],
+    tgm: ['ComPlayer.TryGetMove\n(gm, color, level)', COL.com],
+    cand: ['GetCandidates\n= GetValidMoves', COL.com],
+    sortn: ['SortByCenter / ByPhase /\nByOpenness (レベル別)', COL.com],
+    det: ['DetermineLocation\n角 > 無難 > 星 > 次星', COL.com],
+    um: ['menuItem_Undo_Click /\nmenuItem_Redo_Click', COL.hist],
+    undo: ['GameMaster.Undo / Redo\n(CanUndo / CanRedo)', COL.hist],
+    replay: ['ReplayHistory\n(targetCount)', COL.hist],
+    reset: ['ResetBoardOnly\n+ ApplyMove × N', COL.rule],
+    d1: ['GetValidMoves\n置ける場所 bool[8,8]', COL.view],
+    d2: ['BoardRenderer.DrawField\nInitField → DrawStone / DrawNotice', COL.view],
+    d3: ['BoardImage.ToBitmapSource\nLockBits でコピー', COL.view],
+    d4: ['pictureBoxField.Source\n(Image 要素 = 画面)', COL.view],
+    k1: ['GameMaster.History\nList<KifuMove>', COL.hist],
+    k2: ['Kifu.ToText\n「 7 : F.3 黒」の行', COL.hist],
+    k3: ['SaveFileDialog →\nFile.WriteAllText', COL.hist],
+    k4: ['OpenFileDialog →\nFile.ReadAllText', COL.hist],
+    k5: ['Kifu.TryReplay\nInitialize → TryPut × N', COL.hist],
+    k6: ['_isWaitingForStart\n(「開始」を待つ)', COL.warn]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する
+  function travel(g, t, ps, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (ps.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), ps.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, ps[i], ps[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) {
+      g._pktText = texts[i];
+      g.setLabel('pkt-l', texts[i] || ' ', { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+    }
+  }
+  function loc(x, y, yy) { return [(x - 3.5) * OB.CS, yy || 0, (y - 3.5) * OB.CS]; }
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+  // ---- 実際の手(OB.plies)から、デモに使う局面を決める ----
+  // 7手目: 黒が F.3 = (5,2) に打つ。左方向に白3個、左下方向に白1個が挟まれる
+  var DEMO = 7, PLY = OB.plies[DEMO - 1];           // plies は0始まり
+  var BEFORE = OB.states[DEMO - 1], AFTER = OB.states[DEMO];
+  // 8手目: 白の候補手を評価する(COMの思考デモ)
+  var CPLY = OB.plies[DEMO];                         // 8手目(白)が実際に打った手 = A.1(角)
+  function emptyN(b, x, y) {
+    var n = 0;
+    for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      var nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && b[ny][nx] === 0) n++;
+    }
+    return n;
+  }
+  function openness(b, c, x, y) { // ComPlayer.CalcOpenness と同じ
+    var t = emptyN(b, x, y);
+    OB.flips(b, x, y, c).forEach(function (q) { q.cells.forEach(function (p) { t += emptyN(b, p[0], p[1]); }); });
+    return t;
+  }
+  function classify(b, c, x, y) { // ComPlayer.DetermineLocation の分類順(角 → 角を取られる → 星 → 次星 → 無難)と同じ
+    var mx = 7;
+    if ((x === 0 || x === mx) && (y === 0 || y === mx)) return 'corner';
+    var nb = OB.copy(b);
+    OB.flips(b, x, y, c).forEach(function (q) { q.cells.forEach(function (p) { nb[p[1]][p[0]] = c; }); });
+    nb[y][x] = c;
+    var em = OB.moves(nb, 3 - c);
+    for (var i = 0; i < em.length; i++) { var m = em[i]; if ((m[0] === 0 || m[0] === mx) && (m[1] === 0 || m[1] === mx)) return 'steal'; }
+    if ((x === 1 || x === mx - 1) && (y === 1 || y === mx - 1)) return 'star';
+    if (((x === 0 || x === mx) && (y === 1 || y === mx - 1)) || ((x === 1 || x === mx - 1) && (y === 0 || y === mx))) return 'next';
+    return 'safe';
+  }
+  var CLS = {
+    corner: ['角', '#ffd166'], steal: ['角を取られる', '#ff5f6d'], star: ['星', '#ff9f43'], next: ['次星', '#ff9f43'], safe: ['無難', '#5ee6a8']
+  };
+  var CANDS = OB.moves(AFTER, 2).map(function (m) {
+    return { x: m[0], y: m[1], open: openness(AFTER, 2, m[0], m[1]), cls: classify(AFTER, 2, m[0], m[1]) };
+  });
+
+  var BOARDCAM = { pos: [0, 12.5, 16.5], target: [0, 0, 7.2] };
+  var OVER = { pos: [0, 33, 21], target: [0, 0, -8] };
+  // 横幅 w ぶんの範囲が収まるカメラ(cx,cz を中心に斜め上から)
+  function CAMN(cx, cz, w) { return { pos: [cx, w * 0.62, cz + w * 0.62], target: [cx, 0, cz] }; }
+
+  GameGuide.start({
+    title: 'Othello データの流れ',
+    back: 'index.html',
+    subtitle: '着手 → 反転判定 → 手番交代/パス → 終局 / COMの思考 / 履歴(戻る・進む)',
+    camera: OVER,
+
+    build: function (g) {
+      function node(id) {
+        g.box({
+          id: id, size: [5, 1.2, 2.2], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: TXT[id][1], emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: TXT[id][1], label: TXT[id][0], labelSize: 0.34, labelOffset: [0, 1.6, 0.1], labelBg: '#000000aa'
+        });
+      }
+      Object.keys(N).forEach(node);
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点)と常時流れる粒 ----
+      var EDGES = [
+        ['click', 'hbc', COL.input, 'px → マス', 0.9], ['hbc', 'put', COL.input, '(x, y)', 0.9], ['put', 'apply', COL.rule, '', 0.9],
+        ['apply', 'adv', COL.rule, '', 0.9], ['adv', 'hist', COL.hist, '', 0.9], ['hist', 'redraw', COL.view, '', 0.9],
+        ['tmr', 'docom', COL.com, '', 0.9], ['docom', 'tgm', COL.com, '', 0.9], ['tgm', 'cand', COL.com, '', 0.9],
+        ['cand', 'sortn', COL.com, '', 0.9], ['sortn', 'det', COL.com, '', 0.9], ['det', 'put', COL.com, 'TryPut(x, y)', 1.2],
+        ['um', 'undo', COL.hist, '', 0.9], ['undo', 'replay', COL.hist, '', 0.9], ['replay', 'reset', COL.hist, '', 0.9], ['reset', 'redraw', COL.view, 'RedrawBoard', 1.6],
+        ['k1', 'k2', COL.hist, '', 0.9], ['k2', 'k3', COL.hist, '保存', 0.9],
+        ['k4', 'k5', COL.hist, '読込', 0.9], ['k5', 'k6', COL.warn, '', 0.9]
+      ];
+      EDGES.forEach(function (e) {
+        var key = e[0] + '-' + e[1];
+        g.arrow(P(e[0]), P(e[1]), { id: 'a-' + key, color: e[2], lift: e[4], label: e[3] || undefined, labelSize: 0.24 });
+        g.flow(P(e[0]), P(e[1]), { id: 'fl-' + key, color: e[2], count: 5, lift: e[4], speed: 0.3, size: 0.08 });
+      });
+      // 特別な矢印(その手順でだけ見せる)
+      function sp(a, b, color, label, lift) {
+        var key = a + '-' + b;
+        g.arrow(P(a), P(b), { id: 'a-' + key, color: color, lift: lift, label: label, labelSize: 0.24 });
+        g.flow(P(a), P(b), { id: 'fl-' + key, color: color, count: 5, lift: lift, speed: 0.3, size: 0.08 });
+      }
+      sp('redraw', 'tmr', COL.com, 'MaybeTriggerComMove\n(COMの番ならタイマー開始)', 3.4);
+      sp('redraw', 'd1', COL.view, '', 0.9);
+      sp('d1', 'd2', COL.view, '', 0.9);
+      sp('d2', 'd3', COL.view, '', 0.9);
+      sp('d3', 'd4', COL.view, '', 0.9);
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('click'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順1: マス目の計算式 ----
+      g.label('x = floor(px × 8 / 盤の幅)\ny = floor(py × 8 / 盤の高さ)\n(罫線の描画と同じ「掛けてから割る」)', [-9, 3.6, -13], { id: 'f1', size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+
+      // ---- 手順4: 3つの分岐 ----
+      var BR = [
+        ['br-a', 0, '相手が置ける\n→ CurrentTurn = 相手\n(手番交代)', COL.rule],
+        ['br-b', 6.2, '相手は置けないが\n自分は置ける\n→ パス(手番そのまま)', COL.hist],
+        ['br-c', 12.4, 'どちらも置けない\n→ IsGameEnd = true\n(終局)', COL.warn]
+      ];
+      BR.forEach(function (b) {
+        g.box({ id: b[0], size: [5.2, 0.9, 2.0], pos: [b[1], 0.45, -8.6], color: '#2d2944', emissive: b[3], emissiveIntensity: 0.35, radius: 0.1, edgeColor: b[3], label: b[2], labelSize: 0.3, labelOffset: [0, 1.5, 0.2], labelBg: '#000000cc' });
+        g.arrow(P('adv'), [b[1], 1.0, -8.6], { id: b[0] + '-a', color: b[3], lift: 0.7, head: 0.25 });
+      });
+      g.label('CanPutAny(相手) → CanPutAny(自分) の順に調べる', [6, 3.9, -13], { id: 'br-t', size: 0.28, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+
+      // ---- 手順5: 履歴ブロック ----
+      for (var i = 0; i < 9; i++) {
+        var pl = OB.plies[i] || { x: 6, y: 4, c: 1 };
+        var txt = (i < 8 ? (i + 1) + '\n' + OB.lname(pl.x, pl.y) + '\n' + (i % 2 ? '白' : '黒') : '新しい手');
+        g.box({ id: 'hh-' + i, size: [1.3, 0.5, 1.5], pos: [-1 + i * 1.5, 0.25, -8.6], color: '#2d2944', emissive: i % 2 ? '#dddddd' : '#555555', emissiveIntensity: 0.4, radius: 0.08, edgeColor: '#ffd166', label: txt, labelSize: 0.22, labelOffset: [0, 1.0, 0], labelBg: '#000000cc' });
+      }
+      g.sphere({ id: 'hh-p', radius: 0.22, pos: [-1 + 7 * 1.5 + 0.75, 1.9, -8.6], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label('TurnCount', [0, 0.5, 0], { id: 'hh-pl', parent: 'hh-p', size: 0.24, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label(' ', [6, 4.2, -8.6], { id: 'hh-t', size: 0.28, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' });
+
+      // ---- 手順7: COMの補足 ----
+      g.label('レベル1: SortByCenter(盤の中心に近い順)\nレベル2: SortByPhase(序盤=中心 / 中盤=返す数が少ない順 / 終盤=多い順)\nレベル3: SortByOpenness(開放度が小さい順)', [4, 3.6, -21], { id: 'com-l', size: 0.34, bg: '#000000cc', color: '#c77dff', border: '#c77dff' });
+      g.label('TurnCount ≤ 2 の間は\n候補からランダム', [-6, 3.2, -21], { id: 'com-r', size: 0.34, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+
+      // ---- 手順10: 棋譜の補足 ----
+      g.label('書式: 「手数 : 列.行 色」  列=A〜H(x)  行=1〜8(y+1)', [-6, 3.4, -1], { id: 'kf-l', size: 0.36, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('置けない手 / 読めない行 → そこで読込を打ち切る', [12, 3.0, -1], { id: 'kf-r', size: 0.34, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+
+      // ---- 3D の盤(手順2・3・8・9) ----
+      OB.build(g, { origin: [0, 0, 7.2] });
+      OB.ghost(g, 'gh', 1);
+
+      // 手順2: 8方向の走査(置く場所 = (5,2) から)
+      var fl = OB.flips(BEFORE, PLY.x, PLY.y, PLY.c), byDir = {};
+      fl.forEach(function (f) { byDir[f.d] = f; });
+      var O = loc(PLY.x, PLY.y, 0.55);
+      for (var d = 0; d < 8; d++) {
+        var nx = PLY.x + OB.DX[d], ny = PLY.y + OB.DY[d];
+        if (byDir[d]) {
+          var f = byDir[d];
+          g.arrow(O, loc(f.anchor[0], f.anchor[1], 0.55), { id: 'ray-' + d, parent: 'ob', color: '#ffd166', lift: 0.5, head: 0.28, radius: 0.06,
+            label: OB.DNAME[d] + ': 白×' + f.cells.length + ' を黒で挟めた', labelSize: 0.32 });
+        } else {
+          var v = BEFORE[ny][nx];
+          g.arrow(O, loc(nx, ny, 0.3), { id: 'ray-' + d, parent: 'ob', color: '#9a9ab4', lift: 0.2, head: 0.18, radius: 0.035 });
+        }
+      }
+      g.label('灰色の矢印 = 隣が空きマスで挟めない 6 方向\n(右・上・下・左上・右上・右下)', [3.4, 1.9, -3.2], { id: 'ng-l', parent: 'ob', size: 0.3, bg: '#000000cc', color: '#c8c8e0', border: '#9a9ab4' });
+      g.label('canPut = true\nflipCounts[左]=3, flipCounts[左下]=1', [0, 2.8, -5.7], { id: 'cp-l', parent: 'ob', size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('Table[y, x] = CurrentTurn  を方向ごとに\nflipCounts 個ぶん繰り返す', [0, 2.8, -5.7], { id: 'ap-l', parent: 'ob', size: 0.3, bg: '#000000cc', color: '#5ee6a8', border: '#5ee6a8' });
+      g.label(' ', [0, 2.6, 5.9], { id: 'bd-l', parent: 'ob', size: 0.3, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' });
+
+      // 手順8: COM の候補手
+      CANDS.forEach(function (c) {
+        var col = CLS[c.cls][1];
+        g.cylinder({ id: 'cd-' + c.x + '-' + c.y, parent: 'ob', radius: 0.34, height: 0.06, pos: loc(c.x, c.y, 0.06), color: col, emissive: col, emissiveIntensity: 0.12 });
+        g.label('開放度' + c.open + '\n' + CLS[c.cls][0], loc(c.x, c.y, 0.95), { id: 'cl-' + c.x + '-' + c.y, parent: 'ob', size: 0.27, bg: '#000000cc', color: col, border: col });
+      });
+      g.label(' ', [0, 3.0, -5.9], { id: 'cm-l', parent: 'ob', size: 0.28, bg: '#000000cc', color: '#c77dff', border: '#c77dff' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: OVER,
+        update: function (g, t) { travel(g, t, pts(['click', 'hbc', 'put', 'apply', 'adv', 'hist', 'redraw']), 1.1, null); },
+        html:
+          '<p>Othello は、<b>盤面の状態を持つ <code>GameMaster</code></b>(ルール)を中心に、クリックでもCOMでも棋譜でも、すべて同じ入口 <code>TryPut(x, y)</code> を通って盤が変わります。</p>' +
+          '<ul><li><b>奥の列(紫)</b>: COM。タイマー → 候補手 → 並べ替え → 1手に決定 → <code>TryPut</code></li>' +
+          '<li><b>中央の列(青・緑・橙・水色)</b>: 人の着手。クリック → マス → 反転 → 手番 → 履歴 → 画面</li>' +
+          '<li><b>手前の列(橙)</b>: 一手戻す/進める。履歴を頭から再生し直す</li>' +
+          '<li><b>最前の列(橙)</b>: 棋譜の保存と読込</li></ul>' +
+          '<p>金色の玉が、人の1手が旅する様子です。手前の3D盤は、実際のルールと同じ判定で動いています。</p>' +
+          '<div class="gg-note">「次へ」で順番に。3Dはドラッグで回せます。</div>'
+      },
+      {
+        title: '1. クリックを「マス」に直す',
+        camera: CAMN(-12, -13, 27),
+        focus: ['click', 'hbc', 'put', 'a-click-hbc', 'a-hbc-put', 'fl-click-hbc', 'fl-hbc-put', 'pkt', 'f1'],
+        show: ['f1'],
+        update: function (g, t) { travel(g, t, pts(['click', 'hbc', 'put']), 1.6, ['盤面上で押して離した\n(DIP座標)', 'マス (5, 2)', '']); },
+        html:
+          '<p><code>boardHost_MouseDown</code> で押したボタンを覚え、<code>boardHost_MouseUp</code> で<b>同じボタンを離したときだけ</b>クリックとして <code>HandleBoardClick</code> に渡します(WinForms版の <code>MouseClick</code> 相当)。</p>' +
+          '<ol><li>開始待ち・時間切れ・終局・<b>COMの手番</b>なら、ここで無視(<code>false</code>)</li>' +
+          '<li>クリック位置(DIP)を、盤の画像のピクセル座標に直す(<code>BoardRenderer.Width/Height</code> ÷ <code>boardHost.ActualWidth/Height</code>。DPI倍率はこの比に含まれる)</li>' +
+          '<li><code>BoardRenderer.TryGetCell</code> で <code>x = pixelX * 8 / 幅</code>, <code>y = pixelY * 8 / 高さ</code> を求める</li>' +
+          '<li><code>GameMaster.TryPut(x, y)</code> を呼ぶ。置けたら <code>RedrawBoard()</code></li></ol>' +
+          '<p class="gg-files">先に「1マスの幅」を割ると端数が最後のマスに溜まるため、罫線の描画(<code>InitField</code>)と同じく掛け算を先にしています。</p>'
+      },
+      {
+        title: '2. 置けるか調べる(8方向の走査)',
+        camera: BOARDCAM,
+        focus: ['ob', 'put', 'apply'],
+        show: ['gh', 'ray-0', 'ray-1', 'ray-2', 'ray-3', 'ray-4', 'ray-5', 'ray-6', 'ray-7', 'cp-l', 'ng-l'],
+        update: function (g, t) {
+          OB.render(g, BEFORE, BEFORE, 0);
+          var gh = g.get('gh'); gh.visible = true;
+          gh.position.set.apply(gh.position, loc(PLY.x, PLY.y, 0.7 + 0.12 * Math.sin(t * 4)));
+          for (var d = 0; d < 8; d++) g.get('ray-' + d).visible = t > 0.6 + d * 0.8;
+          g.get('cp-l').visible = t > 0.6 + 8 * 0.8;
+          g.get('ng-l').visible = t > 0.6 + 3 * 0.8;
+        },
+        html:
+          '<p>黒が <b>F.3</b>(<code>x=5, y=2</code>)を選んだとします。<code>CanPut</code> は<b>8方向</b>(左・右・上・下・左上・左下・右上・右下)を1方向ずつ調べます。</p>' +
+          '<ol><li>隣から、<b>相手の石が続く間</b>進み、石の数 <code>count</code> を数える</li>' +
+          '<li>止まったマスが<b>自分の石</b>で、<code>count &gt; 0</code> なら「挟めた」。<code>flipCounts[dir] = count</code></li>' +
+          '<li>1方向でも挟めたら <code>canPut = true</code></li></ol>' +
+          '<p>この例では<b>左</b>(白3個 → 黒でフタ)と<b>左下</b>(白1個 → 黒でフタ)の2方向が挟めます。他の6方向は隣が空きマスなので不成立。すでに石があるマス・盤の外は最初に弾かれます。</p>' +
+          '<div class="gg-note">同じ <code>CanPut</code> が「置ける場所のマーク(<code>GetValidMoves</code>)」「パス判定(<code>CanPutAny</code>)」「COMの候補(<code>GetCandidates</code>)」の全部に使われます。</div>'
+      },
+      {
+        title: '3. 石を置いて、挟んだ石を裏返す',
+        camera: BOARDCAM,
+        focus: ['ob', 'apply'],
+        show: ['ap-l', 'bd-l'],
+        update: function (g, t) {
+          var T0 = t % 6.5, k = clamp01((T0 - 0.8) / 3.2);
+          OB.render(g, BEFORE, AFTER, k, {
+            span: 0.5,
+            delay: function (x, y) {
+              if (x === PLY.x && y === PLY.y) return 0;
+              return 0.12 * Math.max(Math.abs(x - PLY.x), Math.abs(y - PLY.y)) + 0.1;
+            }
+          });
+          var b = 0, w = 0;
+          // 現在見えている石の数(置いた石は落下中も数える)
+          for (var y = 0; y < 8; y++) for (var x = 0; x < 8; x++) { var v = (k > 0.45 ? AFTER : BEFORE)[y][x]; if (v === 1) b++; else if (v === 2) w++; }
+          var txt = '黒の番 → 黒:' + b + ' 白:' + w + (k > 0.45 ? '  (置いて4個裏返った)' : '');
+          if (g._bdText !== txt) { g._bdText = txt; g.setLabel('bd-l', txt, { size: 0.3, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' }); }
+        },
+        html:
+          '<p><code>ApplyMove</code> は、もう一度 <code>CanPut</code> で <code>flipCounts</code> を得てから、盤 <code>Table[y, x]</code> を書き換えます。</p>' +
+          '<ol><li>置いたマスに <code>CurrentTurn</code> の色を入れる</li>' +
+          '<li>8方向それぞれについて、置いた位置から <code>flipCounts[dir]</code> 個ぶん進み、<b>通ったマスを全部 <code>CurrentTurn</code> に</b>書き換える</li>' +
+          '<li><code>AdvanceTurn()</code> で次の手番へ</li></ol>' +
+          '<ul><li>3Dでは置いた石に近い順に、順番に裏返しています(実際の画面は盤全体を一度に描き直すので一瞬です)</li>' +
+          '<li>ここまでが「盤を変える」処理で、<code>TryPut</code> はこれに「履歴へ記録」を足したものです</li>' +
+          '<li>同じ <code>ApplyMove</code> を、棋譜の再生・一手戻す・COMの先読み(<code>Clone</code> した盤)でも使い回します</li></ul>'
+      },
+      {
+        title: '4. 手番交代・パス・終局',
+        camera: CAMN(6, -11, 28),
+        focus: ['apply', 'adv', 'hist', 'br-a', 'br-b', 'br-c', 'br-a-a', 'br-b-a', 'br-c-a', 'br-t', 'pkt', 'a-apply-adv', 'fl-apply-adv', 'a-adv-hist', 'fl-adv-hist'],
+        show: ['br-a', 'br-b', 'br-c', 'br-a-a', 'br-b-a', 'br-c-a', 'br-t'],
+        update: function (g, t) {
+          var which = Math.floor(t / 2.4) % 3, tx = [0, 6.2, 12.4][which];
+          var pk = g.get('pkt'); pk.visible = true;
+          var u = clamp01((t % 2.4) / 1.8);
+          g.arcPos(pk, P('adv', 0.2), [tx, 1.4, -8.6], u, 0.9);
+          var tt = ['手番交代', 'パス', '終局'][which];
+          if (g._pktText !== tt) { g._pktText = tt; g.setLabel('pkt-l', tt, { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+        },
+        html:
+          '<p>石を置いたあとの <code>AdvanceTurn</code> は、次の順で調べます。</p>' +
+          '<table><tr><th>順</th><th>調べること</th><th>結果</th></tr>' +
+          '<tr><td>1</td><td><code>CanPutAny(相手の色)</code></td><td>置ける → <code>CurrentTurn = 相手</code>(手番交代)</td></tr>' +
+          '<tr><td>2</td><td><code>CanPutAny(自分の色)</code></td><td>相手は置けず自分は置ける → <b>パス</b>(<code>CurrentTurn</code> はそのまま)</td></tr>' +
+          '<tr><td>3</td><td>(どちらも置けない)</td><td><code>IsGameEnd = true</code>(<b>終局</b>。<code>CurrentTurn</code> は維持)</td></tr></table>' +
+          '<ul><li>パスは<b>専用の処理が無く</b>、「手番が変わらない」だけで表現されています。画面は何も言わず、同じ色の番が続きます</li>' +
+          '<li>終局後は <code>ApplyMove</code> が最初に <code>IsGameEnd</code> を見て、何も置かせません</li>' +
+          '<li>勝敗は <code>CountStones</code> の石数比較(<code>UpdateStatusLabel</code>)。持ち時間切れだけは <code>_isTimedOut</code> で別管理</li></ul>'
+      },
+      {
+        title: '5. 履歴(History)に積む',
+        camera: CAMN(5, -11, 28),
+        focus: ['hist', 'adv', 'hh-0', 'hh-1', 'hh-2', 'hh-3', 'hh-4', 'hh-5', 'hh-6', 'hh-7', 'hh-8', 'hh-p', 'hh-pl', 'hh-t'],
+        show: ['hh-0', 'hh-1', 'hh-2', 'hh-3', 'hh-4', 'hh-5', 'hh-6', 'hh-7', 'hh-8', 'hh-p', 'hh-pl', 'hh-t'],
+        update: function (g, t) {
+          var T0 = t % 11, n, txt;
+          // A: 8手目を追加 / B: 3手戻す(ポインタが 8→5) / C: 別の手を打つ → 先の6〜8手目を捨てて新しい手を追加
+          var pos = [], i;
+          for (i = 0; i < 9; i++) pos.push({ vis: i < 7, y: 0.25, sc: 1 });
+          if (T0 < 3) {
+            var k = clamp01((T0 - 0.6) / 1.0);
+            pos[7] = { vis: k > 0, y: 0.25 + (1 - k) * 2.2, sc: 1 };
+            n = k >= 1 ? 8 : 7; txt = k >= 1 ? 'TryPut → History.Add、TurnCount = 8' : 'TryPut(8手目)を追加中…';
+          } else if (T0 < 6.5) {
+            pos[7] = { vis: true, y: 0.25, sc: 1 };
+            var s = Math.min(3, Math.floor((T0 - 3.2) / 0.8) + 1); if (T0 < 3.2) s = 0;
+            n = 8 - s; txt = s ? 'Undo × ' + s + ' → ReplayHistory(' + n + ')。History は 8 手のまま' : '一手戻す…';
+          } else {
+            // 6〜8手目は暗いまま → 捨てられる
+            for (i = 5; i < 8; i++) pos[i] = { vis: true, y: 0.05, sc: 1 };
+            var r = clamp01((T0 - 6.8) / 0.8);
+            for (i = 5; i < 8; i++) { pos[i] = { vis: r < 1, y: 0.05, sc: 1 - r }; }
+            var k2 = clamp01((T0 - 7.8) / 0.9);
+            pos[8] = { vis: k2 > 0, y: 0.25 + (1 - k2) * 2.2, sc: 1 };
+            n = k2 >= 1 ? 6 : 5;
+            txt = k2 >= 1 ? '新しい手: RemoveRange(5, …) で先を捨て → Add' : 'RemoveRange(TurnCount, Count - TurnCount)';
+            pos[8].x = true;
+          }
+          for (i = 0; i < 9; i++) {
+            var b = g.get('hh-' + i), p = pos[i];
+            var bx = (i === 8) ? (-1 + 5 * 1.5) : (-1 + i * 1.5);
+            b.position.set(bx, p.y, -8.6); b.visible = p.vis; b.scale.set(p.sc, p.sc, p.sc);
+            var dim = (T0 >= 3.2 && T0 < 7.6 && i >= n && i < 8 && T0 < 6.5) ? 0.03 : 0.4;
+            b.material.emissiveIntensity = (i < n || i === 8) ? 0.4 : 0.03;
+          }
+          g.get('hh-p').position.set(-1 + (n - 1) * 1.5 + 0.75, 1.9, -8.6);
+          if (g._hhText !== txt) { g._hhText = txt; g.setLabel('hh-t', txt, { size: 0.28, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' }); }
+        },
+        html:
+          '<p><code>TryPut</code> は、<code>ApplyMove</code> に成功したら手を <code>History</code>(<code>List&lt;KifuMove&gt;</code>)に足し、<code>TurnCount++</code> します。</p>' +
+          '<ul><li><code>KifuMove</code> は <code>X</code>, <code>Y</code>, <code>Color</code> の3つだけ(手数は配列の位置)</li>' +
+          '<li><code>TurnCount</code> は「盤にいま何手目まで反映しているか」。通常は <code>History.Count</code> と同じ</li>' +
+          '<li>「一手戻す」で <code>TurnCount</code> が小さくなっても <code>History</code> は<b>消えません</b>。だから「一手進める」で戻せます</li>' +
+          '<li>戻した状態から別の手を打つと、<code>TurnCount</code> より先の履歴を <code>RemoveRange</code> で捨ててから追加(C++版の <code>turning_point</code> 相当)</li>' +
+          '<li><code>TurnCount</code> は COM の思考(最初の3手はランダム、レベル2の序盤/中盤/終盤の判定)にも使われます</li></ul>' +
+          '<div class="gg-note">3Dは、(A) 追加 → (B) 3手戻す → (C) 別の手を打って先を捨てる、の繰り返しです。</div>'
+      },
+      {
+        title: '6. 画面に出す(再描画)',
+        camera: CAMN(4.5, -11, 36),
+        focus: ['redraw', 'd1', 'd2', 'd3', 'd4', 'a-redraw-d1', 'a-d1-d2', 'a-d2-d3', 'a-d3-d4', 'fl-redraw-d1', 'fl-d1-d2', 'fl-d2-d3', 'fl-d3-d4', 'pkt', 'a-hist-redraw'],
+        show: ['d1', 'd2', 'd3', 'd4', 'a-redraw-d1', 'a-d1-d2', 'a-d2-d3', 'a-d3-d4', 'fl-redraw-d1', 'fl-d1-d2', 'fl-d2-d3', 'fl-d3-d4'],
+        update: function (g, t) { travel(g, t, pts(['redraw', 'd1', 'd2', 'd3', 'd4']), 1.5, ['盤面 + 手番', '置ける場所(今の手番の人にだけ)', 'Bitmap(Canvas)に石を描く', 'BitmapSource(Freeze済み)', '']); },
+        html:
+          '<p>盤が変わるたびに <code>RedrawBoard</code> が全体を描き直します(差分更新はしません)。</p>' +
+          '<ol><li><b>置ける場所のマーク</b>は、開始待ち・時間切れ・終局・<b>COMの手番</b>のいずれでもないときだけ <code>GetValidMoves</code> で作る(<code>validMoves = null</code> なら出さない)</li>' +
+          '<li><code>BoardRenderer.DrawField</code>: <code>InitField</code>(緑の下地と罫線)→ 64マスに <code>DrawStone</code>、置ける場所に <code>DrawNotice</code>(灰色の小円)</li>' +
+          '<li><code>BoardImage.ToBitmapSource</code>: <code>System.Drawing.Bitmap</code> を <code>LockBits</code> で直接コピーして WPF の <code>BitmapSource</code> に(GDIハンドルの解放忘れを避ける)</li>' +
+          '<li><code>pictureBoxField.Source</code> に代入。続けて状態表示・持ち時間表示・「一手戻す/進める」メニューの有効/無効を更新</li>' +
+          '<li>最後に <code>MaybeTriggerComMove</code>(次がCOMの番ならタイマーを始める)</li></ol>' +
+          '<p class="gg-files">ウィンドウの大きさが変わると <code>boardHost_SizeChanged</code> が実ピクセルのサイズで <code>SetDrawArea</code> し直して再描画(高DPIでもぼやけません)。</p>'
+      },
+      {
+        title: '7. COMの手番(タイマーから着手まで)',
+        camera: CAMN(-3, -17, 42),
+        focus: ['tmr', 'docom', 'tgm', 'cand', 'sortn', 'det', 'put', 'redraw', 'a-tmr-docom', 'a-docom-tgm', 'a-tgm-cand', 'a-cand-sortn', 'a-sortn-det', 'a-det-put', 'a-redraw-tmr', 'fl-tmr-docom', 'fl-docom-tgm', 'fl-tgm-cand', 'fl-cand-sortn', 'fl-sortn-det', 'fl-det-put', 'fl-redraw-tmr', 'pkt', 'com-l', 'com-r'],
+        show: ['a-redraw-tmr', 'fl-redraw-tmr', 'com-l', 'com-r'],
+        update: function (g, t) { travel(g, t, pts(['redraw', 'tmr', 'docom', 'tgm', 'cand', 'sortn', 'det', 'put']), 1.2, ['次はCOMの番', '150ms 待つ', 'IsComTurn を再確認', 'level で分岐', 'candidates: List<Point>', 'sorted: List<Point>', '1手に決定', 'TryPut(x, y)']); },
+        html:
+          '<p>人のクリックと同じ <code>TryPut</code> に、COMは次の道筋で届きます。</p>' +
+          '<ol><li><code>RedrawBoard</code> の最後の <code>MaybeTriggerComMove</code> が、COMの番なら <code>_comMoveTimer</code>(<b>150ms</b>)を始める。人間と同じ速さで即打つと何が起きたか分かりにくいため</li>' +
+          '<li>Tick で <code>DoComMove</code>。開始待ち・時間切れ・終局・人の番なら何もしない</li>' +
+          '<li><code>ComPlayer.TryGetMove(gm, 色, レベル, out x, out y)</code> で1手を決める</li>' +
+          '<li><code>GameMaster.TryPut(x, y)</code> → <code>RedrawBoard</code> → また次の番を調べる(COM vs COM はこれの繰り返し)</li></ol>' +
+          '<ul><li>候補が無ければ <code>false</code>(通常はパス済みなので来ない)</li>' +
+          '<li><code>TurnCount ≤ 2</code> の間は、候補からランダムに選ぶ(序盤の展開をばらけさせる)</li>' +
+          '<li>レベルは <code>menuItem_ComLevel_Click</code> が <code>_comLevel</code> を書き換えるだけ。対局は壊れません</li></ul>'
+      },
+      {
+        title: '8. COMが手を選ぶ(評価と並べ替え)',
+        camera: BOARDCAM,
+        focus: ['ob', 'sortn', 'det'],
+        show: CANDS.map(function (c) { return 'cd-' + c.x + '-' + c.y; }).concat(CANDS.map(function (c) { return 'cl-' + c.x + '-' + c.y; })).concat(['cm-l']),
+        update: function (g, t) {
+          var T0 = t % 12, n = CANDS.length;
+          var k = clamp01((T0 - 6.5) / 3.0);
+          OB.render(g, AFTER, OB.states[DEMO + 1], k, { span: 0.6, delay: function (x, y) { return 0.1 * Math.max(Math.abs(x - CPLY.x), Math.abs(y - CPLY.y)); } });
+          var chosen = CANDS.filter(function (c) { return c.x === CPLY.x && c.y === CPLY.y; })[0];
+          CANDS.forEach(function (c, i) {
+            var shown = T0 > 0.5 + i * 0.4 && T0 < 9.8;
+            g.get('cd-' + c.x + '-' + c.y).visible = shown;
+            g.get('cl-' + c.x + '-' + c.y).visible = shown;
+            if (c === chosen && T0 > 5.2 && T0 < 6.5) g.pulse('cd-' + c.x + '-' + c.y, t, 0.5);
+          });
+          var txt = T0 < 0.5 + n * 0.4 ? '白の番: GetCandidates で候補 ' + n + ' 手を列挙中…'
+            : T0 < 5.2 ? '候補 ' + n + ' 手を開放度(レベル3)で評価。色=DetermineLocation の分類'
+            : T0 < 6.5 ? '角が1つでもあれば最優先 → A.1 に決定'
+            : '決定 A.1 → TryPut → 白が置かれ、挟んだ石が裏返る';
+          if (g._cmText !== txt) { g._cmText = txt; g.setLabel('cm-l', txt, { size: 0.28, bg: '#000000cc', color: '#c77dff', border: '#c77dff' }); }
+        },
+        html:
+          '<p>この局面(7手目まで、白の番)で、レベル3のCOMが手を決める様子です。数字・色は実際の <code>ComPlayer</code> と同じ式で計算しています。</p>' +
+          '<ol><li><code>GetCandidates</code>: <code>GetValidMoves</code> が <code>true</code> の全マス(ここでは7手)</li>' +
+          '<li><b>並べ替え</b>(レベルで変わる): <br>L1 <code>SortByCenter</code>: 中心との距離順 / L2 <code>SortByPhase</code>: 序盤は中心、中盤は <code>CountFlips</code> の少ない順、終盤は多い順 / L3 <code>SortByOpenness</code>: <b>開放度</b>の小さい順</li>' +
+          '<li><code>DetermineLocation</code>: 並べた順に見て、手を <b>角 / 角を取られる / 星 / 次星 / 無難</b> に分類し、<br><b>角 &gt; 無難 &gt; 星 &gt; 次星 &gt; 角を取られる手</b> の優先順で、各分類の先頭を選ぶ</li></ol>' +
+          '<ul><li><b>開放度</b> = 置く石と、裏返る石すべての「周囲8マスの空きマス数」の合計。小さいほど相手に付け入られにくい手(<code>CalcOpenness</code>)</li>' +
+          '<li>「角を取られる手」は <code>Clone</code> した盤に仮に置き、相手の <code>GetValidMoves</code> に角が出るかで判定(実際の盤は触らない)</li>' +
+          '<li>先読みの木探索はせず、<b>1手先の評価だけ</b>の軽い思考です</li></ul>'
+      },
+      {
+        title: '9. 一手戻す / 進める(履歴を頭から再生)',
+        camera: BOARDCAM,
+        focus: ['ob', 'um', 'undo', 'replay', 'reset'],
+        show: ['bd-l'],
+        update: function (g, t) {
+          // 7手目まで進んだ盤から「一手戻す」: 初期配置に戻し(ResetBoardOnly)、History の頭から 6 手だけ再生(ApplyMove × 6)
+          var T0 = t % 9.5, txt, a, b, k;
+          if (T0 < 1.4) { a = 7; b = 0; k = clamp01(T0 / 1.0); txt = '一手戻す → ResetBoardOnly(初期配置へ)'; }
+          else {
+            var n = Math.min(6, Math.floor((T0 - 1.6) / 0.7) + 1); if (T0 < 1.6) n = 0;
+            if (n === 0) { a = 0; b = 0; k = 0; txt = 'ReplayHistory(6)'; }
+            else { a = n - 1; b = n; k = clamp01(((T0 - 1.6) - (n - 1) * 0.7) / 0.6); txt = 'ApplyMove(History[' + (n - 1) + '])  … ' + n + ' / 6 手'; }
+            if (T0 > 6.0) { txt = 'TurnCount = 6。History は 7 手のまま(「一手進める」で7手目へ)'; }
+          }
+          OB.render(g, a, b, k, { span: 0.8, delay: function (x, y) { return 0.0; } });
+          if (g._bdText !== txt) { g._bdText = txt; g.setLabel('bd-l', txt, { size: 0.3, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' }); }
+        },
+        html:
+          '<p>「一手戻す」は、<b>ひっくり返した石を逆算しません</b>。代わりに「最初から履歴を1手少なく再生し直す」方式です。</p>' +
+          '<ol><li><code>menuItem_Undo_Click</code>: COMのタイマーを止め、<code>GameMaster.Undo()</code></li>' +
+          '<li><code>ReplayHistory(TurnCount - 1)</code>: <code>ResetBoardOnly</code> で初期配置・黒番・手数0に戻す</li>' +
+          '<li><code>History</code> の先頭から、指定の手数だけ <code>ApplyMove</code> を繰り返す(<code>History</code> 自体は書き換えない)</li>' +
+          '<li><code>TurnCount</code> を指定値にして、<code>RedrawBoard</code></li></ol>' +
+          '<ul><li>「一手進める」は <code>ReplayHistory(TurnCount + 1)</code>。同じ道具で逆向きに動く</li>' +
+          '<li>戻した結果が<b>COMの番</b>なら、<code>RedrawBoard</code> の <code>MaybeTriggerComMove</code> でCOMがすぐ打ち直す</li>' +
+          '<li>パスや終局の判定も <code>ApplyMove</code> 内の <code>AdvanceTurn</code> がやり直すので、戻した盤の手番が狂わない</li></ul>'
+      },
+      {
+        title: '10. 棋譜の保存と読込',
+        camera: CAMN(0, -2, 46),
+        focus: ['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'put', 'a-k1-k2', 'a-k2-k3', 'a-k4-k5', 'a-k5-k6', 'fl-k1-k2', 'fl-k2-k3', 'fl-k4-k5', 'fl-k5-k6', 'pkt', 'kf-l', 'kf-r'],
+        show: [],
+        update: function (g, t) {
+          var half = Math.floor(t / 6) % 2;
+          if (half === 0) travel(g, t % 6, pts(['k1', 'k2', 'k3']), 1.6, ['History(7手)', ' 7 : F.3 黒', '']);
+          else travel(g, t % 6, pts(['k4', 'k5', 'k6']), 1.6, ['テキスト', 'TryPut × N', '開始待ち']);
+        },
+        html:
+          '<p>棋譜は <code>Kifu</code>(静的クラス)が、<code>History</code> とテキストを相互に変換します。</p>' +
+          '<ul><li><b>保存</b>: <code>Kifu.ToText(History)</code> が1手1行の <code>「 7 : F.3 黒」</code>(列 = A〜H = <code>x</code>、行 = <code>y+1</code>)を作り、<code>File.WriteAllText</code>。書き込み失敗(<code>IOException</code> など)はメッセージで知らせ、アプリは落ちない</li>' +
+          '<li><b>読込</b>: <code>Kifu.TryReplay</code> が <code>gm.Initialize()</code> してから、各行を解釈して <b><code>TryPut</code> を1手ずつ</b>呼ぶ。見出し行・空行は読み飛ばし、<b>置けない手</b>があればそこで打ち切る(それまでの手は残る)</li>' +
+          '<li>読込後は <code>_isWaitingForStart = true</code>。「開始」を押すまでCOMも人も打たず、持ち時間も減らない</li>' +
+          '<li>「開始」は、読み込んだ局面が終局でなければ、その局面から続きを始める(<code>menuItem_Start_Click</code>)</li></ul>' +
+          '<div class="gg-note">棋譜の再生にも専用のルールは無く、人の着手と同じ <code>TryPut</code> を使うので、ルールの修正が棋譜読込にも自動で反映されます。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

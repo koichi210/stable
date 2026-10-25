@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigitalClock 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="img-data.js"></script>
+<script src="dc-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var X0 = -9.4, X1 = 0, X2 = 9.4;           // 3枚のスクショパネルの中心x(左から 起動直後 / 1秒後 / 他のウィンドウに重ねたところ)
+  var HOME = { pos: [0, 4.4, 25], target: [0, 3.1, 0] };
+
+  GameGuide.start({
+    title: 'DigitalClock 使い方',
+    subtitle: '実際の画面で、起動 → 時刻が進む → ドラッグで動かす → 半透明で重ねる、までを1歩ずつ',
+    camera: HOME,
+    floor: false,
+
+    build: function (g) {
+      DC.panel(g, 'p-start', 'start', X0);
+      DC.panel(g, 'p-tick', 'tick', X1);
+      DC.panel(g, 'p-overlay', 'overlay', X2);
+      g.label('① 起動直後\n(9倍に拡大して撮影)', [X0, DC.H + 1.5, 0.3], { size: 0.4, color: '#fff' });
+      g.label('② 約1秒後(秒が進んだ)\n→ 500msごとに更新', [X1, DC.H + 1.5, 0.3], { size: 0.4, color: '#fff' });
+      g.label('③ 他のウィンドウに重ねた(3倍に拡大)\n→ ドラッグで移動', [X2, DC.H + 1.5, 0.3], { size: 0.4, color: '#fff' });
+      g.arrow([X0 + 4.2, 3.0, 0.3], [X1 - 4.2, 3.0, 0.3], { color: C.gold, lift: 0.5 });
+      g.arrow([X1 + 4.2, 3.0, 0.3], [X2 - 4.2, 3.0, 0.3], { color: C.gold, lift: 0.5 });
+
+      // ステップごとに出す注目枠(ピクセルはスクショ上の座標)
+      DC.hl(g, 'h-time0', X0, 237, 363, 723, 507, C.good);
+      DC.hl(g, 'h-title0', X0, 237, 93, 723, 363);
+      DC.hl(g, 'h-time1', X1, 237, 363, 723, 507, C.good);
+      DC.hl(g, 'h-secs1', X1, 570, 380, 723, 495, C.enemy);
+      DC.hl(g, 'h-win2', X2, 412, 210, 582, 352, C.gold);
+      DC.hl(g, 'h-text2', X2, 440, 265, 590, 320, C.enemy);
+
+      // ドラッグの「手」(ステップ3で動かす)
+      g.sphere({ id: 'hand', radius: 0.22, pos: DC.pt(X0, 480, 435, 0.5), color: C.enemy, emissive: C.enemy, emissiveIntensity: 0.5 });
+      g.label('ドラッグ', DC.pt(X0, 480, 300, 0.9), { id: 'hand-l', size: 0.3, color: C.enemy });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: HOME,
+        show: [],
+        html:
+          '<p><b>DigitalClock</b> は、時刻 <code>HH:mm:ss</code> だけを出す小さなデジタル時計(WPF)です。ウィンドウは<b>最前面</b>・<b>半透明</b>・<b>サイズ固定</b>の小さなツールウィンドウで、他の作業をじゃましない隅に置いて使います。</p>' +
+          '<ol><li>起動すると、すぐ現在時刻が出る</li><li>0.5秒ごとに表示が更新される</li><li>時刻の部分をドラッグして好きな場所へ</li><li>閉じると位置を覚え、次回はそこから始まる</li></ol>' +
+          '<p>設定画面・ボタンはありません。ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りできます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: '1. 起動すると時刻が出る',
+        camera: DC.cam(X0, 480, 300, 6.2),
+        show: ['h-time0', 'h-title0'],
+        html:
+          '<p>起動するとタイトルバー付きの小さなウィンドウが出て、下の段に現在時刻が <b>24時間・2桁ゼロ埋め</b>(例 <code>07:14:00</code>)で表示されます。</p>' +
+          '<ul><li>タイトルは <code>Clock</code>。ウィンドウが小さいので <code>Cl...</code> と省略表示になります</li>' +
+          '<li>種類は <code>WindowStyle="ToolWindow"</code>(最小化・最大化ボタンなし、閉じるだけ)</li>' +
+          '<li><code>ResizeMode="NoResize"</code> + <code>SizeToContent="WidthAndHeight"</code> で、<b>大きさは文字に合わせて自動</b>。ユーザーは変えられません</li>' +
+          '<li>フォントは <code>MS UI Gothic</code> の16pt(比例幅なので、秒が変わると幅が少し動くことがあります)</li></ul>' +
+          '<div class="gg-note">拡大して見やすくしていますが、実物は約70×55ピクセルの小さな窓です。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code>(<code>label_time</code> の <code>TextBlock</code>)、<code>Logic.cs</code> の <code>FormatTime</code></p>',
+      },
+      {
+        title: '2. 時刻は0.5秒ごとに更新',
+        camera: { pos: [-4.5, 4.4, 15], target: [-4.5, 2.6, 0] },
+        show: ['h-time0', 'h-time1', 'h-secs1'],
+        html:
+          '<p>①と②は約1秒あけて撮った画像で、末尾の秒が <code>00</code> → <code>01</code> に進んでいます。</p>' +
+          '<p>表示は <code>DispatcherTimer</code>(<b>500ミリ秒</b>間隔)の <code>Tick</code> で書き換わります。1秒ちょうどではなく半秒刻みなのは、<b>秒が変わってから表示に反映されるまでの遅れを最大0.5秒以内</b>にするためです(1秒間隔だと最大1秒ずれて見える)。</p>' +
+          '<p>タイマーはUIスレッド上で動くので、特別なスレッド処理は不要です。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>_clockTimer</code> / <code>UpdateTime</code></p>',
+      },
+      {
+        title: '3. 時刻の部分をドラッグして移動',
+        camera: DC.cam(X0, 480, 330, 8),
+        show: ['h-time0', 'hand', 'hand-l'],
+        update: function (g, t) {
+          // 手が時刻の上で左右に動く(ドラッグしているイメージ)
+          var k = 0.5 - 0.5 * Math.cos(t * 1.6);
+          var a = DC.pt(X0, 330, 435, 0.5), b = DC.pt(X0, 630, 435, 0.5);
+          var x = a[0] + (b[0] - a[0]) * k;
+          g.get('hand').position.set(x, a[1], 0.5);
+          g.get('hand-l').position.set(x, a[1] + 0.8, 0.9);
+        },
+        html:
+          '<p>ウィンドウを動かすには、<b>時刻の文字の部分を左ボタンで押したままドラッグ</b>します。マウスを重ねると、そのことをツールチップ(15秒表示)で教えてくれます。</p>' +
+          '<ul><li>実装は <code>MouseLeftButtonDown</code> で <code>DragMove()</code> を呼ぶだけ(WPF標準の移動)</li>' +
+          '<li>タイトルバーをつかんでも通常どおり動かせます</li>' +
+          '<li>サイズ固定なので、動かすのが主な操作です</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>label_time_MouseLeftButtonDown</code></p>',
+      },
+      {
+        title: '4. 半透明なので、下の文字も見える',
+        camera: DC.cam(X2, 497, 281, 6.6),
+        show: ['h-win2', 'h-text2'],
+        html:
+          '<p>ウィンドウ全体が<b>約50%の透明</b>になっているため、後ろにある文字(ここでは見本テキストの <code>(demo text)</code>)が透けて見えます。最前面固定と合わせて、<b>時計を出しっぱなしにしても作業の邪魔になりにくい</b>作りです。</p>' +
+          '<ul><li>透明度は <code>_windowAlpha = 128</code>(0〜255のうち半分)</li>' +
+          '<li>WPFの <code>Opacity</code> はタイトルバー付きでは効かないため、Win32の「レイヤードウィンドウ」で実現しています(仕組みは「データの流れ」ページ)</li>' +
+          '<li><code>Topmost="True"</code> なので、他のウィンドウより常に手前</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>Window_SourceInitialized</code> / <code>KeepLayeredWndProc</code></p>',
+      },
+      {
+        title: '5. 位置は覚えて、次回もそこから',
+        camera: HOME,
+        show: [],
+        html:
+          '<p>ウィンドウを閉じるとき、そのときの<b>左上の位置</b>を <code>%LOCALAPPDATA%\\DigitalClock\\DigitalClock.json</code> に保存します。次の起動で読み戻して、同じ場所に出します。</p>' +
+          '<table><tr><th>状況</th><th>起動位置</th></tr>' +
+          '<tr><td>設定ファイルが無い(初回)</td><td>XAMLの初期位置 (100, 100)</td></tr>' +
+          '<tr><td>ファイルが壊れている</td><td>(100, 100)</td></tr>' +
+          '<tr><td>保存位置が今の画面の外(モニタを外した後など)</td><td>(100, 100)。見えない場所で掴めなくなるのを防ぐ</td></tr>' +
+          '<tr><td>それ以外</td><td>保存した位置</td></tr></table>' +
+          '<p>サイズは文字で決まるので保存しません。保存に失敗しても、終了は妨げません。</p>' +
+          '<p class="gg-files">📄 <code>WindowPlacement.cs</code>、<code>MainWindow.xaml.cs</code> の <code>RestorePlacement</code> / <code>Window_Closing</code>、<code>Logic.cs</code> の <code>IsOnScreen</code></p>',
+      },
+      {
+        title: 'おまけ: 割り切っているところ',
+        camera: HOME,
+        show: [],
+        html:
+          '<ul><li>日付・曜日・ストップウォッチ機能はありません。<b>時刻を見るだけ</b>に絞っています</li>' +
+          '<li>終了は右上の × だけです</li>' +
+          '<li>予期しない例外が起きたときは、共通部品 <code>StcWpfExceptionGuard</code> がダイアログで知らせます(画面が出る前なら終了)</li>' +
+          '<li>.NET Framework 4.5向けのWPFアプリで、外部のDLLは <code>Newtonsoft.Json.dll</code> だけです</li></ul>' +
+          '<p class="gg-files">📄 <code>App.xaml.cs</code>、<code>DigitalClock.csproj</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

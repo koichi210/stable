@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheetos データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 40;                                   // 場面(ステージ)どうしの間隔。各ステップは自分のステージだけを見る
+  function X(k) { return SX * k; }
+  var LS = 1.3;                                  // 文字の大きさの倍率(ステージを近くから見るため)
+  var XSK = [0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 1, 1, 0.85, 1, 0.85];   // ステージごとの横の縮め率(板の寸法が絡む場面は1)
+  function P(k, x, y, z) { return [X(k) + x * XSK[k], y, z == null ? 0 : z]; }
+
+  var COL = { ui: '#4fa3ff', th: '#ff9f43', file: '#3fbf8f', work: '#a56bff', json: '#3cc7de', bk: '#7d78a3', dim: '#3a3655', red: '#ff5f6d', gold: '#ffd166', card: '#2d2944' };
+  var TITLES = ['全体の流れ', '① 画面の値を撮影スレッドへ', '② ループと行の実行', '③ 撮り方は3通り', '④ 待機と「中断」', '⑤ ファイル名の組み立て',
+                '⑥ 進捗の報告', '⑦ 加工の共通パターン', '⑧ PictTrim の中身', '⑨ Rotation の中身', '⑩ DistOrient の中身', '⑪ PictMerge の中身', '⑫ 設定の保存と復元'];
+
+  // 前面を向いた板(カード)。label は板の手前の面に出す
+  function card(g, id, k, x, y, w, h, color, label, o) {
+    o = o || {};
+    var d = o.d || 0.4;
+    return g.box({
+      id: id, size: [w * XSK[k], h, d], pos: P(k, x, y, o.z || 0), color: color, opacity: o.opacity, edges: o.edges !== false, edgeColor: o.edgeColor,
+      emissive: o.emissive, emissiveIntensity: o.ei, label: label, labelSize: (o.ls || 0.34) * LS, labelOffset: [0, 0, d / 2 + 0.05], labelColor: o.lc || '#ffffff',
+    });
+  }
+  function lbl(g, text, k, x, y, o) { o = o || {}; return g.label(text, P(k, x, y, o.z == null ? 0.5 : o.z), { id: o.id, size: (o.size || 0.36) * LS, color: o.color || '#ffffff', bg: o.bg }); }
+  function look(k, d) { return { pos: [X(k), 7.6, d || 22], target: [X(k), 7.4, 0] }; }
+  function hex(c) { return new T.Color(c); }
+  function mix(a, b, k) { return '#' + hex(a).lerp(hex(b), k).getHexString(); }
+  function setC(g, id, c) { g.get(id).material.color.set(c); }
+
+  // ---- 場面ごとの状態(update で使う) ----
+  var S2_ROWS = [
+    { y: 11, cap: true, mouse: false, txt: '1行目  Sleep 3000 / マウスなし / 撮る〇' },
+    { y: 8.5, cap: true, mouse: true, txt: '2行目  Sleep 1000 / (640,360)へ移動 / 撮る〇' },
+    { y: 6, cap: false, mouse: false, txt: '3行目  Sleep 空欄 / マウスなし / 撮る×' },
+  ];
+  var S2_NAMES = ['demo_0001_1.png', 'demo_0001_2.png', 'demo_0002_1.png', 'demo_0002_2.png'];
+  var S2_SLAB = [];                                    // [{row, loop}] 撮れる順
+  [0, 1].forEach(function (l) { [0, 1].forEach(function (r) { S2_SLAB.push({ l: l, r: r }); }); });
+  var ROW_DUR = 2.4;
+
+  var S7_FILES = [
+    { n: 'demo_0001_1.png', y: 12.2, c: '#4f9dff' }, { n: 'demo_0001_2.png', y: 9.7, c: '#3fbf8f' },
+    { n: 'demo_0002_1.png', y: 7.2, c: '#ff9f43' }, { n: 'demo_0002_2.png', y: 4.7, c: '#e86bb0' },
+  ];
+
+  // ---- update から使う補助(ステージ作成後に確定する値) ----
+  var MH_ = 6;
+  var FN_POS = [];
+  (function () {
+    var ws = [6.2, 2.6, 6.6, 2.0, 1.6, 2.0];
+    var tot = ws.reduce(function (a, w) { return a + w + 0.3; }, -0.3), fx = -tot / 2;
+    ws.forEach(function (w) { FN_POS.push([fx + w / 2, 8.4]); fx += w + 0.3; });
+  })();
+  function stopped_(T0) { return T0 >= 3.9; }
+
+  var lastText = {};
+  function setText(g, id, text, o) {
+    if (lastText[id] === text) return;
+    lastText[id] = text;
+    o = o || {};
+    g.setLabel(id, text, { size: (o.size || 0.36) * LS, color: o.color });
+  }
+
+  function setBoxLabel(g, id, text, o) {
+    var key = id + '#box';
+    if (lastText[key] === text) return;
+    lastText[key] = text;
+    o = o || {};
+    g.setLabel(g.get(id).userData.label, text, { size: (o.size || 0.34) * LS, color: o.color });
+  }
+
+  GameGuide.start({
+    title: 'Cheetos データの流れ',
+    subtitle: '設定 → 撮影スレッド → (動かす・待つ・撮る)×行×繰り返し → PNG → 加工(バックアップ → 加工 → 上書き)。光の粒と板が流れていく',
+    camera: look(0),
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 70;
+      var k, i;
+
+      // 各ステージの背景と見出し
+      for (k = 0; k <= 12; k++) {
+        g.box({ id: 'bg' + k, size: [27.4, 16.6, 0.2], pos: P(k, 0, 7.6, -1.3), color: '#1b1830', edges: false });
+        lbl(g, TITLES[k], k, 0, 15.6, { size: 0.5, z: 0.2 });
+      }
+
+      // ============ 0. 全体の流れ ============
+      card(g, 'o-ui', 0, -11.5, 8.5, 5.2, 2.8, COL.ui, '画面の設定\n(MainWindow)');
+      card(g, 'o-th', 0, -4.2, 8.5, 5.2, 2.8, COL.th, '撮影スレッド\n(CaptWindow)');
+      card(g, 'o-dir', 0, 3.2, 8.5, 5.2, 2.8, COL.file, '保存先フォルダ\ndemo_0001_1.png…');
+      card(g, 'o-work', 0, 10.5, 8.5, 5.2, 2.8, COL.work, '加工タブ\n(BackgroundWorker)');
+      g.arrow(P(0, -8.7, 8.5), P(0, -6.9, 8.5), { color: C.gold, lift: 0.3, head: 0.3, label: 'Capture', labelSize: 0.28 * LS });
+      g.arrow(P(0, -1.5, 8.5), P(0, 0.5, 8.5), { color: C.gold, lift: 0.3, head: 0.3, label: 'PNG保存', labelSize: 0.28 * LS });
+      g.arrow(P(0, 5.9, 8.5), P(0, 7.8, 8.5), { color: C.gold, lift: 0.3, head: 0.3, label: '選んで実行', labelSize: 0.28 * LS });
+      g.flow(P(0, -8.7, 8.5), P(0, -6.9, 8.5), { color: C.data, lift: 0.3, count: 3, size: 0.12 });
+      g.flow(P(0, -1.5, 8.5), P(0, 0.5, 8.5), { color: C.data, lift: 0.3, count: 3, size: 0.12 });
+      g.flow(P(0, 5.9, 8.5), P(0, 7.8, 8.5), { color: C.data, lift: 0.3, count: 3, size: 0.12 });
+      card(g, 'o-json', 0, -11.5, 2.8, 5.2, 2.4, COL.json, 'Cheetos.json\n(設定の保存)', { lc: '#0d0c13' });
+      g.arrow(P(0, -11.9, 4.2), P(0, -11.9, 6.9), { color: C.good, lift: 0.0, head: 0.3 });
+      g.arrow(P(0, -11.1, 6.9), P(0, -11.1, 4.2), { color: C.gold, lift: 0.0, head: 0.3 });
+      card(g, 'o-bk', 0, 10.5, 2.8, 5.2, 2.4, COL.bk, 'Bk_Trim / Bk_Rotate\n/ Bk_Merge');
+      card(g, 'o-over', 0, 3.2, 2.8, 5.2, 2.4, COL.file, '加工した画像\n(同じ場所へ上書き)');
+      g.arrow(P(0, 10.0, 7.0), P(0, 4.2, 4.1), { color: C.gold, lift: 0.5, head: 0.3, label: '上書き', labelSize: 0.28 * LS });
+      g.arrow(P(0, 11.2, 7.0), P(0, 11.2, 4.1), { color: C.data, lift: 0.0, head: 0.3, label: '先に退避', labelSize: 0.28 * LS, labelColor: C.data });
+      lbl(g, 'UIスレッド', 0, -11.5, 10.6, { color: '#bcd6ff', size: 0.34 });
+      lbl(g, '別スレッド', 0, -4.2, 10.6, { color: '#ffd9ae', size: 0.34 });
+      lbl(g, '別スレッド', 0, 10.5, 10.6, { color: '#e2ccff', size: 0.34 });
+      lbl(g, '撮影(CaptureWindow タブ)', 0, -3.5, 13.2, { size: 0.42, color: '#ffd9ae' });
+      lbl(g, '加工(PictTrim / Rotation / DistOrient / PictMerge / FileCollect)', 0, 7.5, 13.2, { size: 0.36, color: '#e2ccff' });
+      lbl(g, '色つきの板が、ファイル(画像)です', 0, 0, 0.5, { size: 0.34, color: '#b8b2d6' });
+      // 流れる画像(板)
+      for (i = 0; i < 3; i++) g.box({ id: 'o-pic' + i, size: [0.9, 0.6, 0.2], pos: P(0, -4.2, 8.5, 0.6), color: ['#4f9dff', '#3fbf8f', '#ff9f43'][i], edges: false });
+
+      // ============ 1. 画面の値を撮影スレッドへ ============
+      card(g, 'u-ui', 1, -9.5, 7.6, 9.6, 12.2, '#26304f', '', { opacity: 0.9, edgeColor: '#4fa3ff' });
+      lbl(g, 'UIスレッド(Button_Capture_Click)', 1, -9.5, 13.9, { size: 0.36, color: '#bcd6ff' });
+      var ctl = [
+        ['SavePath + SaveFilePrefix\n+ AddTimeStamp', 12.0], ['Capture対象(ラジオ3つ)', 10.2], ['cw_TextBox_Sleep', 8.6], ['cw_TextBox_Loop', 7.2], ['グリッド _cwRows\n(Sleep/X/Y/動作/Capture)', 5.4],
+      ];
+      ctl.forEach(function (c, j) { card(g, 'u-c' + j, 1, -9.5, c[1], 8, 1.3, COL.ui, c[0], { d: 0.3, ls: 0.3 }); });
+      card(g, 'u-th', 1, 9.5, 7.6, 9.6, 12.2, '#4a3524', '', { opacity: 0.9, edgeColor: '#ff9f43' });
+      lbl(g, '撮影スレッド(new Thread、STA)', 1, 9.5, 13.9, { size: 0.36, color: '#ffd9ae' });
+      var slot = [['filePathPrefix', 12.0], ['captureTarget', 10.2], ['sleepMsecText', 8.6], ['loopCount', 7.2], ['gridRows\n(List<List<String>>のコピー)', 5.4]];
+      slot.forEach(function (c, j) { card(g, 'u-s' + j, 1, 9.5, c[1], 8, 1.3, '#6b4a22', c[0], { d: 0.3, ls: 0.3 }); });
+      for (i = 0; i < 5; i++) g.box({ id: 'u-pk' + i, size: [1.3, 0.8, 0.5], pos: P(1, -5.4, ctl[i][1], 0.8), color: C.gold, emissive: C.gold, emissiveIntensity: 0.3, edges: false });
+      lbl(g, 'ここで全部読み取って、\nコピーを渡す', 1, 0, 12.4, { size: 0.34, color: '#ffd166' });
+      lbl(g, '以降、スレッドは画面の\nコントロールに直接さわらない', 1, 0, 5.2, { size: 0.3, color: '#b8b2d6' });
+      g.arrow(P(1, 5.2, 1.4), P(1, -5.2, 1.4), { color: C.data, lift: 0.9, head: 0.3, label: 'Dispatcher.Invoke\n(進捗バー・完了・エラー表示だけ)', labelSize: 0.28 * LS });
+      g.flow(P(1, 5.2, 1.4), P(1, -5.2, 1.4), { color: C.data, lift: 0.9, count: 5, size: 0.12 });
+
+      // ============ 2. ループと行の実行 ============
+      lbl(g, 'ループ 1 / 2', 2, -8, 13.8, { id: 'l-loop', size: 0.5, color: '#ffd166' });
+      S2_ROWS.forEach(function (r, j) { card(g, 'l-r' + j, 2, -8, r.y, 10.4, 2.0, '#34304f', r.txt, { d: 0.3, ls: 0.3 }); });
+      g.box({ id: 'l-cur', size: [0.6, 2.2, 0.6], pos: P(2, -13.6, 11, 0.5), color: C.gold, emissive: C.gold, emissiveIntensity: 0.5, edges: false });
+      card(g, 'l-p1', 2, 3.2, 11, 4.4, 2.0, '#3a3655', '① マウス\nMouseProc', { ls: 0.3 });
+      card(g, 'l-p2', 2, 3.2, 8.5, 4.4, 2.0, '#3a3655', '② 待つ\nExecuteSleep', { ls: 0.3 });
+      card(g, 'l-p3', 2, 3.2, 6, 4.4, 2.0, '#3a3655', '③ 撮る\nCaptureProc', { ls: 0.3 });
+      card(g, 'l-dir', 2, 11.2, 8.4, 5.6, 9.2, COL.file, '', { opacity: 0.35, edgeColor: '#3fbf8f' });
+      lbl(g, '保存先フォルダ', 2, 11.2, 13.4, { size: 0.34, color: '#aef0cf' });
+      S2_NAMES.forEach(function (n, j) {
+        g.box({ id: 'l-s' + j, size: [1.2, 0.8, 0.3], pos: P(2, 3.2, 6, 0.8), color: j < 2 ? '#4f9dff' : '#ff9f43', edges: false, label: n, labelSize: 0.3 * LS, labelOffset: [2.4, 0, 0.1] });
+      });
+      lbl(g, '表の上の行から順に。全行が終わったら、次のループ(繰り返し)へ', 2, 0, 1.6, { size: 0.32, color: '#b8b2d6' });
+      lbl(g, '撮影番号(_1, _2)はループのたびに1へ戻る', 2, 0, 0.5, { size: 0.3, color: '#b8b2d6' });
+
+      // ============ 3. 撮り方は3通り ============
+      var lanes = [
+        { y: 12, c: ['FullScreen\nCtrl+PrintScreen を送る', 'クリップボード\nに画面の画像', 'Clipboard.GetDataObject\n→ Image', 'Save()\n→ PNG'], f: 'SendKeys.SendWait("^{PRTSC}")' },
+        { y: 7.5, c: ['CurrentWindow\nAlt+PrintScreen を送る', 'クリップボード\nに窓の画像', 'Clipboard.GetDataObject\n→ Image', 'Save()\n→ PNG'], f: 'SendKeys.SendWait("%{PRTSC}")' },
+        { y: 3, c: ['CurrentScreen\nこの窓があるモニタ', 'Screen.FromControl\n(TargetWindow)', 'GetPhysicalBounds\n(EnumDisplaySettings)', 'CopyFromScreen\n→ Bitmap.Save()'], f: '' },
+      ];
+      var lx = [-10.8, -3.6, 3.6, 10.8];
+      lanes.forEach(function (ln, a) {
+        ln.c.forEach(function (t, b) {
+          var col = b === 0 ? COL.th : b === 3 ? COL.file : COL.work;
+          card(g, 'm-' + a + '-' + b, 3, lx[b], ln.y, 5.4, 2.4, col, t, { ls: 0.27 });
+          if (b < 3) {
+            g.arrow(P(3, lx[b] + 2.8, ln.y), P(3, lx[b + 1] - 2.8, ln.y), { color: C.gold, lift: 0.2, head: 0.25 });
+            g.flow(P(3, lx[b] + 2.8, ln.y), P(3, lx[b + 1] - 2.8, ln.y), { color: C.data, lift: 0.2, count: 2, size: 0.1, speed: 0.5 });
+          }
+        });
+      });
+      lbl(g, 'SendKeys とクリップボードは STA スレッドでしか使えない → 撮影用スレッドを STA で起動', 3, 0, 14.0, { size: 0.3, color: '#ffd9ae' });
+      lbl(g, 'CurrentScreen は倍率が100%以外のモニタでも欠けないよう、物理ピクセルの範囲で撮る', 3, 0, 0.6, { size: 0.3, color: '#b8b2d6' });
+
+      // ============ 4. 待機と「中断」 ============
+      lbl(g, 'Sleep 1500ms の場合(1秒ずつ待つ → 2回 → 2秒)', 4, -4, 13.6, { size: 0.36, color: '#ffffff' });
+      lbl(g, 'Sleep 5000ms の途中で「中断」を押した場合', 4, -4, 8.8, { size: 0.36, color: '#ffffff' });
+      for (i = 0; i < 5; i++) {
+        card(g, 'w1-' + i, 4, -9 + i * 3.6, 11.4, 3.0, 1.8, COL.dim, i < 2 ? '1秒' : '', { ls: 0.3 });
+        card(g, 'w2-' + i, 4, -9 + i * 3.6, 6.6, 3.0, 1.8, COL.dim, '1秒', { ls: 0.3 });
+      }
+      lbl(g, '→ 2回で終わり', 4, 10.4, 11.4, { size: 0.32, color: '#b8b2d6' });
+      card(g, 'w-btn', 4, -10, 2.4, 5.0, 1.8, '#4a3a3a', 'ボタン「中断」', { ls: 0.3 });
+      card(g, 'w-flag', 4, 2, 2.4, 6.4, 1.8, COL.file, 'IsStopRequest\n= false', { ls: 0.3 });
+      g.arrow(P(4, -7.4, 2.4), P(4, -1.3, 2.4), { color: C.enemy, lift: 0.5, head: 0.3, label: '_cw.Stop()', labelSize: 0.3 * LS });
+      lbl(g, 'for (timer=0; timer<SleepTime; timer+=1秒)\n{ if (IsStopRequest) break;  Thread.Sleep(1秒); }', 4, 0, 0.5, { size: 0.3, color: '#b8b2d6' });
+      lbl(g, '中断で止まる', 4, 12.2, 6.6, { id: 'w-brk', size: 0.32, color: '#ff8a96' });
+
+      // ============ 5. ファイル名の組み立て ============
+      var fn = [
+        { id: 'f0', t: 'D:\\Temp\\Demo\\Capture\\', w: 6.2, c: COL.ui, note: '保存先\ncw_TextBox_SavePath', sy: 12.5, sx: -9 },
+        { id: 'f1', t: 'demo_', w: 2.6, c: COL.ui, note: '接頭辞+「_」', sy: 4.0, sx: -8 },
+        { id: 'f2', t: '2026_10_26_10_00_00_', w: 6.6, c: COL.json, note: 'タイムスタンプ\n(ONの時だけ)', sy: 12.5, sx: 3, dim: true },
+        { id: 'f3', t: '0001', w: 2.0, c: COL.th, note: 'ループ番号\ni.ToString("D4")', sy: 4.0, sx: 4 },
+        { id: 'f4', t: '_1', w: 1.6, c: COL.work, note: '撮影番号 FileIdx\n(撮るたびに+1)', sy: 12.5, sx: 11 },
+        { id: 'f5', t: '.png', w: 2.0, c: COL.file, note: '拡張子', sy: 4.0, sx: 12 },
+      ];
+      var tot = fn.reduce(function (a, f) { return a + f.w + 0.3; }, -0.3), fx = -tot / 2;
+      fn.forEach(function (f) { f.fx = fx + f.w / 2; fx += f.w + 0.3; f.fy = 8.4; });
+      fn.forEach(function (f) {
+        card(g, f.id, 5, f.sx, f.sy, f.w, 1.5, f.c, f.t, { ls: 0.3, opacity: f.dim ? 0.55 : 1 });
+        lbl(g, f.note, 5, f.fx, 6.2, { id: f.id + 'n', size: 0.26, color: '#b8b2d6' });
+      });
+      lbl(g, 'D:\\Temp\\Demo\\Capture\\demo_2026_10_26_10_00_00_0001_1.png', 5, 0, 10.8, { id: 'f-all', size: 0.44, color: '#ffd166' });
+      lbl(g, '前半(保存先+接頭辞+時刻)は Capture を押した時に1回だけ作る(Logic.BuildFilePathPrefix)\n後半(ループ番号・撮影番号・.png)は撮るたびに足す', 5, 0, 2.6, { size: 0.3, color: '#b8b2d6' });
+      fn.slice().forEach(function () { });
+
+      // ============ 6. 進捗の報告 ============
+      card(g, 'p-th', 6, -9, 7.6, 9.6, 11, '#4a3524', '', { opacity: 0.9, edgeColor: '#ff9f43' });
+      lbl(g, '撮影スレッド', 6, -9, 12.9, { size: 0.36, color: '#ffd9ae' });
+      for (i = 0; i < 4; i++) card(g, 'p-lp' + i, 6, -9, 11 - i * 2.2, 6.4, 1.6, '#6b4a22', 'ループ ' + (i + 1) + ' / 4 完了', { d: 0.3, ls: 0.3 });
+      card(g, 'p-ui', 6, 9, 7.6, 12, 11, '#26304f', '', { opacity: 0.9, edgeColor: '#4fa3ff' });
+      lbl(g, 'UIスレッド(処理状況)', 6, 9, 12.9, { size: 0.36, color: '#bcd6ff' });
+      for (i = 0; i < 4; i++) g.box({ id: 'p-b' + i, size: [2.0, 1.2, 0.3], pos: P(6, 4.8 + i * 2.6, 9.4, 0), color: '#3a3655', edges: true });
+      lbl(g, '開始: 10:00:00', 6, 6.8, 7.4, { size: 0.32 });
+      lbl(g, '終了予想: (まだ空)', 6, 7.5, 6.2, { id: 'p-exp', size: 0.32, color: '#ffffff' });
+      lbl(g, '0/4', 6, 12.6, 6.2, { id: 'p-cnt', size: 0.34, color: '#ffffff' });
+      lbl(g, '進捗バー(ProgressBar_Status)', 6, 9, 10.9, { size: 0.28, color: '#b8b2d6' });
+      for (i = 0; i < 4; i++) g.box({ id: 'p-pk' + i, size: [1.2, 0.8, 0.5], pos: P(6, -5, 11 - i * 2.2, 0.8), color: C.gold, emissive: C.gold, emissiveIntensity: 0.3, edges: false });
+      lbl(g, 'Dispatcher.Invoke\nUpdateProgressBar()', 6, 0, 13.4, { size: 0.3, color: '#7ef0ff' });
+      lbl(g, '終了予想 = 開始 + (経過時間 × 全体のループ数 ÷ 終わった数)\n1周目が終わった時に1回だけ表示(Logic.CalcExpectEndTime)', 6, 0, 1.6, { size: 0.3, color: '#b8b2d6' });
+
+      // ============ 7. 加工の共通パターン ============
+      card(g, 'b-src', 7, -10, 8.4, 5.6, 11.6, COL.file, '', { opacity: 0.3, edgeColor: '#3fbf8f' });
+      lbl(g, '元のフォルダ\n(リストアップして選んだファイル)', 7, -10, 14.6, { size: 0.3, color: '#aef0cf' });
+      S7_FILES.forEach(function (f, j) {
+        g.box({ id: 'b-f' + j, size: [3.4, 1.7, 0.3], pos: P(7, -10, f.y, 0.4), color: f.c, edges: true, label: f.n, labelSize: 0.3 * LS, labelOffset: [0, -1.3, 0.2] });
+        g.box({ id: 'b-g' + j, size: [3.4, 1.7, 0.3], pos: P(7, -10, f.y, 0.2), color: f.c, opacity: 0.5, edges: false });
+        g.get('b-g' + j).visible = false;
+      });
+      card(g, 'b-mach', 7, 0.5, 10.4, 6.4, 3.6, COL.work, '加工(DoWork)\nPicEdit / Rotation / PictMerge', { ls: 0.28 });
+      lbl(g, 'BackgroundWorker(別スレッド)', 7, 0.5, 12.9, { size: 0.3, color: '#e2ccff' });
+      card(g, 'b-bk', 7, 0.5, 4.0, 8.4, 4.0, COL.bk, '', { opacity: 0.4 });
+      lbl(g, 'Bk_Trim / Bk_Rotate / Bk_Merge\n(元の画像のバックアップ)', 7, 0.5, 6.6, { size: 0.3, color: '#d5d0f2' });
+      card(g, 'b-ui', 7, 10.6, 8.4, 5.4, 11.6, '#26304f', '', { opacity: 0.9, edgeColor: '#4fa3ff' });
+      lbl(g, 'UIスレッド\nReportProgress(終わった件数)', 7, 10.6, 14.6, { size: 0.3, color: '#bcd6ff' });
+      for (i = 0; i < 4; i++) g.box({ id: 'b-p' + i, size: [4.2, 1.1, 0.3], pos: P(7, 10.6, 11.6 - i * 1.7, 0), color: '#3a3655', edges: true });
+      lbl(g, '0/4', 7, 10.6, 4.4, { id: 'b-cnt', size: 0.42, color: '#ffffff' });
+      lbl(g, '①元をバックアップへコピー → ②加工 → ③元の場所へ上書き → ④進捗を報告', 7, -1, 0.9, { size: 0.32, color: '#ffd166' });
+      lbl(g, '中断: もう一度ボタンを押すと CancelAsync → 各ファイルの終わりで止まる', 7, -1, 0.0, { size: 0.28, color: '#b8b2d6' });
+
+      // ============ 8. PictTrim ============
+      card(g, 't-src', 8, -7, 8, 8, 5, '#2a3a5e', '元画像\n640 × 400', { ls: 0.34, edgeColor: '#4fa3ff' });
+      g.box({ id: 't-frame', size: [5.5, 3.5, 0.5], pos: P(8, -7, 8, 0.4), color: C.enemy, emissive: C.enemy, emissiveIntensity: 0.4, opacity: 0.22, edges: true, edgeColor: C.enemy });
+      card(g, 't-out', 8, 7.5, 8, 5.5, 3.5, COL.dim, '', { opacity: 0.6, edgeColor: '#7ef0ff' });
+      g.box({ id: 't-flyer', size: [5.5, 3.5, 0.3], pos: P(8, -7, 8, 0.6), color: '#7fb4ff', edges: true, edgeColor: '#ffffff' });
+      lbl(g, '原点 (100, 60)', 8, -9.2, 11.4, { size: 0.34, color: '#ffd166' });
+      lbl(g, '終点 (540, 340) → 幅 440 × 高さ 280', 8, -7, 5.0, { size: 0.34, color: '#ffd166' });
+      lbl(g, '新しい空のキャンバス\n440 × 280', 8, 7.5, 10.4, { size: 0.32, color: '#7ef0ff' });
+      lbl(g, 'g.DrawImage(元画像, 貼る先の四角, 切り取る四角, Pixel)', 8, 0, 2.6, { size: 0.34, color: '#ffffff' });
+      lbl(g, '(数値は説明用の例。画面の例では原点(0,40)・終点(640,400))', 8, 0, 1.5, { size: 0.28, color: '#b8b2d6' });
+
+      // ============ 9. Rotation ============
+      var RW = 6, RH = 4.4, CS = 7.44;
+      card(g, 'r-src', 9, -9.5, 8.4, RW, RH, '#5b2b6e', '元画像\n300 × 220', { ls: 0.34, edgeColor: '#c77dff' });
+      var cCx = 5.5, cCy = 7.8;
+      g.box({ id: 'r-canvas', size: [CS, CS, 0.2], pos: P(9, cCx, cCy, -0.1), color: '#2a2740', edges: true, edgeColor: '#7ef0ff' });
+      lbl(g, 'キャンバス = 元画像の対角線の長さの正方形\n372 × 372', 9, cCx, cCy - CS / 2 - 1.0, { size: 0.3, color: '#7ef0ff' });
+      var pvx = cCx - CS / 2 + 4.4, pvy = cCy + CS / 2;
+      g.group('r-grp', { pos: P(9, pvx, pvy, 0.3) });
+      g.box({ id: 'r-pic', parent: 'r-grp', size: [RW, RH, 0.3], pos: [RW / 2, -RH / 2, 0], color: '#a56bff', edges: true, edgeColor: '#ffffff', label: '回転する画像', labelSize: 0.3 * LS, labelOffset: [0, 0, 0.3] });
+      g.sphere({ id: 'r-pivot', radius: 0.22, pos: P(9, pvx, pvy, 0.7), color: C.gold, emissive: C.gold, emissiveIntensity: 0.6 });
+      lbl(g, '原点 (220, 0)\nここを中心に回る', 9, pvx + 3.4, pvy + 0.3, { size: 0.3, color: '#ffd166' });
+      lbl(g, '角度: 0°', 9, -9.5, 4.6, { id: 'r-ang', size: 0.5, color: '#ffffff' });
+      lbl(g, '正の角度は時計回り。回転と描画を DrawImage の3点指定で一度にやる', 9, -1, 0.9, { size: 0.3, color: '#b8b2d6' });
+      lbl(g, '[原点, 原点+(幅cosθ, 幅sinθ), 原点+(-高さsinθ, 高さcosθ)]', 9, -1, 0.0, { size: 0.28, color: '#b8b2d6' });
+      g.arrow(P(9, -6.4, 8.4), P(9, 1.4, 8.4), { color: C.gold, lift: 0.6, head: 0.3, label: 'RotateExecute', labelSize: 0.28 * LS });
+
+      // ============ 10. DistOrient ============
+      var dd = [
+        { id: 'dP', y: 11.4, w: 2.6, h: 4.2, label: '縦長の画像\n(左右に白いフチ)', edge: '#f4f4f4', mid: '#4f9dff', vals: [739, 739], bin: '縦の移動先\n(Capture_port)' },
+        { id: 'dL', y: 4.2, w: 4.2, h: 2.6, label: '横長の画像\n(端まで絵がある)', edge: '#ff9f43', mid: '#ff9f43', vals: [2100, 2400], bin: '横の移動先\n(Capture_land)' },
+      ];
+      dd.forEach(function (d) {
+        g.box({ id: d.id, size: [d.w, d.h, 0.3], pos: P(10, -11, d.y, 0.3), color: d.mid, edges: true });
+        g.box({ id: d.id + 'l', parent: d.id, size: [0.45, d.h, 0.34], pos: [-d.w / 2 + 0.225, 0, 0.02], color: d.edge, edges: false });
+        g.box({ id: d.id + 'r', parent: d.id, size: [0.45, d.h, 0.34], pos: [d.w / 2 - 0.225, 0, 0.02], color: d.edge, edges: false });
+        lbl(g, d.label, 10, -11, d.y + d.h / 2 + 0.9, { size: 0.28, color: '#ffffff' });
+        // 帯をPNGにしたサイズのメーター
+        var by = d.y - 2.1;
+        g.box({ id: d.id + 'm0', size: [1.1, 0.1, 0.3], pos: P(10, -3.2, by, 0), color: '#4d4a63', edges: false });
+        g.box({ id: d.id + 'm1', size: [1.1, 0.1, 0.3], pos: P(10, -1.4, by, 0), color: '#4d4a63', edges: false });
+        lbl(g, '左', 10, -3.2, by - 0.5, { size: 0.26, color: '#b8b2d6' });
+        lbl(g, '右', 10, -1.4, by - 0.5, { size: 0.26, color: '#b8b2d6' });
+        g.box({ id: d.id + 'line', size: [3.8, 0.06, 0.2], pos: P(10, -2.3, by + 0.933 * 2.6, 0.1), color: C.gold, emissive: C.gold, emissiveIntensity: 0.5, edges: false });
+        lbl(g, 'しきい値 933', 10, 1.3, by + 0.933 * 2.6, { size: 0.28, color: '#ffd166' });
+        card(g, d.id + 'bin', 10, 11, d.y, 6.2, 3.2, d.id === 'dP' ? COL.file : COL.th, d.bin, { ls: 0.3, opacity: 0.85 });
+        lbl(g, '', 10, 5.6, d.y, { id: d.id + 'res', size: 0.34, color: '#ffffff' });
+      });
+      lbl(g, '左右の端の帯(白判定の長さ px)を PNG にした時のバイト数を、しきい値 = 帯の幅×高さ÷係数 と比べる', 10, 0, 14.4, { size: 0.28, color: '#b8b2d6' });
+      lbl(g, '左右とも しきい値以下なら「縦」/ どちらかが超えたら「横」(左で超えたら右は見ない)', 10, 0, 0.5, { size: 0.28, color: '#b8b2d6' });
+
+      // ============ 11. PictMerge ============
+      var MW = 4.2, MH = 6;
+      card(g, 'm2-t', 11, -9, 8, MW, MH, '#2a3a5e', '', { edgeColor: '#4fa3ff' });
+      lbl(g, '結合先\ndemo_0001_1.png', 11, -9, 12.5, { size: 0.34, color: '#bcd6ff' });
+      card(g, 'm2-s', 11, 0, 8, MW, MH, '#5b3a1e', '', { edgeColor: '#ff9f43' });
+      lbl(g, '結合元\ndemo_0001_2.png', 11, 0, 12.5, { size: 0.34, color: '#ffd9ae' });
+      // 範囲(0,100) = 上から1/4、(300,-) = 300pxから下(下1/4)  ※画像の高さ400pxの例
+      g.box({ id: 'm2-b1', size: [MW, MH * 0.25, 0.4], pos: P(11, 0, 8 + MH / 2 - MH * 0.125, 0.3), color: '#ffb35c', emissive: '#ffb35c', emissiveIntensity: 0.3, edges: true, edgeColor: '#fff' });
+      g.box({ id: 'm2-b2', size: [MW, MH * 0.25, 0.4], pos: P(11, 0, 8 - MH / 2 + MH * 0.125, 0.3), color: '#ffe08a', emissive: '#ffe08a', emissiveIntensity: 0.3, edges: true, edgeColor: '#fff' });
+      g.box({ id: 'm2-g', size: [MW, MH, 0.3], pos: P(11, -9, 8, 0.25), color: '#4f9dff', opacity: 0.5, edges: false });
+      g.get('m2-g').visible = false;
+      card(g, 'm2-bk', 11, 9.2, 4.6, 6.6, 3.6, COL.bk, '', { opacity: 0.45 });
+      lbl(g, 'Bk_Merge(バックアップ)', 11, 9.2, 7.0, { size: 0.3, color: '#d5d0f2' });
+      lbl(g, '切取る高さの範囲:\n  0,100\n  300,-', 11, 9.2, 11.4, { size: 0.32, color: '#ffd166' });
+      lbl(g, '結合元の指定の高さの帯を、結合先の同じ高さへ貼る。そのあと結合元は Bk_Merge へ移す', 11, 0, 1.6, { size: 0.3, color: '#b8b2d6' });
+      lbl(g, '(範囲の書式が不正なら、始める前に確認ダイアログ。数値は画像の高さ400pxの例)', 11, 0, 0.6, { size: 0.28, color: '#b8b2d6' });
+
+      // ============ 12. 設定の保存と復元 ============
+      var sv = ['SavePath / Prefix …', 'Radio / CheckBox', 'Sleep / Loop', '各タブのパス・数値', '表(DataGrid)'];
+      sv.forEach(function (s, j) { card(g, 's-c' + j, 12, -12, 12 - j * 1.9, 5.4, 1.4, COL.ui, s, { d: 0.3, ls: 0.28 }); });
+      card(g, 's-sr', 12, -4.2, 8, 5.6, 6.4, COL.work, 'WpfSaveRestore\n(_sr)\nRegisterCtrl\nRegisterGrid\nキー=\n"属性名|項目名"', { ls: 0.28 });
+      card(g, 's-gp', 12, 3.4, 8, 4.8, 6.4, COL.th, 'GenericProfile\nValues\nLists\nGrids', { ls: 0.3 });
+      card(g, 's-js', 12, 10.6, 8, 5.4, 6.4, COL.json, 'Cheetos.json\n(JSON)', { ls: 0.32, lc: '#0d0c13' });
+      g.arrow(P(12, -9, 8.8), P(12, -7.1, 8.8), { color: C.good, lift: 0.4, head: 0.25, label: '保存', labelSize: 0.28 * LS, labelColor: C.good });
+      g.arrow(P(12, -1.3, 8.8), P(12, 0.9, 8.8), { color: C.good, lift: 0.4, head: 0.25 });
+      g.arrow(P(12, 5.9, 8.8), P(12, 7.7, 8.8), { color: C.good, lift: 0.4, head: 0.25 });
+      g.arrow(P(12, 7.7, 7.2), P(12, 5.9, 7.2), { color: C.gold, lift: -0.4, head: 0.25, label: '読込', labelSize: 0.28 * LS, labelColor: C.gold });
+      g.arrow(P(12, 0.9, 7.2), P(12, -1.3, 7.2), { color: C.gold, lift: -0.4, head: 0.25 });
+      g.arrow(P(12, -7.1, 7.2), P(12, -9, 7.2), { color: C.gold, lift: -0.4, head: 0.25 });
+      g.flow(P(12, -9, 8.8), P(12, 7.7, 8.8), { color: C.good, lift: 0.6, count: 6, size: 0.12 });
+      g.flow(P(12, 7.7, 7.2), P(12, -9, 7.2), { color: C.gold, lift: -0.6, count: 6, size: 0.12, speed: 0.3 });
+      card(g, 's-dir', 12, 5.5, 2.4, 9.6, 2.4, COL.bk, 'データ保存先フォルダ\n%LOCALAPPDATA%\\Cheetos\\', { ls: 0.28 });
+      card(g, 's-ptr', 12, -4.8, 2.4, 9.6, 2.4, '#3a3655', 'exe と同じ場所の DataFolder.txt\n(1行目のパスがあればそちらを使う)', { ls: 0.26 });
+      g.arrow(P(12, -0.0, 2.4), P(12, 0.6, 2.4), { color: C.gold, lift: 0.2, head: 0.25 });
+      g.arrow(P(12, 10.6, 4.8), P(12, 10.6, 3.6), { color: C.data, lift: 0.0, head: 0.2 });
+      lbl(g, '起動時は Cheetos.json を自動で読み込む / 「設定値保存」「Ctrl+S」で保存 / プルダウンで別のファイルを読む', 12, 0, 14.0, { size: 0.28, color: '#b8b2d6' });
+      lbl(g, '以前の WinForms 版と同じキーなので、WinForms版で保存した設定ファイルも読める', 12, 0, 0.8, { size: 0.28, color: '#b8b2d6' });
+    },
+
+    steps: [
+      // 0
+      {
+        title: '全体の流れ',
+        camera: look(0),
+        update: function (g, t) {
+          // 画像の板が、撮影スレッド → 保存先フォルダ → 加工 と流れる
+          for (var i = 0; i < 3; i++) {
+            var u = ((t * 0.18) + i / 3) % 1;
+            var x, c;
+            if (u < 0.4) { x = g.lerp(-4.2, 3.2, u / 0.4); }
+            else if (u < 0.55) { x = 3.2; }
+            else { x = g.lerp(3.2, 10.5, (u - 0.55) / 0.45); }
+            var p = P(0, x, 10.1, 0.7);
+            g.setPos('o-pic' + i, p);
+          }
+        },
+        html:
+          '<p>Cheetos は2つの仕事をします。<b>画面を連続キャプチャして保存</b>することと、<b>撮った画像を仕上げる</b>ことです。流れる光の粒が「データ」、色つきの板が「画像ファイル」です。</p>' +
+          '<ol><li>画面(<code>MainWindow</code>)の設定を、<b>専用の撮影スレッド</b>に渡す</li>' +
+          '<li>撮影スレッド(<code>CaptWindow</code>)が、表の手順どおりに<b>マウス移動・待機・撮影</b>をして、保存先に <b>PNG</b> を並べる</li>' +
+          '<li>加工タブが、そのフォルダの画像を選んで<b>別スレッド(<code>BackgroundWorker</code>)</b>で処理。<b>元を <code>Bk_</code> フォルダへ退避してから、同じ場所に上書き</b></li></ol>' +
+          '<p>設定は<b>JSON</b>で保存・復元できます(左下)。次のステップから、1つずつ拡大して追います。矢印キー(←→)でも進めます。</p>' +
+          '<p class="gg-note">ここに出てくるファイル名・数値は説明用のダミーです。実際に撮影した画像は一切載せていません。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> / <code>CaptureWindow.cs</code> / <code>_Common/StandardTemplateClass.cs</code>(<code>CaptWindow</code>)</p>',
+      },
+      // 1
+      {
+        title: '① 画面の値を撮影スレッドへ',
+        camera: look(1),
+        update: function (g, t) {
+          var tt = t % 9, i;
+          for (i = 0; i < 5; i++) {
+            var a = 0.6 + i * 0.55;
+            var k = g.phase(tt, a, 1.4);
+            var from = P(1, -5.4, [12.0, 10.2, 8.6, 7.2, 5.4][i], 0.8), to = P(1, 5.4, [12.0, 10.2, 8.6, 7.2, 5.4][i], 0.8);
+            g.arcPos('u-pk' + i, from, to, k, 1.6);
+            g.get('u-pk' + i).visible = tt > a && tt < a + 1.5;
+          }
+        },
+        html:
+          '<p>「Capture」を押した瞬間、<b>UIスレッド</b>が画面の値をすべて読み取ります(<code>Button_Capture_Click</code>)。</p>' +
+          '<table><tr><th>画面の値</th><th>撮影スレッドへ渡すもの</th></tr>' +
+          '<tr><td>保存先 + 接頭辞 + タイムスタンプ</td><td><code>filePathPrefix</code>(<code>Logic.BuildFilePathPrefix</code>)</td></tr>' +
+          '<tr><td>Capture対象のラジオ</td><td><code>captureTarget</code>(FullScreen / CurrentScreen / CurrentWindow)</td></tr>' +
+          '<tr><td>Sleep(msec)</td><td><code>sleepMsecText</code></td></tr>' +
+          '<tr><td>繰り返し数</td><td><code>loopCount</code>(数値でなければメッセージを出して始めない)</td></tr>' +
+          '<tr><td>表(<code>_cwRows</code>)</td><td><code>gridRows</code>(<b>各行を文字列のリストにしたコピー</b>)</td></tr></table>' +
+          '<p>そのあと <code>CaptureForeground</code> が <b>STA の新しい <code>Thread</code></b> を起こして、ループをそこで回します。撮影スレッドは<b>コントロールに直接さわらず</b>、進捗・完了・エラーの表示だけ <code>Dispatcher.Invoke</code> でUIスレッドに頼みます。</p>' +
+          '<div class="gg-note">以前はループ全体をUIスレッドの中で回していたため、ループ中は「中断」の再クリックが効きませんでした。今は画面が固まらないので、押した瞬間に止まります。</div>' +
+          '<p class="gg-files">📄 <code>CaptureWindow.cs</code> の <code>Button_Capture_Click</code> / <code>CaptureForeground</code></p>',
+      },
+      // 2
+      {
+        title: '② ループと行の実行',
+        camera: look(2),
+        update: function (g, t) {
+          var T0 = t % 16, i, j;
+          var idx = Math.floor(T0 / ROW_DUR);
+          var done = idx >= 6;
+          var loopNo = done ? 2 : Math.floor(idx / 3) + 1;
+          var r = done ? -1 : idx % 3;
+          var u = done ? 0 : (T0 - idx * ROW_DUR) / ROW_DUR;
+          setText(g, 'l-loop', 'ループ ' + loopNo + ' / 2', { size: 0.5, color: '#ffd166' });
+          // カーソル
+          var cy = r < 0 ? 11 : S2_ROWS[r].y;
+          g.setPos('l-cur', P(2, -13.6, cy, 0.5));
+          g.get('l-cur').visible = !done;
+          // 3つの段階の光り方(マウスは動かす行だけ)
+          var on = ['#3a3655', '#3a3655', '#3a3655'];
+          if (r >= 0) {
+            if (u < 0.3 && S2_ROWS[r].mouse) on[0] = COL.gold;
+            else if (u >= 0.3 && u < 0.75) on[1] = COL.gold;
+            else if (u >= 0.75 && u < 0.95 && S2_ROWS[r].cap) on[2] = COL.gold;
+          }
+          for (i = 0; i < 3; i++) setC(g, 'l-p' + (i + 1), on[i]);
+          // 撮れた画像が保存先へ
+          for (j = 0; j < 4; j++) {
+            var s = S2_SLAB[j];
+            var tc = (s.l * 3 + s.r) * ROW_DUR + 0.75 * ROW_DUR;
+            var m = g.get('l-s' + j);
+            m.visible = T0 >= tc;
+            var k = g.phase(T0, tc, 0.9);
+            g.arcPos(m, P(2, 3.2, 6, 0.8), P(2, 10.4, 11.2 - j * 1.9, 0.8), k, 1.4);
+          }
+        },
+        html:
+          '<p>撮影スレッドの中は、<b>二重ループ</b>です(<code>CaptureForeground</code>)。</p>' +
+          '<pre><code>for (i = 1; i &lt;= loopCount; i++)     // 繰り返し\n{\n  _cw.SetFileIdx(1);               // 撮影番号を1へ\n  for (j = 0; j &lt; 行数; j++)      // 表の行\n  {\n    _cw.SetCaptureCase(行が〇か);\n    X・Yが両方あれば _cw.MouseProc();\n    _cw.SetSleepTimeMsec(行のSleep);\n    _cw.ExecuteSleep();           // 待つ\n    _cw.CaptureProc();            // 撮る\n  }\n}</code></pre>' +
+          '<ul><li>光る順は「マウス → 待つ → 撮る」。3行目のように<b>×の行</b>は、撮らずに待つだけ(Sleep が空欄なら、直前の待ち時間を引き継ぐ)</li>' +
+          '<li>マウスは <code>Move</code> なら移動だけ、それ以外(<code>LeftDown</code>・空欄)なら<b>移動して左クリック</b>(<code>SendInput</code>)</li>' +
+          '<li>撮れた画像は <code>…_0001_1.png</code>, <code>…_0001_2.png</code>, 次のループは <code>…_0002_1.png</code> … と保存先に並ぶ</li>' +
+          '<li>ループの最初に、まず画面の「Sleep(msec)」ぶん待ってから始まります</li></ul>' +
+          '<p class="gg-files">📄 <code>CaptureWindow.cs</code> / <code>StandardTemplateClass.cs</code> の <code>CaptWindow.MouseProc</code> / <code>CaptureProc</code> / <code>SetFileIdx</code></p>',
+      },
+      // 3
+      {
+        title: '③ 撮り方は3通り',
+        camera: look(3),
+        update: function (g, t) { },
+        html:
+          '<p><code>CaptWindow.CaptureProc</code> は「撮る」の直前に、<b>中断されていないか</b>・<b>その行が〇か</b>を確かめます。撮ると決まったら、対象に応じて3通りの方法で PNG にします。</p>' +
+          '<table><tr><th>対象</th><th>手順</th></tr>' +
+          '<tr><td>FullScreen</td><td><code>SendKeys.SendWait("^{PRTSC}")</code> でクリップボードに画面全体の画像を入れる → <code>Clipboard.GetDataObject</code> から取り出して <code>Image.Save</code></td></tr>' +
+          '<tr><td>CurrentWindow</td><td><code>"%{PRTSC}"</code>(Alt+PrintScreen)で、撮る瞬間に最前面のウィンドウの画像をクリップボードへ → 同じく保存</td></tr>' +
+          '<tr><td>CurrentScreen</td><td>ウィンドウの目印コントロールから <code>Screen.FromControl</code> でモニタを決め、<code>GetPhysicalBounds</code>(<code>EnumDisplaySettings</code>)で<b>物理ピクセル</b>の範囲を求め、<code>Graphics.CopyFromScreen</code> → <code>Bitmap.Save</code></td></tr></table>' +
+          '<ul><li>保存に失敗したら、そのファイル名を <code>_errorLog</code> にためて、最後に1つのダイアログで知らせます(止まらずに続行)</li>' +
+          '<li>目印コントロールは、Cheetos のウィンドウの子になる見えない WinForms コントロール(<code>WpfUtils.CreateScreenAnchor</code>)。WPF のウィンドウは WinForms の <code>Control</code> ではないため</li></ul>' +
+          '<p class="gg-files">📄 <code>_Common/StandardTemplateClass.cs</code> の <code>CaptWindow.CaptureEvent</code> / <code>SaveWithPrintScreen</code> / <code>SaveClipboard</code> / <code>SaveWithCaptureCurrentScreen</code> / <code>GetPhysicalBounds</code>、<code>WpfUtils.cs</code></p>',
+      },
+      // 4
+      {
+        title: '④ 待機と「中断」',
+        camera: look(4),
+        update: function (g, t) {
+          var T0 = t % 9, i;
+          for (i = 0; i < 5; i++) {
+            // 1500ms: 2回で終わり
+            if (i < 2) setC(g, 'w1-' + i, T0 >= 0.6 + 0.9 * i ? C.good : COL.dim);
+            // 5000ms: 3回目の途中で中断
+            var lit = T0 >= 0.6 + 0.9 * i && T0 < 3.9;
+            var stopped = T0 >= 3.9;
+            var c = COL.dim;
+            if (i < 3 && T0 >= 0.6 + 0.9 * i) c = C.good;
+            else if (i >= 3 && stopped) c = '#5a2430';
+            setC(g, 'w2-' + i, c);
+          }
+          var pressed = T0 >= 3.0;
+          setC(g, 'w-flag', T0 >= 3.2 ? C.enemy : COL.file);
+          setBoxLabel(g, 'w-flag', T0 >= 3.2 ? 'IsStopRequest' + String.fromCharCode(10) + '= true' : 'IsStopRequest' + String.fromCharCode(10) + '= false', { size: 0.3 });
+          g.pulse('w-btn', t, pressed && T0 < 3.6 ? 0.2 : 0.0);
+          g.get('w-brk').visible = stopped_(T0);
+        },
+        html:
+          '<p><code>ExecuteSleep</code> は、待ち時間を<b>1秒ずつ</b>に刻んで待ちます。1秒待つたびに <code>IsStopRequest</code>(中断の旗)を確かめるので、長い待ちの途中でも<b>最大1秒で止まります</b>。</p>' +
+          '<pre><code>for (timer = 0; timer &lt; SleepTime;\n     timer += SleepCycle)   // 1秒\n{\n  if (IsStopRequest) break;\n  Thread.Sleep(SleepCycle);\n}</code></pre>' +
+          '<ul><li><b>1500ms</b> は「0秒」「1秒」の2回ループ → <b>2秒</b>待つ(切り上げ)</li>' +
+          '<li><b>中断</b>ボタン(押すと <code>_cw.Stop()</code>)は、旗を立てるだけ。待機・マウス操作・撮影・外側のループが、それぞれ旗を見て<b>次の動作へ進まず</b>に抜けます</li>' +
+          '<li>中断しても、スレッドの後片付け(ボタンの表示を「Capture」に戻す・マウスを最初の位置へ戻す)は必ず行われます</li></ul>' +
+          '<div class="gg-note">旗(<code>IsStopRequest</code>)を立てるのはUIスレッド、見るのは撮影スレッド。今回の用途では1つの <code>bool</code> で足りるので、特別な同期は使っていません。</div>' +
+          '<p class="gg-files">📄 <code>StandardTemplateClass.cs</code> の <code>CaptWindow.ExecuteSleep</code> / <code>Stop</code>、<code>CaptureWindow.cs</code> の <code>Button_Capture_Click</code>(<code>_isCaptureRunning</code>)</p>',
+      },
+      // 5
+      {
+        title: '⑤ ファイル名の組み立て',
+        camera: look(5),
+        update: function (g, t) {
+          var TT = t % 10, fn = ['f0', 'f1', 'f2', 'f3', 'f4', 'f5'];
+          var from = [[-9, 12.5], [-8, 4], [3, 12.5], [4, 4], [11, 12.5], [12, 4]];
+          var to = FN_POS;
+          for (var i = 0; i < 6; i++) {
+            var k = g.phase(TT, 0.6 + i * 0.35, 1.2);
+            g.setPos(fn[i], P(5, g.lerp(from[i][0], to[i][0], k), g.lerp(from[i][1], to[i][1], k), 0));
+          }
+          g.get('f-all').visible = TT > 3.6;
+          for (i = 0; i < 6; i++) g.get(fn[i] + 'n').visible = TT > 3.0;
+        },
+        html:
+          '<p>保存されるファイル名は、次の部品をつなげたものです。</p>' +
+          '<pre><code>保存先\\ + 接頭辞_\n + [yyyy_MM_dd_HH_mm_ss_]\n + ループ番号(4桁) + _撮影番号 + .png</code></pre>' +
+          '<ul><li><b>前半</b>(保存先・接頭辞・タイムスタンプ)は、Capture を押した時に<b>1回だけ</b>作ります(<code>Logic.BuildFilePathPrefix</code>)。タイムスタンプは押した時刻</li>' +
+          '<li><b>ループ番号</b>は <code>i.ToString("D4")</code> で4桁(0001, 0002 …)</li>' +
+          '<li><b>撮影番号</b>は <code>FileIdx</code>。ループの先頭で1に戻り、撮るたびに+1(行の数ではなく、撮れた数)</li></ul>' +
+          '<p>この並びなので、<b>ファイル名順に並べると「ループ順 → 撮影順」</b>になり、あとから PictMerge の識別子(<code>_1</code> と <code>_2</code>)で2枚1組として扱うこともできます。</p>' +
+          '<div class="gg-note">同じ名前のファイルがあれば、撮影時に黙って上書きされます(連番を付けて避ける処理は FileCollect だけ)。接頭辞やタイムスタンプで分けてください。</div>' +
+          '<p class="gg-files">📄 <code>Logic.cs</code> の <code>BuildFilePathPrefix</code>、<code>CaptWindow.CaptureProc</code>(<code>FileFormat + "_" + FileIdx + ".png"</code>)</p>',
+      },
+      // 6
+      {
+        title: '⑥ 進捗の報告',
+        camera: look(6),
+        update: function (g, t) {
+          var TT = t % 11, i, done = 0;
+          for (i = 0; i < 4; i++) {
+            var a = 1.2 + i * 2.2;
+            var k = g.phase(TT, a, 1.0);
+            g.arcPos('p-pk' + i, P(6, -5, 11 - i * 2.2, 0.8), P(6, 4.8 + i * 2.6, 10.6, 0.8), k, 1.2);
+            g.get('p-pk' + i).visible = TT >= a && TT < a + 1.05;
+            var filled = TT >= a + 1.0;
+            if (filled) done++;
+            setC(g, 'p-b' + i, filled ? C.good : COL.dim);
+          }
+          setText(g, 'p-cnt', done + '/4', { size: 0.34, color: '#ffffff' });
+          setText(g, 'p-exp', done >= 1 ? '終了予想: 10:00:20' : '終了予想: (まだ空)', { size: 0.32, color: done >= 1 ? '#ffd166' : '#ffffff' });
+        },
+        html:
+          '<p>1周(1ループ)が終わるたびに、撮影スレッドが <code>Dispatcher.Invoke</code> で<b>UIスレッドに進捗の更新を頼みます</b>。</p>' +
+          '<ul><li><b>プログレスバー</b>と「1/4」: <code>UpdateProgressBar</code>(最大値で止まる)</li>' +
+          '<li><b>終了予想</b>: <b>1周目が終わった時に1回だけ</b>計算。<code>開始 + 経過時間 × 全体の周数 ÷ 終わった周数</code>(<code>Logic.CalcExpectEndTime</code>)</li>' +
+          '<li>全部終わったら「完了」を足し、<b>マウスカーソルを Capture を押した時の位置へ戻し</b>、撮れなかったファイルがあればダイアログで知らせます</li></ul>' +
+          '<p>加工タブ(Trim など)も、同じ「処理状況」の欄を使います。そちらは <code>BackgroundWorker.ReportProgress</code> が自動でUIスレッドに届けてくれるので、<code>Dispatcher</code> は使いません。</p>' +
+          '<p class="gg-files">📄 <code>CaptureWindow.cs</code> の <code>UpdateProgressBar</code>、<code>MainWindow.xaml.cs</code> の <code>InitProgressBar</code> / <code>ShowProgress</code> / <code>SetExpectEndTime</code> / <code>BkgWorker_ProgressChanged</code></p>',
+      },
+      // 7
+      {
+        title: '⑦ 加工の共通パターン',
+        camera: look(7),
+        update: function (g, t) {
+          var T0 = t % 12.5, j, count = 0;
+          for (j = 0; j < 4; j++) {
+            var f = S7_FILES[j];
+            var t0 = 0.8 + 2.4 * j;
+            var home = P(7, -10, f.y, 0.4);
+            var ghost = g.get('b-g' + j), orig = g.get('b-f' + j);
+            // ① バックアップへコピー
+            ghost.visible = T0 >= t0;
+            var kc = g.phase(T0, t0, 0.7);
+            g.lerpPos(ghost, P(7, -10, f.y, 0.2), P(7, -2.6 + j * 1.75, 3.9, 0.3), kc);
+            ghost.scale.setScalar(g.lerp(1, 0.45, kc));
+            // ② 加工 → ③ 戻る(上書き)
+            var u1 = g.phase(T0, t0 + 0.7, 0.9), u2 = g.phase(T0, t0 + 1.8, 0.7);
+            var mid = P(7, 0.5, 10.4, 0.9);
+            var pos = u2 > 0 ? [g.lerp(mid[0], home[0], u2), g.lerp(mid[1], home[1], u2), g.lerp(mid[2], home[2], u2)] : [g.lerp(home[0], mid[0], u1), g.lerp(home[1], mid[1], u1), g.lerp(home[2], mid[2], u1)];
+            g.setPos(orig, pos);
+            orig.scale.setScalar(g.lerp(1, 0.8, u1) + 0.2 * u2);
+            orig.material.color.set(mix(f.c, '#ffffff', 0.45 * (u1 > 0 ? 1 : 0) * (u2 > 0.5 ? 0 : 1) + 0.0));
+            if (T0 >= t0 + 2.4) { count++; setC(g, 'b-p' + j, C.good); } else setC(g, 'b-p' + j, COL.dim);
+          }
+          setText(g, 'b-cnt', count + '/4', { size: 0.42, color: '#ffffff' });
+        },
+        html:
+          '<p>PictTrim・Rotation・PictMerge の3つは<b>まったく同じ段取り</b>で、画像を1枚ずつ<b>別スレッド</b>(<code>BackgroundWorker</code>)で加工します。</p>' +
+          '<ol><li><b>UIスレッド</b>: 入力を確かめて(数値・サイズ・書式)、選んだファイル名の配列を含む<b>パラメータ用クラス</b>(<code>TrimWorkerParam</code> / <code>RotationWorkerParam</code> / <code>MergeWorkerParam</code>)に詰めて <code>RunWorkerAsync</code></li>' +
+          '<li><b><code>DoWork</code></b>(別スレッド。ここでは画面にさわらない): 1枚ごとに</li></ol>' +
+          '<ul><li>① 元のファイルを <code>Bk_Trim</code> / <code>Bk_Rotate</code> / <code>Bk_Merge</code> へ<b>コピー</b>(<code>File.Copy(…, true)</code>)</li>' +
+          '<li>② 加工(<code>PicEdit</code> / <code>Rotation</code> / <code>PictMerge</code>)</li>' +
+          '<li>③ 元の場所へ<b>上書き保存</b></li>' +
+          '<li>④ <code>ReportProgress(終わった件数)</code> → UIスレッドの進捗バー。<code>CancellationPending</code> を見て中断</li></ul>' +
+          '<p><b>DistOrient</b> は、バックアップではなく<b>ファイルの移動</b>(<code>FileMove</code>)。<b>FileCollect</b> は別スレッドを使わず、UIスレッドで1件ずつ <code>File.Move</code>(同名があれば <code>名前 (2)</code> と連番)します。</p>' +
+          '<div class="gg-note">始める前に <code>Bk_xxx</code> フォルダが無ければ、作ってよいか確認します。「元に戻したくなったら、<code>Bk_</code> から戻す」が基本の使い方です。</div>' +
+          '<p class="gg-files">📄 <code>WorkerParams.cs</code>、<code>PictTrim.cs</code> の <code>Button_Trim_Click</code> / <code>bkgWorkerTrim_DoWork</code> / <code>bkgWorkerTrim_RunWorkerCompleted</code>、<code>MainWindow.xaml.cs</code> の <code>InitializeBackgroundWorkers</code> / <code>BkgWorker_ProgressChanged</code></p>',
+      },
+      // 8
+      {
+        title: '⑧ PictTrim の中身',
+        camera: look(8),
+        update: function (g, t) {
+          var T0 = t % 9;
+          var k1 = g.phase(T0, 0.6, 1.2);
+          var fr = g.get('t-frame');
+          // 原点(左上)から広がる枠
+          fr.scale.set(Math.max(k1, 0.001), Math.max(k1, 0.001), 1);
+          fr.position.set(X(8) + (-7 - 2.75 + 2.75 * k1), 8 + 1.75 - 1.75 * k1, 0.4);
+          fr.visible = T0 < 6.5;
+          var fl = g.get('t-flyer');
+          var k2 = g.phase(T0, 2.4, 1.6);
+          fl.visible = T0 >= 2.4;
+          g.arcPos(fl, P(8, -7, 8, 0.6), P(8, 7.5, 8, 0.6), k2, 1.6);
+        },
+        html:
+          '<p>PictTrim の1枚分の処理は、とても小さいです。</p>' +
+          '<pre><code>// 元をバックアップへコピーしたあと\nusing (PicEdit trm = new PicEdit(幅, 高さ))   // 空のキャンバス\n{\n  var cut = new Rectangle(baseX, baseY, 幅, 高さ);\n  trm.TrimExec(バックアップ側の元画像, cut, Point.Empty);\n  trm.SaveCanvas(元の場所);              // 上書き\n}</code></pre>' +
+          '<ul><li><b>切り取る四角</b>: 原点(X, Y)から、幅・高さ。「終点を座標で指定」のときは <code>幅 = 終点X − 原点X</code>、<code>高さ = 終点Y − 原点Y</code></li>' +
+          '<li><code>PicEdit.TrimExec</code> の中身は <code>Graphics.DrawImage(元, 貼る四角, 切り取る四角, Pixel)</code> の1行。<b>読み込む元は、上書きされないバックアップ側</b>なので、ファイルが壊れる心配がありません</li>' +
+          '<li>幅・高さが0以下なら、キャンバスを作れないので、始める前にメッセージで止めます</li></ul>' +
+          '<p class="gg-files">📄 <code>PicEdit.cs</code> の <code>TrimExec</code> / <code>SaveCanvas</code>、<code>PictTrim.cs</code> の <code>bkgWorkerTrim_DoWork</code></p>',
+      },
+      // 9
+      {
+        title: '⑨ Rotation の中身',
+        camera: look(9),
+        update: function (g, t) {
+          var T0 = t % 8;
+          var k = g.phase(T0, 1.0, 3.0);
+          var ang = 90 * k;
+          g.get('r-grp').rotation.z = -ang * Math.PI / 180;
+          setText(g, 'r-ang', '角度: ' + Math.round(ang) + '°', { size: 0.5, color: '#ffffff' });
+          g.pulse('r-pivot', t, 0.25);
+        },
+        html:
+          '<p>回転は <code>Rotation.DrawRotated</code> が、<b>1回の <code>DrawImage</code></b> でやります。</p>' +
+          '<ol><li><b>キャンバス</b>: <code>(int)Math.Sqrt(幅² + 高さ²)</code> を一辺とする正方形(元画像の対角線の長さ)</li>' +
+          '<li>角度を<b>ラジアン</b>にして、元画像の3つの角の行き先を計算:<br><code>左上 = 原点</code> / <code>右上 = 原点 + (幅·cosθ, 幅·sinθ)</code> / <code>左下 = 原点 + (−高さ·sinθ, 高さ·cosθ)</code></li>' +
+          '<li><code>g.DrawImage(img, 3つの点)</code> で、回転しながらキャンバスへ描く</li></ol>' +
+          '<ul><li><b>原点(X, Y)</b>は、<b>キャンバス上</b>で元画像の左上隅を置く点。その点を軸に回ります。例では (220, 0) を中心に90°回すと、横長の画像がキャンバスの左上に縦長に収まります</li>' +
+          '<li>読み込み元と同じファイルへ上書きするため、<b>元の画像を先に解放してから</b> <code>canvas.Save</code>(失敗してもファイルが開いたままにならないよう <code>using</code> / <code>finally</code>)</li>' +
+          '<li>プレビュー画面(<code>RotationPreview</code>)も同じ <code>DrawRotated</code> を使うので、見た目と結果が一致します</li></ul>' +
+          '<p class="gg-files">📄 <code>Rotation.cs</code> の <code>Rotation.RotateExecute</code> / <code>DrawRotated</code>、<code>RotationPreview.xaml.cs</code> の <code>Draw</code></p>',
+      },
+      // 10
+      {
+        title: '⑩ DistOrient の中身',
+        camera: look(10),
+        update: function (g, t) {
+          var T0 = t % 11;
+          var dd = [{ id: 'dP', y: 11.4, w: 2.6, vals: [739, 739], port: true }, { id: 'dL', y: 4.2, w: 4.2, vals: [2100, 2400], port: false }];
+          dd.forEach(function (d) {
+            var by = d.y - 2.1;
+            var k = g.phase(T0, 1.4, 1.6);                       // 帯 → メーターの棒
+            var sc = 2.6;                                       // 1000バイト = 2.6 の高さ
+            [0, 1].forEach(function (s) {
+              var h = Math.max(0.1, d.vals[s] / 1000 * sc * k);
+              var m = g.get(d.id + 'm' + s);
+              m.scale.y = h / 0.1;
+              m.position.set(P(10, -3.2 + s * 1.8, 0)[0], by + h / 2, 0);
+              var over = d.vals[s] > 933;
+              m.material.color.set(T0 > 3.2 ? (over ? C.enemy : C.good) : C.data);
+            });
+            var kk = g.phase(T0, 5.0, 1.8);                      // 画像 → 振り分け先
+            g.arcPos(d.id, P(10, -11, d.y, 0.3), P(10, 10.2, d.y, 0.3), kk, 0.5);
+            var res = T0 > 3.4 ? (d.port ? '左右とも以下 → 縦' : '超えている → 横') : '';
+            setText(g, d.id + 'res', res || ' ', { size: 0.3, color: d.port ? '#aef0cf' : '#ffd9ae' });
+          });
+        },
+        html:
+          '<p>縦横の見分けは、<b>画像を細い帯に切って PNG にしたときのバイト数</b>だけで判断します(<code>Logic.IsPortrait</code>)。</p>' +
+          '<ol><li>帯の幅 = <code>min(白判定の長さ, 画像の幅)</code>。<b>しきい値 <code>baseSize = 帯の幅 × 画像の高さ ÷ 係数</code></b>(係数は実測値。既定30)</li>' +
+          '<li><b>左端の帯</b>を切り取って PNG にしたサイズを測る(<code>GetTrimmedPngByteLength</code>)。<b>しきい値以下</b>なら(ほぼ真っ白=縦長の白フチ)次へ。超えたら<b>横</b>と決めて、右は見ない</li>' +
+          '<li><b>右端の帯</b>も同じように測り、<b>しきい値以下なら縦</b>、超えたら横</li></ol>' +
+          '<ul><li>真っ白な帯は PNG で<b>とても小さく</b>圧縮でき、絵のある帯は大きくなる、という性質を使っています。白判定の長さと係数は、スキャン画像に合わせた実測値</li>' +
+          '<li>デコードは画像1枚につき1回(<code>Bitmap</code> を左右の判定で使い回し)</li>' +
+          '<li>振り分けは <code>FileMove</code>。失敗したものは <code>errorLog</code> にためて、最後にまとめて警告</li></ul>' +
+          '<p class="gg-note">図の 739 / 933 は、このガイドの Sample 画面で実際に出た値の例です(<code>BaseSize=933</code>、左右とも739)。横長の方の値は説明用の仮の数字です。</p>' +
+          '<p class="gg-files">📄 <code>Logic.cs</code> の <code>IsPortrait</code> / <code>GetTrimmedPngByteLength</code>、<code>DistOrient.cs</code> の <code>bkgWorkerOrient_DoWork</code>、<code>PicEdit.GetCanvasPngByteLength</code></p>',
+      },
+      // 11
+      {
+        title: '⑪ PictMerge の中身',
+        camera: look(11),
+        update: function (g, t) {
+          var T0 = t % 10;
+          var m1 = g.get('m2-b1'), m2 = g.get('m2-b2'), gh = g.get('m2-g');
+          // バックアップ(結合先を先にコピー)
+          gh.visible = T0 >= 0.3;
+          var kg = g.phase(T0, 0.3, 1.0);
+          g.lerpPos(gh, P(11, -9, 8, 0.25), P(11, 8.4, 4.6, 0.3), kg);
+          gh.scale.setScalar(g.lerp(1, 0.4, kg));
+          // 帯1・帯2を結合先へ
+          var a = g.phase(T0, 2.0, 1.3), b = g.phase(T0, 3.6, 1.3);
+          g.arcPos(m1, P(11, 0, 8 + MH_ / 2 - MH_ * 0.125, 0.3), P(11, -9, 8 + MH_ / 2 - MH_ * 0.125, 0.5), a, 1.2);
+          g.arcPos(m2, P(11, 0, 8 - MH_ / 2 + MH_ * 0.125, 0.3), P(11, -9, 8 - MH_ / 2 + MH_ * 0.125, 0.5), b, 1.2);
+          // 結合元をバックアップへ移す
+          var s = g.get('m2-s');
+          var ks = g.phase(T0, 6.2, 1.5);
+          g.lerpPos(s, P(11, 0, 8, 0), P(11, 9.9, 4.6, 0.2), ks);
+          s.scale.setScalar(g.lerp(1, 0.45, ks));
+        },
+        html:
+          '<p>PictMerge は「<b>結合先</b>(識別子 <code>_1</code>)に、<b>結合元</b>(<code>_2</code>)の指定範囲を同じ位置へ貼る」処理です(<code>PictMerge.MergeExecute</code>)。</p>' +
+          '<ol><li>選んだファイルのうち、名前に「識別子1+拡張子」(<code>_1.png</code>)を含むものだけが対象(<code>IsProcTarget</code>)。結合元の名前は、その部分を識別子2に置き換えて決めます(<code>ResolveMergeFilePath</code>)</li>' +
+          '<li>結合先を <code>Bk_Merge</code> へバックアップ(<code>BackUpSourceFile</code>)</li>' +
+          '<li>結合先をキャンバスに、結合元の画像を読み込み、<b>「開始,終了」の行ごとに</b>、高さ <code>開始〜終了</code> の帯(幅は画像の全幅)を、結合元から結合先の<b>同じ座標</b>へ <code>DrawImage</code>(<code>-</code> は開始なら0、終了なら画像の下端)</li>' +
+          '<li>結合先を上書き保存。<b>結合元は <code>Bk_Merge</code> へ移動</b>(前回のバックアップがあれば置き換える)</li></ol>' +
+          '<ul><li>結合先か結合元のファイルが無い項目は、飛ばして「ファイルが存在しません」をエラー欄にためます</li>' +
+          '<li>範囲の書式チェックは、<b>始める前にUIスレッドで1回</b>だけ(<code>BuildInvalidTrimHeightsMessage</code>)。画像ごとに高さが違うため、「その画像では範囲外」の行は、その画像だけ飛ばします</li></ul>' +
+          '<p class="gg-files">📄 <code>PictMerge.cs</code> の <code>PictMerge</code> クラス(<code>SetTargetFileName</code> / <code>IsProcTarget</code> / <code>BackUpSourceFile</code> / <code>ResolveMergeFilePath</code> / <code>MergeExecute</code>)、<code>PicEdit.CreateSourceImg</code> / <code>MergeExec</code></p>',
+      },
+      // 12
+      {
+        title: '⑫ 設定の保存と復元',
+        camera: look(12),
+        update: function (g, t) { },
+        html:
+          '<p>画面の値の保存は、<b>入れ物に登録した項目を、そのまま JSON にする</b>しくみです。</p>' +
+          '<ol><li><code>RegisterSaveRestoreItems</code> で、<code>_sr.RegisterCtrl("CaptureWindow", "cw_TextBox_SavePath", cw_TextBox_SavePath)</code> のように、<b>コントロールを「属性名|項目名」のキーで登録</b>。表は <code>RegisterGrid("DataGrid", "Cell", Get, Set)</code></li>' +
+          '<li><b>保存</b>(<code>Save</code>): 登録した項目の今の値を集めて <code>GenericProfile</code>(<code>Values</code> / <code>Lists</code> / <code>Grids</code>)にし、<code>JsonFileStorage.Save</code> で JSON ファイルへ(<code>AtomicFile</code> で書くので、途中で止まってもファイルが壊れにくい)</li>' +
+          '<li><b>復元</b>(<code>Load</code> / <code>LoadOrDefault</code>): JSON を読み、登録した項目へ値を戻す。ファイルに無い項目は<b>登録時の既定値</b>に戻す</li></ol>' +
+          '<ul><li>保存先: <code>%LOCALAPPDATA%\\Cheetos\\</code>。<b>exe と同じフォルダの <code>DataFolder.txt</code> の1行目</b>があれば、そのフォルダを使う(<code>UserDataLocation.GetUserDataFolder</code>)</li>' +
+          '<li>キーを WinForms 版と同じにしてあり、<b>以前の版の設定ファイルをそのまま読める</b>。キー名の綴りを直した項目は、<code>legacyAttrValue</code> で旧キーも読む</li>' +
+          '<li>表のセルを編集中に保存しても、編集中の値を確定してから集める(<code>CommitGridEdit</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RegisterSaveRestoreItems</code> / <code>GetGridRows</code> / <code>SetGridRows</code>、<code>_Common/Wpf/WpfSaveRestore.cs</code>、<code>JsonFileStorage.cs</code>、<code>UserDataLocation.cs</code></p>',
+      },
+    ],
+  });
+
+})();
+</script>
+</body>
+</html>

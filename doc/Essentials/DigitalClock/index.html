@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigitalClock ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>DigitalClock ドキュメント</h1>
+  <p class="lead">時刻だけを表示する、小さなデジタル時計「DigitalClock」(C# / WPF / .NET Framework)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
+  最前面・半透明の小さなウィンドウに <code>HH:mm:ss</code> を出すだけのツールで、ドラッグで好きな場所へ動かせます。画面のスクリーンショットは、このガイド用に撮った時計の窓と見本テキストだけです。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全7ステップ</div>
+      <div class="d">起動 → 時刻が進む → ドラッグで移動 → 半透明で他のウィンドウに重ねる → 位置を覚える。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒が流れるアニメ / 全7ステップ</div>
+      <div class="d">500msごとのタイマー → 時刻の整形 → 画面。起動時の位置の復元(画面外なら捨てる)、半透明化のWin32の仕掛け、ドラッグ移動、終了時の保存まで。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / クラス構成の3D図 / 全6ステップ</div>
+      <div class="d"><code>MainWindow</code> / <code>Logic</code> / <code>WindowPlacement</code> と、共通部品 <code>JsonFileStorage</code> / <code>AtomicFile</code>、user32.dll の関係。実際のクラス・ファイル・関数名で解説します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/DigitalClock</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
+  </p>
+</div>
+</body>
+</html>

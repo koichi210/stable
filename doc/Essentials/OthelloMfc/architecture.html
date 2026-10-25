@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OthelloMfc 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { ui: '#4fa3ff', game: '#c77dff', rule: '#ff9f43', defs: '#8f89b3', ext: '#5d5a78' };
+  var BASE = { ui: 16.8, game: 12.6, rule: 8.4, defs: 4.2, ext: 0 };      // 各層の床の高さ
+  var BX = {};                                            // id -> { x, y, z }(箱の中心)
+
+  function cls(g, id, layer, x, w, label, color) {
+    var y = BASE[layer] + 0.62;
+    BX[id] = { x: x, y: y, z: 0 };
+    g.box({ id: id, size: [w, 1.1, 2.2], pos: [x, y, 0], radius: 0.14, color: color || COL[layer], label: label, labelSize: 0.3, labelOffset: [0, 1.15, 0] });
+  }
+  // 箱から箱への依存の矢印。上下の層なら箱の下面→上面、同じ層なら上を回す
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to, zf = 1.4;
+    if (Math.abs(A.y - B.y) < 0.1) {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y + 0.55, zf];
+    } else if (A.y > B.y) {
+      from = [A.x, A.y - 0.55, zf]; to = [B.x, B.y + 0.6, zf];
+    } else {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y - 0.6, zf];
+    }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.27, head: 0.32 });
+  }
+
+  var OVERVIEW = { pos: [-0.5, 10.5, 37], target: [-0.5, 9.2, 0] };
+
+  GameGuide.start({
+    title: 'OthelloMfc 内部設計',
+    subtitle: 'クラス・ファイルの層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      function layer(id, key, label, color, lc) {
+        g.plate({ id: id, size: [35, 3.4], pos: [0, BASE[key] + 0.03, 0], color: color, opacity: 0.55, label: label, labelSize: 0.42, labelOffset: [-15.6, 0.3, 2.3], labelColor: lc });
+      }
+      layer('L-ui', 'ui', '画面(UI)層', '#26304f', '#bcd6ff');
+      layer('L-game', 'game', '対局の進行・状態', '#352a4f', '#e2ccff');
+      layer('L-rule', 'rule', 'ルール・思考', '#4a3524', '#ffd9ae');
+      layer('L-defs', 'defs', '共通の型・定数\n(othello_defs.h)', '#34304a', '#d5d0f2');
+      layer('L-ext', 'ext', '外部(MFC・OS・STL)', '#2b2a3d', '#cfcbe8');
+
+      // 画面(UI)層
+      cls(g, 'app', 'ui', -9.5, 4.6, 'OthelloApp\n(othello.h / .cc)');
+      cls(g, 'dlg', 'ui', -0.5, 7.2, 'OthelloDlg : CDialog\n(othello_dlg.h / .cc)');
+      cls(g, 'about', 'ui', 7.2, 4.0, 'AboutDlg\n(othello_dlg.cc 内)');
+      // 対局の進行
+      cls(g, 'gm', 'game', -7.5, 5.2, 'GameManager\n(game_manager.h / .cc)');
+      cls(g, 'kifu', 'game', 0, 4.0, 'KifuRecord\n(struct)');
+      // ルール・思考
+      cls(g, 'board', 'rule', -8, 4.4, 'Board\n(board.h / .cc)');
+      cls(g, 'com', 'rule', 0.5, 5.0, 'ComPlayer\n(com_player.h / .cc)');
+      cls(g, 'cand', 'rule', 7.2, 3.8, 'Candidate\n(com_player.h 内)');
+      // 共通の型
+      cls(g, 'stone', 'defs', -11.2, 3.2, 'Stone\n(enum class)');
+      cls(g, 'mode', 'defs', -7.6, 3.2, 'PlayMode\n(enum class)');
+      cls(g, 'state', 'defs', -4.0, 3.2, 'GameState\n(enum class)');
+      cls(g, 'flips', 'defs', -0.4, 3.4, 'FlipCounts\n(array<int,8>)');
+      cls(g, 'consts', 'defs', 3.4, 3.6, 'kBoardSize\nkMaxMoves ほか');
+      cls(g, 'helpers', 'defs', 8.0, 5.0, 'Opponent / ColumnChar\n/ ColorName');
+      // 外部
+      cls(g, 'mfc', 'ext', -11.6, 4.8, 'MFC(静的リンク)\nCWinApp / CDialog / CDC');
+      cls(g, 'timer', 'ext', -6.4, 4.6, 'Win32 タイマ\nSetTimer / WM_TIMER');
+      cls(g, 'res', 'ext', -1.4, 4.6, 'othello.rc\nresource.h / res/');
+      cls(g, 'file', 'ext', 3.6, 4.6, 'CStdioFile\nCFileDialog(.rkf)');
+      cls(g, 'stl', 'ext', 8.6, 4.4, 'STL\narray / vector\nmt19937');
+      cls(g, 'pch', 'ext', 13.2, 3.6, 'StdAfx.h / .cpp\n(PCH)');
+
+      // 依存の矢印
+      arr(g, 'a-app-dlg', 'app', 'dlg', 'DoModal()', C.gold, 1.6);
+      arr(g, 'a-dlg-gm', 'dlg', 'gm', 'game_', C.gold, 0.9);
+      arr(g, 'a-dlg-com', 'dlg', 'com', 'com_.Think()', C.enemy, 0.9);
+      arr(g, 'a-dlg-about', 'dlg', 'about', 'DoModal()', C.gold, 1.0);
+      arr(g, 'a-gm-board', 'gm', 'board', 'board_', C.gold, 0.9);
+      arr(g, 'a-gm-kifu', 'gm', 'kifu', 'kifu_[]', C.data, 0.9);
+      arr(g, 'a-com-board', 'com', 'board', 'board_(コピー)', C.data, 1.0);
+      arr(g, 'a-com-cand', 'com', 'cand', 'Candidates', C.data, 0.9);
+      arr(g, 'a-board-flips', 'board', 'flips', '方向ごとの数', C.data, 0.9);
+      arr(g, 'a-board-stone', 'board', 'stone', 'cells_', C.data, 0.9);
+      arr(g, 'a-gm-mode', 'gm', 'mode', '', C.data, 0.5);
+      arr(g, 'a-gm-state', 'gm', 'state', '', C.data, 0.5);
+      arr(g, 'a-dlg-mfc', 'dlg', 'mfc', '継承', C.gold, 2.4);
+      arr(g, 'a-dlg-timer', 'dlg', 'timer', 'COM/持ち時間', C.good, 2.2);
+      arr(g, 'a-dlg-res', 'dlg', 'res', 'IDD / メニュー', C.gold, 1.8);
+      arr(g, 'a-gm-file', 'gm', 'file', 'SaveKifu / LoadKifu', C.gold, 1.2);
+      arr(g, 'a-com-stl', 'com', 'stl', 'mt19937', C.gold, 0.8);
+      arr(g, 'a-board-helpers', 'board', 'helpers', 'Opponent', C.data, 1.0);
+    },
+
+    steps: [
+      {
+        title: '全体: 5つの層',
+        camera: OVERVIEW,
+        show: ['a-app-dlg', 'a-dlg-gm', 'a-dlg-com', 'a-gm-board', 'a-com-board'],
+        html:
+          '<p>OthelloMfc(C++ / MFC、Visual Studio 2019 の v142、C++17)は、小さなクラスが<b>上から下へ</b>呼ぶ形で、きれいに分かれています。下の層は上の層を知りません。</p>' +
+          '<table><tr><th>層</th><th>クラス / ファイル</th></tr>' +
+          '<tr><td>画面(UI)</td><td><code>OthelloApp</code>(<code>othello.cc</code>)、<code>OthelloDlg</code>(<code>othello_dlg.cc</code>)</td></tr>' +
+          '<tr><td>対局の進行・状態</td><td><code>GameManager</code>(<code>game_manager.cc</code>)</td></tr>' +
+          '<tr><td>ルール・思考</td><td><code>Board</code>(<code>board.cc</code>)、<code>ComPlayer</code>(<code>com_player.cc</code>)</td></tr>' +
+          '<tr><td>共通の型・定数</td><td><code>othello_defs.h</code></td></tr>' +
+          '<tr><td>外部</td><td>MFC・Win32・STL、リソース(<code>othello.rc</code>)</td></tr></table>' +
+          '<p><b>設計の要点</b>: 盤面のルール(<code>Board</code>)とCOMの思考(<code>ComPlayer</code>)は<b>MFCにも画面にも依存しません</b>(使うのは座標用の <code>CPoint</code> と STL だけ)。画面(<code>OthelloDlg</code>)は、状態を読んで描くだけです。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに注目する箱が明るくなります。</p>',
+      },
+      {
+        title: '画面層(1): OthelloApp と AboutDlg',
+        camera: { pos: [-1, 17.5, 22], target: [-1, 16.8, 0] },
+        focus: ['app', 'dlg', 'about', 'a-app-dlg', 'a-dlg-about', 'L-ui', 'mfc'],
+        show: ['a-app-dlg', 'a-dlg-about'],
+        html:
+          '<p><b>OthelloApp</b>(<code>CWinApp</code> を継承)は、グローバルな <code>the_app</code> が1つあるだけ。<code>InitInstance</code> で <code>OthelloDlg</code> を作って <code>DoModal()</code> し、閉じたら <code>FALSE</code> を返して<b>メッセージポンプを回さずに終了</b>します(ダイアログベースのアプリの定番)。</p>' +
+          '<p><b>AboutDlg</b>は「バージョン情報」だけの小さな <code>CDialog</code>(<code>othello_dlg.cc</code> の中)。<code>OnVersion</code> とシステムメニューの項目から開きます。</p>' +
+          '<p class="gg-files">📄 <code>othello.h</code> / <code>othello.cc</code> / <code>othello_dlg.cc</code> の <code>AboutDlg</code></p>',
+      },
+      {
+        title: '画面層(2): OthelloDlg',
+        camera: { pos: [0, 18, 21], target: [0, 16.8, 0] },
+        focus: ['dlg', 'gm', 'com', 'res', 'timer', 'mfc', 'a-dlg-gm', 'a-dlg-com', 'a-dlg-mfc', 'a-dlg-timer', 'a-dlg-res', 'L-ui'],
+        show: ['a-dlg-gm', 'a-dlg-com', 'a-dlg-mfc', 'a-dlg-timer', 'a-dlg-res'],
+        html:
+          '<p><b>OthelloDlg</b>(<code>CDialog</code> 継承)は、画面と操作のすべてを受け持つクラスです。</p>' +
+          '<ul><li><b>持っているもの</b>: <code>GameManager game_</code>、<code>ComPlayer com_</code>、<code>cell_size_</code>(1マスのpx)、<code>time_limit_sec_</code>、<code>black_remain_ms_</code> / <code>white_remain_ms_</code>、<code>pressed_cell_</code></li>' +
+          '<li><b>メッセージマップ</b>(<code>BEGIN_MESSAGE_MAP</code>): <code>ON_WM_PAINT</code> / <code>ON_WM_SIZE</code> / <code>ON_WM_TIMER</code> / <code>ON_WM_LBUTTONDOWN・UP</code> と、メニュー項目ごとの <code>ON_COMMAND</code>。プレイモード・COMレベル・制限時間は <code>ON_COMMAND_RANGE</code> でまとめて受ける</li>' +
+          '<li><b>タイマ</b>: COM用(10ms、<code>kComTimerId</code>)と、黒/白の持ち時間用(100ms)。<code>OnTimer</code> で振り分け</li>' +
+          '<li><b>対局の進行</b>: <code>StartGame</code> / <code>PlayMove</code> / <code>PlayComTurn</code> / <code>ChangeTurn</code> / <code>EndGame</code></li>' +
+          '<li><b>描画</b>: <code>DrawBoard</code> / <code>DrawStone</code> / <code>DrawMovableMarks</code>。レイアウトは <code>UpdateLayout</code></li></ul>' +
+          '<p>ルールの判断は持たず、<code>game_</code> と <code>com_</code> に聞いて、結果を画面とメニューの状態(有効/無効・チェック)に反映します。</p>' +
+          '<p class="gg-files">📄 <code>othello_dlg.h</code> / <code>othello_dlg.cc</code> / <code>othello.rc</code>(<code>IDD_OTHELLO_DIALOG</code>、<code>IDR_MENU1</code>)</p>',
+      },
+      {
+        title: '対局の進行: GameManager',
+        camera: { pos: [-4, 13.6, 20], target: [-4, 12.6, 0] },
+        focus: ['gm', 'kifu', 'board', 'mode', 'state', 'file', 'a-gm-board', 'a-gm-kifu', 'a-gm-mode', 'a-gm-state', 'a-gm-file', 'L-game'],
+        show: ['a-gm-board', 'a-gm-kifu', 'a-gm-mode', 'a-gm-state', 'a-gm-file'],
+        html:
+          '<p><b>GameManager</b> は「今の対局の状態」を1か所にまとめたクラスです。画面の都合は知りません。</p>' +
+          '<ul><li><b>状態</b>: <code>Board board_</code>、<code>turn_</code>(今の手番)、<code>move_count_</code>(盤に反映済みの手数)、<code>record_count_</code>(棋譜の手数。一手戻した分を含む)</li>' +
+          '<li><b>設定</b>: <code>PlayMode</code>(対戦モード)、<code>GameState</code>(開始前・対局中・停止・終局)、<code>com_level_</code>、<code>show_movable_</code></li>' +
+          '<li><b>操作</b>: <code>NewGame</code> / <code>PlayMove</code> / <code>Undo</code> / <code>Redo</code> / <code>IsComTurn</code></li>' +
+          '<li><b>棋譜</b>: <code>kifu_</code> は <code>std::array&lt;KifuRecord, kMaxMoves&gt;</code>。<code>GetKifuText</code> / <code>SaveKifu</code> / <code>LoadKifu</code></li></ul>' +
+          '<p><b>KifuRecord</b> は1手分の <code>{ pos, color, flips }</code>。裏返した数(<code>FlipCounts</code>)を持つので、戻す・送るは盤全体を保存せずに済みます。</p>' +
+          '<p class="gg-files">📄 <code>game_manager.h</code> / <code>game_manager.cc</code></p>',
+      },
+      {
+        title: 'ルール: Board',
+        camera: { pos: [-6, 9.4, 20], target: [-6, 8.4, 0] },
+        focus: ['board', 'flips', 'stone', 'helpers', 'a-board-flips', 'a-board-stone', 'a-board-helpers', 'L-rule'],
+        show: ['a-board-flips', 'a-board-stone', 'a-board-helpers'],
+        html:
+          '<p><b>Board</b> は盤面(<code>Stone cells_[8][8]</code>)と、石を置く・裏返すルールだけを持ちます。座標は棋譜と同じ<b>1始まり</b>(<code>CPoint</code>)。</p>' +
+          '<ul><li><b>問い合わせ</b>: <code>GetAt</code> / <code>IsInside</code> / <code>CanPut</code> / <code>GetFlips</code> / <code>GetMovablePositions</code> / <code>HasMovablePosition</code> / <code>GetNextTurn</code> / <code>CountStones</code></li>' +
+          '<li><b>変更</b>: <code>Reset</code>(初期配置) / <code>Put</code>(置いて裏返す) / <code>Undo</code>(<code>Put</code> の取り消し)</li>' +
+          '<li><b>内部</b>: <code>CountFlipsInDirection</code>(1方向を数える)、<code>Flip</code>、<code>kDirections[8]</code>(方向ごとの移動量。<code>FlipCounts</code> の並びと対応)</li></ul>' +
+          '<p>コピーが軽い(配列だけ)ので、COMは盤面を<b>コピーして試し打ち</b>できます(<code>ComPlayer::GivesCornerToEnemy</code>)。</p>' +
+          '<p class="gg-files">📄 <code>board.h</code> / <code>board.cc</code></p>',
+      },
+      {
+        title: '思考: ComPlayer',
+        camera: { pos: [2, 9.4, 20], target: [2, 8.4, 0] },
+        focus: ['com', 'cand', 'board', 'stl', 'a-com-board', 'a-com-cand', 'a-com-stl', 'L-rule'],
+        show: ['a-com-board', 'a-com-cand', 'a-com-stl'],
+        html:
+          '<p><b>ComPlayer</b> の入り口は <code>Think(board, color, level, move_count, result)</code> だけ。置ける場所がなければ <code>false</code>。</p>' +
+          '<ol><li>盤面をコピーして <code>board_</code> に持つ</li>' +
+          '<li>レベルで<b>候補(<code>Candidate</code> = 座標＋評価値)の並べ方</b>を変える: <code>GetCenterCandidates</code>(中央寄り) / <code>GetFlipCandidates</code>(裏返す数の多い/少ない順) / <code>GetOpennessCandidates</code>(開放度。<code>CountEmptyAround</code> を使う)</li>' +
+          '<li><code>ChooseFrom</code> が1手を選ぶ。序盤(<code>kRandomMoveCount</code> = 2手)は <code>std::mt19937</code> でランダム。以降は <code>IsCorner</code> / <code>IsXSquare</code> / <code>IsCSquare</code> / <code>GivesCornerToEnemy</code> で分類し、角 &gt; 無難 &gt; 星 &gt; 角の隣 &gt; 角を与える の順に採用</li></ol>' +
+          '<p>局面の段階(序盤・中盤・終盤)は手数で決めます(<code>GetPhase</code>、無名名前空間の <code>Phase</code>)。<code>SortCandidates</code> は、同点の並びを昔のまま保つために単純な交換ソートです。</p>' +
+          '<p class="gg-files">📄 <code>com_player.h</code> / <code>com_player.cc</code></p>',
+      },
+      {
+        title: '共通の型と定数: othello_defs.h',
+        camera: { pos: [-1, 5.4, 24], target: [-1, 4.4, 0] },
+        focus: ['stone', 'mode', 'state', 'flips', 'consts', 'helpers', 'board', 'gm', 'com', 'L-defs'],
+        show: ['a-board-flips', 'a-board-stone', 'a-board-helpers', 'a-gm-mode', 'a-gm-state'],
+        html:
+          '<p>全クラスが使う<b>小さな型と定数</b>を、1つのヘッダにまとめてあります。</p>' +
+          '<table><tr><th>名前</th><th>中身</th></tr>' +
+          '<tr><td><code>Stone</code></td><td><code>kNone</code> / <code>kBlack</code> / <code>kWhite</code>(<code>enum class : char</code>)</td></tr>' +
+          '<tr><td><code>PlayMode</code></td><td><code>kPlayerVsPlayer</code> / <code>kPlayerVsCom</code> / <code>kComVsPlayer</code> / <code>kComVsCom</code>(メニューIDの並びと同じ)</td></tr>' +
+          '<tr><td><code>GameState</code></td><td><code>kInit</code> / <code>kPlay</code> / <code>kStop</code> / <code>kEnd</code></td></tr>' +
+          '<tr><td><code>FlipCounts</code></td><td>方向ごとの裏返る数 <code>std::array&lt;int, 8&gt;</code></td></tr>' +
+          '<tr><td>定数</td><td><code>kBoardSize</code>(8) / <code>kInitialStones</code>(4) / <code>kMaxMoves</code>(60) / <code>kDirectionCount</code>(8)</td></tr>' +
+          '<tr><td>関数</td><td><code>Opponent</code>(相手の色) / <code>ColumnChar</code>(1→\'A\') / <code>ColorName</code>(黒・白。棋譜にもこの名前で書く)</td></tr></table>' +
+          '<p>マジックナンバーを避け、メニューや棋譜の表記と<b>同じ名前・同じ並び</b>にそろえてあるのが特徴です。</p>' +
+          '<p class="gg-files">📄 <code>othello_defs.h</code></p>',
+      },
+      {
+        title: '外部・ビルド構成',
+        camera: { pos: [0, 5, 31], target: [0, 3.2, 0] },
+        focus: ['mfc', 'timer', 'res', 'file', 'stl', 'pch', 'dlg', 'gm', 'com', 'a-dlg-mfc', 'a-dlg-timer', 'a-dlg-res', 'a-gm-file', 'a-com-stl', 'L-ext'],
+        show: ['a-dlg-mfc', 'a-dlg-timer', 'a-dlg-res', 'a-gm-file', 'a-com-stl'],
+        html:
+          '<table><tr><th>依存先</th><th>使い道</th></tr>' +
+          '<tr><td>MFC(静的リンク)</td><td><code>CWinApp</code> / <code>CDialog</code> / <code>CDC</code>(描画) / <code>CFileDialog</code>・<code>CStdioFile</code>(棋譜) / <code>AfxMessageBox</code></td></tr>' +
+          '<tr><td>Win32 タイマ</td><td><code>SetTimer</code> / <code>KillTimer</code> / <code>WM_TIMER</code>(COM・持ち時間)</td></tr>' +
+          '<tr><td>リソース</td><td><code>othello.rc</code>(ダイアログ・メニュー、Shift-JIS) / <code>resource.h</code>(ID) / <code>res/othello.ico</code></td></tr>' +
+          '<tr><td>STL</td><td><code>std::array</code> / <code>std::vector</code> / <code>std::mt19937</code> / <code>std::accumulate</code></td></tr>' +
+          '<tr><td>プリコンパイル済みヘッダ</td><td><code>StdAfx.h</code>(MFCと上のSTLをまとめて取り込む)/ <code>StdAfx.cpp</code></td></tr></table>' +
+          '<p><b>ビルド設定</b>(<code>OthelloMfc.vcxproj</code>): <code>x64</code>、<code>v142</code>、C++17(<code>stdcpp17</code>)、MFCは静的リンク、文字セットはマルチバイト。ソースはUTF-8(BOM付き)ですが、<code>/source-charset:utf-8 /execution-charset:.932</code> で、実行時の文字列は日本語のコードページ(Shift-JIS)になります。</p>' +
+          '<p>ファイル名は、Googleスタイルに合わせて <code>snake_case.cc / .h</code>、クラスは <code>PascalCase</code>、メンバ変数は末尾 <code>_</code>、定数は <code>kName</code> です。</p>' +
+          '<p class="gg-files">📄 <code>Essentials\\OthelloMfc\\OthelloMfc.sln</code>、<code>Source\\OthelloMfc.vcxproj</code>、<code>Release\\OthelloMfc.exe</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

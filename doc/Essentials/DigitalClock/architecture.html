@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigitalClock 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { ui: '#4fa3ff', logic: '#ff9f43', common: '#c77dff', ext: '#5d5a78', test: '#5ee6a8' };
+  var BASE = { ui: 12.6, logic: 8.4, common: 4.2, ext: 0 };      // 各層の床の高さ
+  var BX = {};                                                    // id -> { x, y, z }(箱の中心)
+
+  function cls(g, id, layer, x, w, label, color) {
+    var y = BASE[layer] + 0.62;
+    BX[id] = { x: x, y: y, z: 0 };
+    g.box({ id: id, size: [w, 1.1, 2.2], pos: [x, y, 0], radius: 0.14, color: color || COL[layer], label: label, labelSize: 0.3, labelOffset: [0, 1.15, 0] });
+  }
+  // 箱から箱への依存の矢印。上下の層なら箱の下面→上面、同じ層なら上を回す
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to;
+    var zf = 1.4;                      // 箱の手前の面より前を通して、箱に隠れないようにする
+    if (Math.abs(A.y - B.y) < 0.1) {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y + 0.55, zf];
+    } else if (A.y > B.y) {
+      from = [A.x, A.y - 0.55, zf]; to = [B.x, B.y + 0.6, zf];
+    } else {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y - 0.6, zf];
+    }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.27, head: 0.32 });
+  }
+
+  var HOME = { pos: [0, 8.5, 29], target: [0, 6.4, 0] };
+
+  GameGuide.start({
+    title: 'DigitalClock 内部設計',
+    subtitle: 'クラス・ファイルの層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: HOME,
+    floor: false,
+
+    build: function (g) {
+      function layer(id, key, depthLabel, color, lc) {
+        g.plate({ id: id, size: [34, 3.4], pos: [0, BASE[key] + 0.03, 0], color: color, opacity: 0.55, label: depthLabel, labelSize: 0.42, labelOffset: [-14.8, 0.3, 2.3], labelColor: lc });
+      }
+      layer('L-ui', 'ui', '画面(UI)層', '#26304f', '#bcd6ff');
+      layer('L-logic', 'logic', 'ロジック・データ', '#4a3524', '#ffd9ae');
+      layer('L-common', 'common', '共通部品\n(_Common)', '#352a4f', '#e2ccff');
+      layer('L-ext', 'ext', 'OS・外部', '#2b2a3d', '#cfcbe8');
+
+      // 画面(UI)層
+      cls(g, 'mw', 'ui', -4, 9, 'MainWindow\n(.xaml / .xaml.cs)');
+      cls(g, 'app', 'ui', 6.5, 3.8, 'App\n(.xaml / .xaml.cs)');
+      // ロジック・データ
+      cls(g, 'logic', 'logic', -9, 4.4, 'Logic\n(static / Logic.cs)');
+      cls(g, 'wp', 'logic', -3.2, 4.6, 'WindowPlacement\n(Left, Top)');
+      cls(g, 'tests', 'logic', 7.5, 6.4, 'DigitalClock.Tests\n(LogicTests / MainWindowTests)', COL.test);
+      // 共通部品
+      cls(g, 'js', 'common', -9, 4.4, 'JsonFileStorage\n(Save / Load)');
+      cls(g, 'af', 'common', -3.2, 4.4, 'AtomicFile\n(WriteAllText)');
+      cls(g, 'guard', 'common', 3, 5.2, 'StcWpfExceptionGuard\n(Install)');
+      cls(g, 'sta', 'common', 10, 4.2, 'StaRunner\n(Wpf/Tests)');
+      // OS・外部
+      cls(g, 'u32', 'ext', -10, 5.8, 'user32.dll\nSetWindowLongPtr ほか');
+      cls(g, 'disp', 'ext', -3.6, 4.8, 'DispatcherTimer\n(WPF)');
+      cls(g, 'nj', 'ext', 2.4, 4.6, 'Newtonsoft.Json\n(NuGet 13.0.4)');
+      cls(g, 'fs', 'ext', 9.4, 6.4, 'ファイルシステム\n%LOCALAPPDATA%\\DigitalClock');
+
+      arr(g, 'a-app-mw', 'app', 'mw', '起動(StartupUri)', C.gold, 1.6);
+      arr(g, 'a-app-guard', 'app', 'guard', 'Install()', C.gold, 0.6);
+      arr(g, 'a-mw-logic', 'mw', 'logic', 'FormatTime / IsOnScreen', C.good);
+      arr(g, 'a-mw-wp', 'mw', 'wp', 'new WindowPlacement', C.gold);
+      arr(g, 'a-mw-js', 'mw', 'js', 'Load / Save', C.gold, 1.4);
+      arr(g, 'a-js-af', 'js', 'af', 'Save', C.gold, 0.6);
+      arr(g, 'a-js-nj', 'js', 'nj', 'JSON変換', C.gold, 0.5);
+      arr(g, 'a-af-fs', 'af', 'fs', '.tmp → Replace', C.gold, 0.5);
+      arr(g, 'a-mw-u32', 'mw', 'u32', 'P/Invoke', C.enemy, 0.6);
+      arr(g, 'a-mw-disp', 'mw', 'disp', '500ms Tick', C.gold, 0.5);
+      arr(g, 'a-tests-logic', 'tests', 'logic', 'InternalsVisibleTo', C.good, 1.2);
+      arr(g, 'a-tests-mw', 'tests', 'mw', 'new MainWindow()', C.good, 1.4);
+      arr(g, 'a-tests-sta', 'tests', 'sta', 'STAスレッドで実行', C.good, 0.5);
+    },
+
+    steps: [
+      {
+        title: '全体: 小さな4層',
+        camera: HOME,
+        show: ['a-app-mw', 'a-mw-logic', 'a-mw-js', 'a-mw-u32'],
+        html:
+          '<p>DigitalClock(C# / WPF / .NET Framework 4.5向け)は、ソースが数ファイルだけの小さなアプリです。<b>上の層が下の層を呼ぶ</b>向きで、下の層は上を知りません。</p>' +
+          '<table><tr><th>層</th><th>ファイル</th></tr>' +
+          '<tr><td>画面(UI)</td><td><code>App.xaml(.cs)</code>、<code>MainWindow.xaml(.cs)</code></td></tr>' +
+          '<tr><td>ロジック・データ</td><td><code>Logic.cs</code>、<code>WindowPlacement.cs</code></td></tr>' +
+          '<tr><td>共通部品</td><td><code>_Common</code> の <code>JsonFileStorage.cs</code> / <code>AtomicFile.cs</code> / <code>StcWpfExceptionGuard.cs</code>(csprojでリンク)</td></tr>' +
+          '<tr><td>OS・外部</td><td><code>user32.dll</code>、WPFの <code>DispatcherTimer</code>、<code>Newtonsoft.Json</code></td></tr></table>' +
+          '<p><b>設計の要点</b>: 画面に触らない処理(時刻の整形・画面内判定)は <code>Logic</code> に切り出してあるので、ウィンドウを作らずに単体テストできます。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに注目する箱が明るくなります。</p>',
+      },
+      {
+        title: '画面(UI)層: App と MainWindow',
+        camera: { pos: [0.5, 10.5, 25], target: [0.5, 12.2, 0] },
+        focus: ['mw', 'app', 'a-app-mw', 'a-app-guard', 'guard', 'u32', 'disp', 'a-mw-u32', 'a-mw-disp', 'L-ui'],
+        show: ['a-app-mw', 'a-app-guard', 'a-mw-u32', 'a-mw-disp'],
+        html:
+          '<p><b>App</b>(<code>App.xaml.cs</code>)は <code>StartupUri="MainWindow.xaml"</code> で画面を出し、<code>OnStartup</code> で <code>StcWpfExceptionGuard.Install(this)</code> を呼びます。</p>' +
+          '<p><b>MainWindow</b>が画面と操作のすべてです。</p>' +
+          '<table><tr><th>メンバー</th><th>役目</th></tr>' +
+          '<tr><td>コンストラクタ</td><td><code>RestorePlacement()</code> → タイマー開始 → <code>UpdateTime()</code></td></tr>' +
+          '<tr><td><code>_clockTimer</code></td><td><code>DispatcherTimer</code>(500ms)。Tickで <code>UpdateTime()</code></td></tr>' +
+          '<tr><td><code>Window_SourceInitialized</code></td><td>WndProc差し替え + レイヤード化 + <code>alpha=128</code></td></tr>' +
+          '<tr><td><code>KeepLayeredWndProc</code></td><td><code>WM_STYLECHANGING</code> で <code>WS_EX_LAYERED</code> を付け直す</td></tr>' +
+          '<tr><td><code>label_time_MouseLeftButtonDown</code></td><td><code>DragMove()</code></td></tr>' +
+          '<tr><td><code>Window_Closing</code></td><td>タイマー停止 + 位置をJSON保存</td></tr></table>' +
+          '<p class="gg-files">📄 <code>App.xaml.cs</code> / <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: 'ロジック・データ層: Logic と WindowPlacement',
+        camera: { pos: [-6, 7, 22], target: [-6, 8.4, 0] },
+        focus: ['logic', 'wp', 'mw', 'a-mw-logic', 'a-mw-wp', 'L-logic'],
+        show: ['a-mw-logic', 'a-mw-wp'],
+        html:
+          '<p><b>Logic</b>(<code>internal static class</code>)は、WinForms版 <code>Logic.cs</code> の内容をそのまま移したものです。</p>' +
+          '<ul><li><code>String FormatTime(DateTime)</code>: <code>"{0:00}:{1:00}:{2:00}"</code> に整形</li>' +
+          '<li><code>Boolean IsOnScreen(left, top, screenLeft, screenTop, screenWidth, screenHeight)</code>: 左上の点が仮想スクリーン内か。<code>NaN</code> は <code>false</code>。右端・下端ちょうど(<code>left &lt; screenLeft + screenWidth</code>)は外扱い</li></ul>' +
+          '<p><b>WindowPlacement</b>(<code>internal class</code>)は <code>double Left</code> / <code>double Top</code> だけの設定データ(POCO)。大きさは文字で決まるので持ちません。WinForms版は <code>user.config</code> へ保存していましたが、WPF版はJSONです。</p>' +
+          '<p>どちらも <code>MainWindow</code> から呼ばれるだけで、画面のクラスには依存しません。</p>' +
+          '<p class="gg-files">📄 <code>Logic.cs</code> / <code>WindowPlacement.cs</code></p>',
+      },
+      {
+        title: '共通部品: JSON保存とエラーガード',
+        camera: { pos: [-3, 5.2, 22], target: [-3, 5.4, 0] },
+        focus: ['js', 'af', 'guard', 'nj', 'fs', 'mw', 'a-mw-js', 'a-js-af', 'a-js-nj', 'a-af-fs', 'L-common'],
+        show: ['a-mw-js', 'a-js-af', 'a-js-nj', 'a-af-fs'],
+        html:
+          '<p>設定の保存読み込みは、複数のツールで共有する <code>Essentials/_Common</code> を csproj の <code>&lt;Compile Include="..\\..\\_Common\\..."&gt;</code> でリンクして使います(DLLではなくソースの共有)。</p>' +
+          '<ul><li><b>JsonFileStorage</b>: <code>Save&lt;T&gt;</code>(整形済みJSON・BOMなしUTF-8)と <code>Load&lt;T&gt;</code>。ファイルが無い・読めない・壊れているなら <code>default(T)</code>(= <code>null</code>)を返すので、呼び出し側は <code>null</code> だけ見ればよい</li>' +
+          '<li><b>AtomicFile</b>: <code>WriteAllText</code> は <code>.tmp</code> に書き切ってから <code>File.Replace</code>(初回は <code>File.Move</code>)。途中で落ちても元ファイルが壊れない</li>' +
+          '<li><b>StcWpfExceptionGuard</b>: <code>DispatcherUnhandledException</code> と <code>AppDomain</code> の未処理例外をダイアログで通知。画面が見えない状態の例外ならアプリを閉じる</li></ul>' +
+          '<p class="gg-files">📄 <code>_Common/JsonFileStorage.cs</code> / <code>_Common/AtomicFile.cs</code> / <code>_Common/StcWpfExceptionGuard.cs</code></p>',
+      },
+      {
+        title: 'OS・外部: user32.dll とタイマー',
+        camera: { pos: [-6, 3, 20], target: [-6, 1.8, 0] },
+        focus: ['u32', 'disp', 'nj', 'fs', 'mw', 'a-mw-u32', 'a-mw-disp', 'L-ext'],
+        show: ['a-mw-u32', 'a-mw-disp'],
+        html:
+          '<p><code>MainWindow.xaml.cs</code> は、半透明化のために <code>user32.dll</code> の次の関数を <code>DllImport</code> しています。</p>' +
+          '<table><tr><th>関数</th><th>使い道</th></tr>' +
+          '<tr><td><code>GetWindowLong</code> / <code>SetWindowLong</code></td><td>拡張スタイル(<code>GWL_EXSTYLE</code>)に <code>WS_EX_LAYERED</code> を足す</td></tr>' +
+          '<tr><td><code>SetWindowLongPtr</code></td><td><code>GWLP_WNDPROC</code> でWndProcを差し替える</td></tr>' +
+          '<tr><td><code>CallWindowProc</code></td><td>差し替え前のWndProcを呼ぶ</td></tr>' +
+          '<tr><td><code>SetLayeredWindowAttributes</code></td><td><code>LWA_ALPHA</code> で透明度(128)を設定</td></tr></table>' +
+          '<p><code>DispatcherTimer</code> はWPF標準(UIスレッド)、<code>Newtonsoft.Json</code> はNuGetの <code>13.0.4</code> で、配布物は <code>DigitalClock.exe</code> と <code>Newtonsoft.Json.dll</code> の2つです。保存先は <code>%LOCALAPPDATA%\\DigitalClock\\DigitalClock.json</code>。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の先頭(<code>DllImport</code> 群)、<code>DigitalClock.csproj</code></p>',
+      },
+      {
+        title: 'テスト: DigitalClock.Tests',
+        camera: { pos: [8.5, 7.5, 22], target: [8.5, 7.4, 0] },
+        focus: ['tests', 'logic', 'mw', 'sta', 'a-tests-logic', 'a-tests-mw', 'a-tests-sta'],
+        show: ['a-tests-logic', 'a-tests-mw', 'a-tests-sta'],
+        html:
+          '<p>MSTest(<code>2.2.10</code>)のテストプロジェクトが <code>Essentials/DigitalClock/Tests/DigitalClock.Tests</code> にあります。<code>InternalsVisibleTo("DigitalClock.Tests")</code>(<code>AssemblyInfo.cs</code>)で、<code>internal</code> の <code>Logic</code> を直接呼べます。</p>' +
+          '<ul><li><b>LogicTests</b>: 時刻整形(ゼロ埋め・<code>23:59:59</code>・<code>00:00:00</code>)と <code>IsOnScreen</code>(負の座標のサブモニタ・画面外・<code>NaN</code>)</li>' +
+          '<li><b>MainWindowTests</b>: <code>MainWindow</code> を実際に生成し、起動直後から <code>^\\d{2}:\\d{2}:\\d{2}$</code> の時刻が出ていること、<code>Topmost</code> / <code>ToolWindow</code> / <code>NoResize</code> であることを確認</li></ul>' +
+          '<p>WPFのウィンドウはSTAスレッドでしか作れないので、共通の <code>StaRunner</code> 内で実行します。<code>Close()</code> すると終了時の位置保存が本物の設定ファイルを上書きするため、テストはウィンドウを閉じずに捨てます。</p>' +
+          '<p class="gg-files">📄 <code>Tests/DigitalClock.Tests/LogicTests.cs</code> / <code>MainWindowTests.cs</code>、<code>_Common/Wpf/Tests/StaRunner.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

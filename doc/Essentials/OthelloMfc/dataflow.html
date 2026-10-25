@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OthelloMfc データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var TS = 1.15;                                   // マス1つぶんの間隔(ワールド単位)
+  var BLACK = '#16141f', WHITE = '#f4f1ff';
+  var DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];   // Board::kDirections と同じ並び
+  var DIR_NAMES = ['左', '右', '上', '下', '左上', '左下', '右上', '右下'];
+  var CATS = ['角', '無難', '星', '角の隣', '角を与える'];
+  function cp(x, y, h) { return [(x - 4.5) * TS, h || 0, (y - 4.5) * TS]; }
+  function cname(x, y) { return String.fromCharCode(64 + x) + y; }
+
+  // ---------------- ルール(ソースの Board / ComPlayer と同じ計算) ----------------
+  function inside(x, y) { return x >= 1 && x <= 8 && y >= 1 && y <= 8; }
+  function newBoard() {
+    var b = [], x, y;
+    for (y = 0; y <= 9; y++) { b[y] = []; for (x = 0; x <= 9; x++) b[y][x] = 0; }
+    b[4][4] = 2; b[4][5] = 1; b[5][4] = 1; b[5][5] = 2;      // Board::Reset(白が左上、黒が右上)
+    return b;
+  }
+  function copyBoard(b) { return b.map(function (r) { return r.slice(); }); }
+  function countDir(b, x, y, d, c) {
+    var en = 3 - c, cx = x + DIRS[d][0], cy = y + DIRS[d][1], n = 0;
+    while (inside(cx, cy) && b[cy][cx] === en) { n++; cx += DIRS[d][0]; cy += DIRS[d][1]; }
+    return (n > 0 && inside(cx, cy) && b[cy][cx] === c) ? n : 0;
+  }
+  function flipsAt(b, x, y, c) {          // GetFlips: 置けなければ null
+    if (!inside(x, y) || b[y][x] !== 0) return null;
+    var f = [], any = false, d;
+    for (d = 0; d < 8; d++) { f[d] = countDir(b, x, y, d, c); if (f[d] > 0) any = true; }
+    return any ? f : null;
+  }
+  function putStone(b, x, y, f, c) {
+    var r = copyBoard(b), d, i, cx, cy;
+    r[y][x] = c;
+    for (d = 0; d < 8; d++) { cx = x; cy = y; for (i = 0; i < f[d]; i++) { cx += DIRS[d][0]; cy += DIRS[d][1]; r[cy][cx] = c; } }
+    return r;
+  }
+  function movable(b, c) {
+    var l = [], x, y;
+    for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) if (flipsAt(b, x, y, c)) l.push([x, y]);
+    return l;
+  }
+  function emptyAround(b, x, y) {
+    var n = 0, dx, dy;
+    for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+      if ((dx || dy) && inside(x + dx, y + dy) && b[y + dy][x + dx] === 0) n++;
+    }
+    return n;
+  }
+  function openness(b, x, y, f) {         // GetOpennessCandidates と同じ
+    var o = emptyAround(b, x, y), d, i, cx, cy;
+    for (d = 0; d < 8; d++) { cx = x; cy = y; for (i = 0; i < f[d]; i++) { cx += DIRS[d][0]; cy += DIRS[d][1]; o += emptyAround(b, cx, cy); } }
+    return o;
+  }
+  function isCorner(x, y) { return (x === 1 || x === 8) && (y === 1 || y === 8); }
+  function isX(x, y) { return (x === 2 || x === 7) && (y === 2 || y === 7); }
+  function isC(x, y) { return ((x === 1 || x === 8) && (y === 2 || y === 7)) || ((x === 2 || x === 7) && (y === 1 || y === 8)); }
+  function givesCorner(b, x, y, c) {
+    var f = flipsAt(b, x, y, c); if (!f) return false;
+    var a = putStone(b, x, y, f, c), e = 3 - c, E = [1, 8], i, j;
+    for (i = 0; i < 2; i++) for (j = 0; j < 2; j++) if (flipsAt(a, E[i], E[j], e)) return true;
+    return false;
+  }
+
+  // ---------------- 説明用の局面(実際に動かして得た棋譜の最初の5手) ----------------
+  var MOVES = [[4, 3, 1], [3, 3, 2], [3, 4, 1], [5, 3, 2], [6, 5, 1]];
+  var N = MOVES.length;
+  var SN = [newBoard()], MF = [];
+  MOVES.forEach(function (m, i) {
+    var f = flipsAt(SN[i], m[0], m[1], m[2]);
+    MF.push(f); SN.push(putStone(SN[i], m[0], m[1], f, m[2]));
+  });
+  // 白の番(5手目のあと)のCOM思考(レベル3・手数5)。ComPlayer::GetOpennessCandidates → ChooseFrom と同じ手順
+  var CAND = (function () {
+    var b = SN[N], list = movable(b, 2).map(function (p) {
+      var f = flipsAt(b, p[0], p[1], 2);
+      return { x: p[0], y: p[1], score: openness(b, p[0], p[1], f) };
+    }), i, j, t;
+    for (i = 0; i < list.length; i++) for (j = i + 1; j < list.length; j++) {      // SortCandidates(昇順の交換ソート)
+      if (list[i].score > list[j].score) { t = list[i]; list[i] = list[j]; list[j] = t; }
+    }
+    var best = [null, null, null, null, null];
+    list.forEach(function (c) {
+      var cat = isCorner(c.x, c.y) ? 0 : givesCorner(b, c.x, c.y, 2) ? 4 : isX(c.x, c.y) ? 2 : isC(c.x, c.y) ? 3 : 1;
+      c.cat = cat;
+      if (!best[cat]) best[cat] = c;
+    });
+    var chosen = null;
+    best.forEach(function (c) { if (!chosen && c) chosen = c; });
+    list.forEach(function (c) { c.chosen = (c === chosen); });
+    return list;
+  })();
+
+  // ---------------- 3Dの部品 ----------------
+  var PIPE = [
+    ['OnLButtonUp\nHitTestCell'],
+    ['Board::\nGetFlips'],
+    ['GameManager::\nPlayMove\n→ Board::Put'],
+    ['Board::\nGetNextTurn\nChangeTurn'],
+    ['ComPlayer::\nThink'],
+    ['GameManager::\nUndo / Redo\n棋譜'],
+    ['OthelloDlg::\nOnPaint\nDrawBoard'],
+  ];
+  var PX = function (i) { return -11.7 + i * 3.9; };
+
+  function buildStage(g) {
+    var x, y;
+    g.plate({ id: 'base', size: [9.8, 9.8], pos: [0, 0.0, 0], color: '#1c4a2d', opacity: 1, radius: 0.2 });
+    for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) {
+      g.plate({ id: 'tile' + x + '_' + y, size: [TS - 0.07, TS - 0.07], pos: cp(x, y, 0.04), color: '#2f8a52', opacity: 1, radius: 0.06 });
+    }
+    for (x = 1; x <= 8; x++) {
+      g.label(String.fromCharCode(64 + x), cp(x, 0, 0.1), { size: 0.34, color: '#e9e6f5' });
+      g.label(String(x), [(0 - 4.5) * TS - 0.0, 0.1, (x - 4.5) * TS], { size: 0.34, color: '#e9e6f5' });
+    }
+    for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) {
+      g.cylinder({ id: 's' + x + '_' + y, radius: 0.46, height: 0.16, pos: cp(x, y, 0.14), color: BLACK, roughness: 0.4 });
+      g.cylinder({ id: 'd' + x + '_' + y, radius: 0.1, height: 0.05, pos: cp(x, y, 0.12), color: C.me, emissive: C.me, emissiveIntensity: 0.6 });
+    }
+    // 上の関数の流れ(いまどこの処理かが光る)
+    PIPE.forEach(function (p, i) {
+      g.box({ id: 'pl' + i, size: [3.4, 0.5, 1.5], pos: [PX(i), 0.25, -8.6], radius: 0.12, color: '#4a4570', label: p[0], labelSize: 0.25, labelOffset: [0, 1.15, 0.2] });
+      if (i < PIPE.length - 1) {
+        g.arrow([PX(i) + 1.8, 0.35, -8.6], [PX(i + 1) - 1.8, 0.35, -8.6], { id: 'pa' + i, color: C.gold, lift: 0.25, head: 0.3 });
+        g.flow([PX(i) + 1.8, 0.35, -8.6], [PX(i + 1) - 1.8, 0.35, -8.6], { id: 'pf' + i, color: C.data, lift: 0.25, count: 3, size: 0.09 });
+      }
+    });
+  }
+
+  // 局面 b を石のメッシュに反映する。ov(x,y,v) で個別に上書き({visible,color,y,scale})
+  function renderBoard(g, b, ov) {
+    var x, y, v, s, o;
+    for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) {
+      v = b[y][x]; s = g.get('s' + x + '_' + y);
+      o = ov ? ov(x, y, v) : null;
+      var vis = v > 0, col = v === 1 ? BLACK : WHITE, hy = 0.14, sc = 1;
+      if (o) {
+        if (o.visible != null) vis = o.visible;
+        if (o.color) col = o.color;
+        if (o.y != null) hy = o.y;
+        if (o.scale != null) sc = o.scale;
+      }
+      s.visible = vis;
+      s.material.color.set(col);
+      s.position.set(cp(x, y)[0], hy, cp(x, y)[2]);
+      s.scale.set(sc, 1, sc);
+    }
+  }
+  function showDots(g, list, color) {
+    var x, y, k = {};
+    list.forEach(function (p) { k[p[0] + '_' + p[1]] = true; });
+    for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) {
+      var d = g.get('d' + x + '_' + y);
+      d.visible = !!k[x + '_' + y];
+      if (d.visible) { d.material.color.set(color); d.material.emissive.set(color); }
+    }
+  }
+  function tile(g, x, y, color) { g.get('tile' + x + '_' + y).material.color.set(color || '#2f8a52'); }
+  function resetTiles(g) { var x, y; for (y = 1; y <= 8; y++) for (x = 1; x <= 8; x++) tile(g, x, y); }
+  function lightPipe(g, k) {
+    PIPE.forEach(function (p, i) {
+      var m = g.get('pl' + i), on = (i === k - 1);
+      m.material.color.set(on ? C.gold : '#4a4570');
+      m.material.emissive.set(on ? '#6a4f00' : '#000000');
+    });
+  }
+  function lerpColor(a, b, k) { return new T.Color(a).lerp(new T.Color(b), k); }
+  function ray(x, y, d) {                    // 方向 d に進む矢印の終点(盤の中に収める)と、数えた個数
+    return countDir(SN[0], x, y, d, 1);
+  }
+
+  var CAM_BOARD = { pos: [3.2, 12.5, 12.5], target: [3.2, 0, -0.5] };
+
+  function tick(g, t, k) {
+    var x, y, ph;
+    resetTiles(g);
+    lightPipe(g, k);
+    PIPE.forEach(function (p, i) {
+      var vis = (k !== 7);
+      g.get('pl' + i).visible = vis;
+      if (i < PIPE.length - 1) { g.get('pa' + i).visible = vis; g.get('pf' + i).visible = vis; }
+    });
+    var b = SN[0];
+    showDots(g, [], C.me);
+    if (k === 0) {
+      renderBoard(g, SN[0]);
+      showDots(g, movable(SN[0], 1), C.me);
+    } else if (k === 1) {
+      // クリック → マス
+      renderBoard(g, SN[0]);
+      showDots(g, movable(SN[0], 1), C.me);
+      ph = g.phase(t, 0, 1.6);
+      var from = [7.5, 3.5, 5.5], to = cp(4, 3, 0.55);
+      g.lerpPos('cursor', from, to, ph);
+      if (t > 1.6) tile(g, 4, 3, C.gold);
+      g.get('lbl-click').visible = t > 1.0;
+    } else if (k === 2) {
+      // 8方向を調べる
+      renderBoard(g, SN[0]);
+      tile(g, 4, 3, C.gold);
+      for (var d = 0; d < 8; d++) {
+        var on = t > 0.4 + 0.45 * d;
+        g.get('ra' + d).visible = on;
+      }
+      g.get('fl-arr').visible = t > 0.4 + 0.45 * 8;
+    } else if (k === 3) {
+      // 置いて裏返す
+      var drop = 1 - g.phase(t, 0, 1.0);
+      var fl = g.phase(t, 1.4, 0.9);
+      renderBoard(g, SN[1], function (xx, yy, v) {
+        if (xx === 4 && yy === 3) return { visible: true, color: BLACK, y: 0.14 + drop * 3 };
+        if (xx === 4 && yy === 4) return { color: lerpColor(WHITE, BLACK, fl), y: 0.14 + Math.sin(Math.PI * fl) * 1.0 };
+        return null;
+      });
+      g.get('sc-a').visible = t < 2.4;
+      g.get('sc-b').visible = t >= 2.4;
+      if (t > 1.0) tile(g, 4, 3, C.gold);
+    } else if (k === 4) {
+      // 次の手番
+      renderBoard(g, SN[1]);
+      showDots(g, movable(SN[1], 2), C.enemy);
+      var hi = Math.floor(t / 2.2) % 3;
+      for (var i = 0; i < 3; i++) {
+        var p = g.get('gn' + i);
+        p.material.color.set(i === hi ? '#6a5320' : '#2d2944');
+      }
+    } else if (k === 5) {
+      // COMの思考
+      renderBoard(g, SN[N]);
+      showDots(g, CAND.map(function (c) { return [c.x, c.y]; }), C.enemy);
+      var n = CAND.length, done = 0.5 * n + 1.0;
+      CAND.forEach(function (c, i) {
+        var on = t > 0.5 * i;
+        g.get('cr' + i).visible = on;
+        g.get('cs' + i).visible = on;
+        var gold = c.chosen && t > done;
+        g.get('cr' + i).material.color.set(gold ? C.gold : '#7ef0ff');
+        g.get('cr' + i).material.emissive.set(gold ? C.gold : '#7ef0ff');
+        if (gold) tile(g, c.x, c.y, '#7a6420');
+      });
+      var ch = CAND.filter(function (c) { return c.chosen; })[0];
+      if (ch) {
+        var gg = g.get('ghost');
+        gg.visible = t > done;
+        var up = 1 - g.phase(t, done, 0.9);
+        gg.position.set(cp(ch.x, ch.y)[0], 0.14 + up * 3, cp(ch.x, ch.y)[2]);
+      }
+    } else if (k === 6) {
+      // 棋譜と一手戻す/送る
+      var m = t < 1.4 ? N : t < 3.4 ? N - 1 : t < 5.4 ? N - 2 : N - 1;
+      renderBoard(g, SN[m]);
+      if (m < N) tile(g, MOVES[m][0], MOVES[m][1], '#7a3a3a');
+      for (var q = 0; q <= N; q++) g.get('cnt' + q).visible = (q === m);
+      var opi = t < 1.4 ? 0 : t < 3.4 ? 1 : t < 5.4 ? 2 : 3;
+      for (var o = 0; o < 4; o++) g.get('ops' + o).visible = (o === opi);
+      g.setPos('cur', [10.6, 0.6, -2.4 + m * 0.9]);
+    } else if (k === 7) {
+      renderBoard(g, SN[N]);
+      showDots(g, movable(SN[N], 2), C.enemy);
+      for (var l = 0; l < 5; l++) {
+        var pl = g.get('ly' + l);
+        pl.position.y = 0.3 + l * 1.9 * g.phase(t, 0.2 + 0.25 * l, 1.0);
+      }
+    }
+  }
+
+  function step(k, title, html, cam, show) {
+    return { title: title, html: html, camera: cam, show: show || [], update: function (g, t) { tick(g, t, k); } };
+  }
+
+  var KIFU = MOVES.map(function (m) { return cname(m[0], m[1]).replace(/^(.)(.)$/, '$1.$2') + ' ' + (m[2] === 1 ? '黒' : '白'); });
+  var LAYERS = [
+    ['① 盤の背景\nRectangle(緑)', '#2f8a52'],
+    ['② 罫線\nMoveTo / LineTo', '#2a2a33'],
+    ['③ 座標 A〜H・1〜8\nTextOut', '#c8c4dc'],
+    ['④ 石 Ellipse\n黒・白(DrawStone)', '#f4f1ff'],
+    ['⑤ 置ける場所の点\n青=人 / 赤=COM', '#4fa3ff'],
+  ];
+
+  GameGuide.start({
+    title: 'OthelloMfc データの流れ',
+    subtitle: 'クリック → 8方向を調べる → 置いて裏返す → 手番を決める → COMが考える → 棋譜 → 描画。盤の上で石が動く',
+    camera: { pos: [0, 19, 17], target: [0, 0, -2] },
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 60;
+      buildStage(g);
+
+      // ステップ1: クリック
+      g.sphere({ id: 'cursor', radius: 0.22, pos: [7.5, 3.5, 5.5], color: C.gold, emissive: C.gold, emissiveIntensity: 0.6 });
+      g.label('マウス座標 (px, py) を\n(px - 25) / マス幅 + 1\n(py - 25) / マス幅 + 1\nでマス番号(1〜8)にする\n盤の外は (0, 0) = 打てない', [9.0, 0.7, -1.2], { id: 'lbl-click', size: 0.3, color: '#ffffff', bg: '#00000066' });
+
+      // ステップ2: 8方向
+      var f0 = flipsAt(SN[0], 4, 3, 1);
+      for (var d = 0; d < 8; d++) {
+        var n = countDir(SN[0], 4, 3, d, 1), len = n + 1, ex = 4 + DIRS[d][0] * len, ey = 3 + DIRS[d][1] * len;
+        while (!inside(ex, ey) && len > 1) { len--; ex = 4 + DIRS[d][0] * len; ey = 3 + DIRS[d][1] * len; }
+        var col = n > 0 ? C.good : '#8a86a8';
+        var dx = DIRS[d][0] * 0.33, dz = DIRS[d][1] * 0.33;
+        var a = cp(4, 3, 0.6), bpt = cp(ex, ey, 0.6);
+        g.arrow([a[0] + dx, 0.6, a[2] + dz], [bpt[0] - dx * 0.4, 0.6, bpt[2] - dz * 0.4], {
+          id: 'ra' + d, color: col, lift: 0.3, head: 0.28, label: DIR_NAMES[d] + ' ' + n, labelSize: 0.3, labelColor: n > 0 ? C.good : '#cfcbe8',
+        });
+      }
+      g.label('FlipCounts = { ' + f0.join(', ') + ' }\n(左, 右, 上, 下, 左上, 左下, 右上, 右下)\n1つでも 0 でなければ「置ける」', [0, 0.7, -6.5], { id: 'fl-arr', size: 0.32, color: '#ffffff', bg: '#00000066' });
+
+      // ステップ3: 置いて裏返す
+      g.label('黒: 2   白: 2', [9.0, 0.7, 0.0], { id: 'sc-a', size: 0.4, color: '#ffffff', bg: '#00000066' });
+      g.label('黒: 4   白: 1\nflips[下] = 1 個ぶん\nFlip が裏返した', [9.0, 0.7, 0.0], { id: 'sc-b', size: 0.34, color: C.good, bg: '#00000066' });
+
+      // ステップ4: 次の手番(GetNextTurn)
+      var GN = ['① 相手(白)に置ける場所がある\n→ 相手の番', '② 相手は置けないが自分は置ける\n→ 相手はパス(同じ人がもう一度)', '③ どちらも置けない\n→ 終局(Stone::kNone)'];
+      for (var i = 0; i < 3; i++) {
+        g.plate({ id: 'gn' + i, size: [6.2, 2.0], pos: [-8.6, 0.05, -3.4 + i * 3.0], color: '#2d2944', opacity: 0.95 });
+        g.label(GN[i], [-8.6, 0.5, -3.4 + i * 3.0], { id: 'gnl' + i, size: 0.25, color: '#ffffff' });
+      }
+      g.label('Board::GetNextTurn(mover)\nを上から順に試す', [-8.6, 0.7, -6.0], { id: 'gnt', size: 0.34, color: C.gold });
+      g.label('置ける場所(赤い点)あり\n→ 白の番', [0, 0.7, -6.0], { id: 'gnr', size: 0.3, color: C.enemy });
+
+      // ステップ5: COMの思考
+      CAND.forEach(function (c, i) {
+        var p = cp(c.x, c.y, 0.3);
+        g.cylinder({ id: 'cr' + i, radius: 0.5, radiusTop: 0.5, height: 0.05, pos: [p[0], 0.25, p[2]], color: '#7ef0ff', emissive: '#7ef0ff', emissiveIntensity: 0.6, opacity: 0.45 });
+        g.label(cname(c.x, c.y) + '\n' + c.score + ' ' + CATS[c.cat], [p[0], 1.7, p[2]], { id: 'cs' + i, size: 0.26, color: c.chosen ? C.gold : '#ffffff', bg: '#00000088' });
+      });
+      g.cylinder({ id: 'ghost', radius: 0.46, height: 0.16, pos: [0, 3, 0], color: WHITE, roughness: 0.4 });
+      g.label('レベル1: 中央に近い順\nレベル2: 序盤=中央寄り\n　中盤=裏返す数が少ない順\n　終盤=裏返す数が多い順\nレベル3: 開放度が小さい順(既定)\n\n採用する優先度:\n角 > 無難 > 星\n> 角の隣 > 角を与える手\n(手数2以下はランダム)', [-9.4, 0.7, 0.0], { id: 'lvl-note', size: 0.27, color: '#ffffff', bg: '#00000066' });
+      g.label('白(COM)の番・手数 5 の局面\n各マスの数字 = 開放度(小さいほど良い)と、そのマスの分類', [0, 0.7, -6.1], { id: 'cand-title', size: 0.3, color: C.enemy });
+
+      // ステップ6: 棋譜
+      g.plate({ id: 'kpl', size: [4.6, 6.6], pos: [8.8, 0.05, 0.3], color: '#2d2944', opacity: 0.95 });
+      g.label('***** 棋譜 *****', [8.8, 0.5, -2.7], { id: 'k-h', size: 0.32, color: C.gold });
+      KIFU.forEach(function (s, i) {
+        g.label((i + 1) + ' : ' + s, [8.8, 0.5, -1.9 + i * 0.9], { id: 'k' + i, size: 0.34, color: '#ffffff' });
+      });
+      g.label('◀', [10.6, 0.6, -1.9], { id: 'cur', size: 0.4, color: C.gold });
+      for (var q = 0; q <= N; q++) {
+        g.label('move_count_ = ' + q + '\nrecord_count_ = ' + N, [8.8, 0.5, 2.6], { id: 'cnt' + q, size: 0.3, color: '#cfcbe8' });
+      }
+      var OPS = ['現在: 5手目まで打った', '一手戻す → Undo()\nBoard::Undo で石を逆に戻す', '一手戻す → Undo()\nもう1手戻る', '一手送る → Redo()\n棋譜どおりに Put し直す'];
+      OPS.forEach(function (s, q) { g.label(s, [8.8, 0.7, -4.4], { id: 'ops' + q, size: 0.32, color: C.good }); });
+
+      // ステップ7: 描画の層
+      LAYERS.forEach(function (L, i) {
+        g.plate({ id: 'ly' + i, size: [4.2, 3.2], pos: [8.6, 0.3, 0.5], color: L[1], opacity: 0.85, label: L[0], labelSize: 0.26, labelOffset: [0, 0.5, 2.2], labelColor: '#ffffff', labelBg: '#00000088' });
+      });
+      g.arrow([5.4, 0.6, 0], [6.3, 1.2, 0], { id: 'ly-arrow', color: C.gold, lift: 0.8, label: 'OnPaint\n(WM_PAINT)', labelSize: 0.3 });
+    },
+
+    steps: [
+      step(0, '全体の流れ',
+        '<p>1手が打たれてから画面が更新されるまで、データは次の順に流れます。上の7つの箱が、ソースの関数に対応しています。</p>' +
+        '<ol><li><b>クリック</b> → マス番号(<code>OnLButtonUp</code>)</li><li>8方向を調べて、置けるか判定(<code>Board::GetFlips</code>)</li>' +
+        '<li>置いて裏返す(<code>GameManager::PlayMove</code> → <code>Board::Put</code>)</li><li>次の手番を決める(<code>Board::GetNextTurn</code>)</li>' +
+        '<li>COMの番なら、タイマで<b>思考</b>(<code>ComPlayer::Think</code>)して同じ流れへ</li><li>棋譜に記録、戻す/送る(<code>GameManager</code>)</li><li>画面を描き直す(<code>OnPaint</code>)</li></ol>' +
+        '<p>下の盤は、実際に動かして得た棋譜の最初の5手(<code>D.3 黒 / C.3 白 / C.4 黒 / E.3 白 / F.5 黒</code>)を使って、この計算をそのまま再現しています。矢印キー(←→)でも進めます。</p>' +
+        '<p class="gg-files">📄 <code>othello_dlg.cc</code> / <code>game_manager.cc</code> / <code>board.cc</code> / <code>com_player.cc</code></p>',
+        { pos: [0, 19, 17], target: [0, 0, -2] }),
+      step(1, '① クリック → マス番号',
+        '<p>マウスのボタンを離したとき、<code>OnLButtonUp</code> が <code>HitTestCell(point)</code> で<b>画面の座標をマス番号</b>に変えます。</p>' +
+        '<ul><li><code>(point.x - 25) / cell_size_ + 1</code> と <code>(point.y - 25) / cell_size_ + 1</code>(25 = <code>kFrameOffset</code>。盤の外は <code>(0, 0)</code>)</li>' +
+        '<li>座標は<b>1始まり</b>(列は A=1 〜 H=8)。棋譜の表記とそろえてあります</li>' +
+        '<li>押したマス(<code>pressed_cell_</code>)と同じなら、<code>Board::CanPut</code> で打てるか確認してから <code>PlayMove</code> へ</li></ul>' +
+        '<p>図では、黒の最初の手 <b>D3</b> をクリックしています。青い点は、黒の置ける場所(4か所)です。</p>' +
+        '<p class="gg-files">📄 <code>OthelloDlg::OnLButtonDown</code> / <code>OnLButtonUp</code> / <code>HitTestCell</code></p>',
+        CAM_BOARD, ['cursor', 'lbl-click']),
+      step(2, '② 8方向を調べる(GetFlips)',
+        '<p>置こうとしたマスから、<b>8方向</b>(左・右・上・下・斜め4つ)それぞれについて、<b>相手の石が続いた先に自分の石があるか</b>を調べます(<code>CountFlipsInDirection</code>)。あれば、その間の石の数だけ裏返せます。</p>' +
+        '<ul><li>D3 の場合、<b>下</b>方向だけ「白(D4)→ 黒(D5)」と挟めるので 1個。ほかは 0個</li>' +
+        '<li>結果は <code>FlipCounts</code>(<code>std::array&lt;int, 8&gt;</code>)。並びは <code>Board::kDirections</code> と同じ</li>' +
+        '<li>1つでも 0 でなければ「置ける」。<code>CanPut</code> は、見つかった時点で打ち切る軽い版</li></ul>' +
+        '<p>この <code>FlipCounts</code> は、あとで<b>一手戻す</b>ときにも使うので、棋譜1手ぶん(<code>KifuRecord</code>)に一緒に保存します。</p>' +
+        '<p class="gg-files">📄 <code>board.cc</code> の <code>GetFlips</code> / <code>CanPut</code> / <code>CountFlipsInDirection</code></p>',
+        { pos: [0, 11.5, 10.5], target: [0, 0, -1.2] }, ['ra0', 'ra1', 'ra2', 'ra3', 'ra4', 'ra5', 'ra6', 'ra7', 'fl-arr']),
+      step(3, '③ 置いて裏返す(Put)',
+        '<p><code>GameManager::PlayMove</code> が <code>GetFlips</code> で判定してから <code>Board::Put(pos, flips, color)</code> を呼びます。<code>Put</code> は<b>マスに石を置き、flips の数だけ各方向の石を自分の色にする</b>(<code>Flip</code>)だけの小さな関数です。</p>' +
+        '<ul><li>図では、D3 に黒が置かれ、D4 の白が黒に変わります(黒 2→4、白 2→1)</li>' +
+        '<li>同時に、棋譜の配列 <code>kifu_[move_count_]</code> に <code>{ 置いた座標, 色, flips }</code> を記録し、<code>move_count_</code> / <code>record_count_</code> を進めます</li>' +
+        '<li>置けない場所なら <code>false</code> を返し、盤は変わりません(人の操作では「置くところ不正」)</li></ul>' +
+        '<p class="gg-files">📄 <code>game_manager.cc</code> の <code>PlayMove</code>、<code>board.cc</code> の <code>Put</code> / <code>Flip</code></p>',
+        CAM_BOARD, ['sc-a', 'sc-b']),
+      step(4, '④ 次の手番を決める(GetNextTurn)',
+        '<p>打ち終わったら <code>OthelloDlg::PlayMove</code> が <code>Board::GetNextTurn(mover)</code> で次の番を決めます。上から順に試します。</p>' +
+        '<ol><li><b>相手に置ける場所がある</b> → 相手の番</li><li>相手は置けないが自分は置ける → <b>相手はパス</b>(同じ人がもう一度。<code>ChangeTurn</code> が「置くところがありません」を表示)</li>' +
+        '<li>どちらも置けない → <b>終局</b>(<code>Stone::kNone</code> → <code>EndGame</code>)</li></ol>' +
+        '<p>図は、D3 のあと白に置ける場所(赤い点: <code>HasMovablePosition</code> が探した場所)がある、①のケースです。手番が変わると、持ち時間のタイマも<b>手番の側だけ</b>動かし直します(<code>StartCountDown</code>)。</p>' +
+        '<p class="gg-files">📄 <code>board.cc</code> の <code>GetNextTurn</code> / <code>HasMovablePosition</code>、<code>othello_dlg.cc</code> の <code>ChangeTurn</code></p>',
+        { pos: [-3.9, 12.5, 11], target: [-3.9, 0, -0.5] }, ['gn0', 'gn1', 'gn2', 'gnl0', 'gnl1', 'gnl2', 'gnt', 'gnr']),
+      step(5, '⑤ COMが考える(ComPlayer::Think)',
+        '<p>COMの番になると、10msごとのタイマ(<code>kComTimerId</code>)で <code>PlayComTurn</code> が呼ばれ、<code>ComPlayer::Think(board, color, level, move_count, result)</code> が<b>打つ座標</b>を返します。あとは人の手と同じ <code>PlayMove</code> へ。</p>' +
+        '<ul><li><b>候補を作る</b>(レベルで違う): レベル3は <code>GetOpennessCandidates</code>。「置くマスと、裏返る石それぞれの<b>周りの空きマス</b>の合計」= 開放度が小さい順に並べる(相手に打てる場所を増やさない手)</li>' +
+        '<li><b>候補から1手選ぶ</b>(<code>ChooseFrom</code>): 並び順に見て、<b>角 &gt; 無難 &gt; 星(角の斜め隣) &gt; 角の隣 &gt; 相手に角を与える手</b> の分類ごとに最初の候補を取り、優先度の高い分類から採用</li>' +
+        '<li>手数が2以下の序盤は、候補からランダムに選ぶ</li></ul>' +
+        '<p>図は、5手目(F5)のあとの白の候補です。開放度と分類を表示し、採用された手(金色)が打たれます。</p>' +
+        '<p class="gg-files">📄 <code>com_player.cc</code> の <code>Think</code> / <code>GetOpennessCandidates</code> / <code>ChooseFrom</code> / <code>GivesCornerToEnemy</code></p>',
+        { pos: [-3.9, 12.5, 11], target: [-3.9, 0, -0.5] }, CAND.map(function (c, i) { return 'cr' + i; }).concat(CAND.map(function (c, i) { return 'cs' + i; }), ['ghost', 'lvl-note', 'cand-title'])),
+      step(6, '⑥ 棋譜と、一手戻す/送る',
+        '<p>1手ごとに <code>kifu_</code>(<code>std::array&lt;KifuRecord, kMaxMoves&gt;</code>)へ <code>{ pos, color, flips }</code> を記録します。</p>' +
+        '<ul><li><b>一手戻す</b>(<code>Undo</code>): <code>move_count_</code> を1つ減らし、<code>Board::Undo</code> が置いた石を消して、<code>flips</code> ぶんの石を相手の色へ戻す</li>' +
+        '<li><b>一手送る</b>(<code>Redo</code>): 棋譜のとおりに <code>Put</code> し直し、次の手番は盤面から決める(相手がパスする局面もあるため)</li>' +
+        '<li>戻したあとで<b>別の手を打つ</b>と、<code>record_count_</code> が <code>move_count_</code> に揃って、その先の棋譜は無効になる</li>' +
+        '<li>表示/保存は <code>GetKifuText</code> / <code>SaveKifu</code>、読み込みは <code>LoadKifu</code>(1行ずつ <code>PlayMove</code> で再生)</li></ul>' +
+        '<p>flips を持っているので、戻すときに盤面全体を保存しておく必要がありません。</p>' +
+        '<p class="gg-files">📄 <code>game_manager.cc</code> の <code>Undo</code> / <code>Redo</code> / <code>GetKifuText</code> / <code>LoadKifu</code></p>',
+        { pos: [3.2, 12.5, 12.5], target: [3.2, 0, -0.5] }, ['kpl', 'k-h', 'k0', 'k1', 'k2', 'k3', 'k4', 'cur', 'cnt0', 'cnt1', 'cnt2', 'cnt3', 'cnt4', 'cnt5', 'ops0', 'ops1', 'ops2', 'ops3']),
+      step(7, '⑦ 画面に描く(OnPaint)',
+        '<p>状態が変わるたびに <code>Invalidate()</code> を呼んで再描画を頼み、<code>OnPaint</code> が <code>GameManager</code> と <code>Board</code> を<b>読むだけ</b>で、重ね書きで盤面を作ります。描画は状態を変えません。</p>' +
+        '<ol><li><code>DrawBoard</code>: 背景の緑 → 罫線 → 座標の文字 → 石(<code>DrawStone</code>)</li>' +
+        '<li>「置ける座標を表示」がONなら <code>DrawMovableMarks</code> で点(人=青 / COM=赤)</li></ol>' +
+        '<ul><li>マスの大きさ <code>cell_size_</code> はウィンドウ幅から <code>UpdateLayout</code> が計算(<code>OnSize</code> のたび)</li>' +
+        '<li>手番・スコア・残り時間は、描画ではなく<b>ダイアログのラベル</b>(<code>SetDlgItemText</code>)で更新</li></ul>' +
+        '<p class="gg-files">📄 <code>othello_dlg.cc</code> の <code>OnPaint</code> / <code>DrawBoard</code> / <code>DrawStone</code> / <code>DrawMovableMarks</code></p>',
+        { pos: [3.4, 9.5, 17.5], target: [3.4, 3.2, 0] }, ['ly0', 'ly1', 'ly2', 'ly3', 'ly4', 'ly-arrow']),
+    ],
+  });
+})();
+</script>
+</body>
+</html>

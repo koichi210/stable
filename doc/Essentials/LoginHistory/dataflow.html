@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginHistory データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 11;                              // 工程(ステージ)どうしの間隔
+  var PATH = '#7ef0ff', CYC = '#c77dff', NOW = '#ffd166', OKC = '#5ee6a8', NGC = '#ff5f6d';
+
+  // ---- 3つのトークン(出力先 / 記録間隔 / 現在時刻)の置き場所(ステップ k ごと) ----
+  // k: 0=全体 1=ボタン 2=set.ini 3=現在時刻 4=ファイルを開く 5=比較(間隔どおり) 6=比較(ずれ) 7=追記
+  var LAG_OK = 1.6, LAG_NG = 4.2;           // 比較の図で「今」が置かれる位置(ステージ4の中心からのx)
+  function posPath(k) { return k <= 3 ? [0, 0.6, -2] : [SX * 3 - 3.6, 0.6, -1.5]; }
+  function posCyc(k) { return k <= 4 ? [SX, 0.6, 2.6] : [SX * 4 - 3.5, 0.6, -2.2]; }
+  function posNow(k) {
+    if (k <= 3) return [SX * 2, 0.9, 0];
+    if (k === 4) return [SX * 3 + 3.9, 0.6, -3.6];
+    if (k === 5) return [SX * 4 + LAG_OK, 0.6, 0];
+    if (k === 6) return [SX * 4 + LAG_NG, 0.6, 0];
+    return [SX * 5, 0.6, 2.4];
+  }
+
+  function tick(g, t, k) {
+    var ph = k === 0 ? 1 : g.phase(t, 0, 1.6);
+    var p = g.get('tk-path'), c = g.get('tk-cyc'), n = g.get('tk-now');
+    g.lerpPos(p, posPath(Math.max(k - 1, 0)), posPath(k), ph);
+    g.lerpPos(c, posCyc(Math.max(k - 1, 0)), posCyc(k), ph);
+    g.lerpPos(n, posNow(Math.max(k - 1, 0)), posNow(k), ph);
+    var col = new T.Color(NOW);
+    if (k === 5 || k === 7) col.lerp(new T.Color(OKC), ph);
+    if (k === 6) col.lerp(new T.Color(NGC), ph);
+    n.material.color.copy(col);
+    n.material.emissive.copy(col).multiplyScalar(0.3);
+    if (k >= 4 && k <= 6) g.pulse(g.get('tk-now'), t, 0.1);
+    if (k === 5 || k === 6) {
+      var ok = k === 5;
+      g.get('band').material.color.set(ok ? OKC : '#3b6a58');
+      g.get('lagLbl').visible = true;
+    }
+    if (k === 7) {
+      var d1 = g.phase(t, 0.3, 1.3);
+      g.lerpPos(g.get('nwA'), [SX * 5 - 3, 4.2, 0], [SX * 5 - 3, 1.5, 0], d1);
+      g.lerpPos(g.get('nwB'), [SX * 5 + 3, 4.2, 0], [SX * 5 + 3, 1.5, 0], g.phase(t, 0.9, 1.3));
+    }
+    if (k === 3) g.get('clock').rotation.y = t * 0.8;
+  }
+
+  function look(k) {
+    var x = SX * [0, 0, 1, 2, 3, 4, 4, 5][k];
+    if (k === 0) return { pos: [SX * 2.5, 38, 44], target: [SX * 2.5, 0, 0] };
+    return { pos: [x, 12, 13], target: [x, 0.3, 0] };
+  }
+  function step(k, title, html, show) {
+    return { title: title, html: html, camera: look(k), show: show, update: function (g, t) { tick(g, t, k); } };
+  }
+
+  function slab(g, id, x, y, z, color, text) {
+    return g.box({ id: id, size: [5.4, 0.34, 1.1], pos: [x, y, z], color: color || '#4a4670', radius: 0.08, label: text, labelSize: 0.24, labelOffset: [0, 0.02, 0.62], labelColor: '#ffffff' });
+  }
+
+  GameGuide.start({
+    title: 'LoginHistory データの流れ',
+    subtitle: 'ボタン → 記録間隔(set.ini) → 現在時刻 → ログを開く → 前回と比べる → 1行追記',
+    camera: { pos: [SX * 2.5, 38, 44], target: [SX * 2.5, 0, 0] },
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 110;
+      var titles = ['① 「ロギング実行」を押す', '② set.ini から間隔', '③ 今の日時を取る', '④ ログファイルを開く', '⑤ 前回の日時と比べる', '⑥ 末尾へ1行追記'];
+      for (var k = 0; k <= 5; k++) {
+        g.plate({ id: 'st' + k, size: [9.6, 10], pos: [SX * k, 0.03, 0], color: '#211e33', label: titles[k], labelSize: 0.46, labelOffset: [0, 0.3, -5.6], labelColor: '#ffffff' });
+        if (k < 5) {
+          g.arrow([SX * k + 5.0, 0.5, 0], [SX * (k + 1) - 5.0, 0.5, 0], { id: 'ar' + k, color: C.gold, lift: 0.4, head: 0.4 });
+          g.flow([SX * k + 5.0, 0.5, 0], [SX * (k + 1) - 5.0, 0.5, 0], { id: 'fl' + k, color: C.data, lift: 0.4, count: 3, size: 0.12 });
+        }
+      }
+
+      // ① ボタンと出力先の欄
+      g.box({ id: 'btn', size: [3.6, 1.1, 1.6], pos: [0, 0.55, 1.7], radius: 0.15, color: '#4fa3ff', label: 'ロギング実行\nOnBnClickedExec', labelSize: 0.32, labelOffset: [0, 1.3, 0] });
+      g.plate({ id: 'edit', size: [7, 1.3], pos: [0, 0.07, -2], color: '#3a3560', label: '「ログ出力先」の欄\nUpdateData() で log_name_ へ', labelSize: 0.3, labelOffset: [0, 0.3, -1.4] });
+      g.label('起動のたびに既定値 C:\\Alive.log が入る', [0, 0.5, 4.3], { size: 0.28, color: '#b8b2d6' });
+
+      // ② set.ini
+      g.box({ id: 'ini', size: [3.6, 1.2, 2.4], pos: [SX, 0.6, -1.2], radius: 0.12, color: '#6b4fa3', label: 'set.ini\nCycle=60 (分)', labelSize: 0.34, labelOffset: [0, 1.5, 0] });
+      g.label('無い・Cycle行が無い → 既定の60分\nカレントフォルダの set.ini を読む', [SX, 0.5, 4.5], { size: 0.28, color: '#b8b2d6' });
+
+      // ③ 現在時刻
+      g.cylinder({ id: 'clock', radius: 1.5, height: 0.35, pos: [SX * 2, 0.2, 0], color: '#3b6ea8', label: 'time() → localtime_s\n= now_time', labelSize: 0.3, labelOffset: [0, 1.6, 0] });
+      g.label('FormatTime で\n"2026.10.26_16:42:31" の形に', [SX * 2, 0.5, 4.4], { size: 0.28, color: '#b8b2d6' });
+
+      // ④ ログファイル(既存の3行)と、無いとき
+      slab(g, 'old0', SX * 3, 0.25, -1.5, null, '2026.10.26_09:00:12');
+      slab(g, 'old1', SX * 3, 0.67, -1.5, null, '2026.10.26_10:00:11');
+      slab(g, 'old2', SX * 3, 1.09, -1.5, '#6a66a0', '2026.10.26_11:00:12   ← 最後の行 = 前回');
+      g.label('ログファイル(開く: "r+")', [SX * 3, 2.2, -1.5], { size: 0.32, color: '#fff' });
+      g.plate({ id: 'newfile', size: [7, 2.4], pos: [SX * 3, 0.07, 3.0], color: '#3a2a3f', label: '開けない(ファイルが無い)とき:\n"w" で作って現在日時だけ書き、終わり', labelSize: 0.28, labelOffset: [0, 0.3, 0] });
+
+      // ⑤ 比べる(時間軸)
+      g.line([[SX * 4 - 4.6, 0.12, 0], [SX * 4 + 5.0, 0.12, 0]], { color: '#8f89b3' });
+      g.box({ id: 'last', size: [0.9, 0.9, 0.9], pos: [SX * 4 - 3.5, 0.5, 0], color: '#4fa3ff', label: '前回', labelSize: 0.3, labelOffset: [0, 1.0, 0] });
+      g.box({ id: 'exp', size: [0.7, 0.7, 0.7], pos: [SX * 4 + 1.5, 0.4, -2.2], color: CYC, label: '前回 + 間隔(Cycle分)', labelSize: 0.28, labelOffset: [0, 0.9, 0] });
+      g.plate({ id: 'band', size: [1.0, 3.4], pos: [SX * 4 + 1.5, 0.08, 0], color: '#5ee6a8', opacity: 0.55, label: '±10秒', labelSize: 0.3, labelOffset: [0, 0.3, 2.0], radius: 0.05 });
+      g.label('今が帯の中なら間隔どおり\n外なら行末に " !"', [SX * 4, 0.5, 4.6], { id: 'lagLbl', size: 0.3, color: '#ffffff' });
+      g.label('IsOnSchedule: |今 - (前回 + 間隔)| ≦ 10秒', [SX * 4, 0.5, -4.4], { size: 0.28, color: '#b8b2d6' });
+
+      // ⑥ 追記後の2パターン
+      [[-3, 'A', OKC, '間隔どおり', '2026.10.26_16:42:31'], [3, 'B', NGC, 'ずれていた', '2026.10.26_16:42:31 !']].forEach(function (c) {
+        var x = SX * 5 + c[0];
+        slab(g, 'o' + c[1] + '0', x, 0.25, 0, null, '…11:00:12');
+        slab(g, 'o' + c[1] + '1', x, 0.67, 0, null, '…12:00:11');
+        g.box({ id: 'nw' + c[1], size: [5.4, 0.34, 1.1], pos: [x, 1.5, 0], radius: 0.08, color: c[2], label: c[4], labelSize: 0.24, labelOffset: [0, 0.02, 0.62], labelColor: '#10101c' });
+        g.label(c[3], [x, 3.0, 0], { id: 'note' + c[1], size: 0.34, color: c[2] });
+      });
+      g.label('fseek(SEEK_END) → fprintf → fclose', [SX * 5, 0.5, 4.7], { size: 0.3, color: '#b8b2d6' });
+
+      // トークン
+      g.box({ id: 'tk-path', size: [1.1, 0.7, 0.7], pos: posPath(0), color: PATH, label: 'log_name_', labelSize: 0.28, labelOffset: [0, 0.9, 0] });
+      g.box({ id: 'tk-cyc', size: [0.9, 0.9, 0.9], pos: posCyc(0), color: CYC, label: '間隔 60分', labelSize: 0.28, labelOffset: [0, 1.0, 0] });
+      g.box({ id: 'tk-now', size: [0.9, 0.9, 0.9], pos: posNow(0), color: NOW, label: '今', labelSize: 0.32, labelOffset: [0, 1.0, 0] });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: look(0),
+        update: function (g, t) { tick(g, t, 0); },
+        html:
+          '<p>「ロギング実行」1回ぶんのデータの流れです。3つのブロックが、左から右へ工程を進みます。</p>' +
+          '<ul><li><b style="color:#7ef0ff">水色</b> = ログ出力先のパス(画面の入力)</li><li><b style="color:#c77dff">紫</b> = 記録間隔(set.ini の Cycle)</li><li><b style="color:#ffd166">金</b> = 今の日時</li></ul>' +
+          '<p>最後は、<b>ログの末尾に1行足す</b>だけ。前回の日時と比べて、<b>間隔どおりなら日時だけ、ずれていれば行末に <code>!</code></b> を付けます。</p>' +
+          '<p class="gg-note">1回の実行で終わるので、ループも常駐もありません。「一定間隔」は、起動する側(スケジューラなど)が作ります。矢印キー(←→)でも進めます。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> の <code>OnBnClickedExec</code></p>',
+      },
+      step(1, '① 「ロギング実行」を押す',
+        '<p>ボタンのメッセージ <code>ON_BN_CLICKED(IDBT_EXEC)</code> で <code>OnBnClickedExec</code> が呼ばれます。まず <code>UpdateData()</code> で、画面の「ログ出力先」欄の文字を <code>log_name_</code>(<code>CString</code>)へ取り込みます(<code>DDX_Text(dx, IDET_LOGNAME, log_name_)</code>)。</p>' +
+        '<p>このあとの処理はすべて、<b>この1回の呼び出しの中</b>で終わります(別スレッドも、タイマーもありません)。</p>' +
+        '<p class="gg-files">📄 <code>LoginHistoryDlg::DoDataExchange</code> / <code>OnBnClickedExec</code></p>'),
+      step(2, '② set.ini から記録間隔を読む',
+        '<p><code>LoadCycleFromIni(kDefaultCycleMinutes)</code> が、カレントフォルダの <code>set.ini</code> を開いて <code>Cycle=分</code> の行を探します。</p>' +
+        '<ul><li>ファイルが無い → 既定の <b>60分</b></li><li><code>;</code> で始まる行はコメントとして飛ばす</li><li><code>fgets</code>(1行30バイトのバッファ)で1行ずつ読み、<code>Cycle</code> で始まる行を <code>sscanf_s("Cycle=%d")</code></li></ul>' +
+        '<p>古い版のコードにあった <code>FileName=</code> の行は読みません(ログの場所は画面の指定のみ)。</p>' +
+        '<p class="gg-files">📄 <code>login_history_dlg.cc</code> 無名namespace の <code>LoadCycleFromIni</code></p>'),
+      step(3, '③ 今の日時を取る',
+        '<p><code>time(nullptr)</code> で現在のエポック秒を取り、<code>localtime_s</code> で<b>ローカル時刻</b>の <code>tm</code> に直します(<code>now_time</code>)。</p>' +
+        '<p>ログに書く文字列は <code>FormatTime</code> で <code>"%04d.%02d.%02d_%02d:%02d:%02d"</code>(例: <code>2026.10.26_16:42:31</code>。日時はダミー)。<code>tm_year</code> は1900からの年数、<code>tm_mon</code> は0始まりなので、<code>kYearOffset</code> / <code>kMonthOffset</code> で補正します。</p>' +
+        '<p class="gg-files">📄 <code>OnBnClickedExec</code>、無名namespace の <code>FormatTime</code></p>'),
+      step(4, '④ ログファイルを開く',
+        '<p><code>OpenFile(log_name_, "r+")</code>(<code>_fsopen</code> の <code>_SH_DENYNO</code> = 他のプロセスが同時に開いていてもよい)で、<b>読み書き両用で</b>開きます。</p>' +
+        '<ul><li><b>開けた</b>(ファイルがある)→ 次の比較へ</li><li><b>開けない</b>(ファイルが無い)→ <code>"w"</code> で新規作成し、<b>現在日時の1行だけ</b>書いて終了。前回が無いので比べません</li></ul>' +
+        '<div class="gg-note">フォルダまでは作りません。フォルダが無いと新規作成も失敗し、何も書かずに終わります(エラー表示なし)。</div>' +
+        '<p class="gg-files">📄 <code>OnBnClickedExec</code>(<code>fp == nullptr</code> の分岐)、<code>OpenFile</code></p>',
+        ['newfile']),
+      step(5, '⑤ 前回の日時と比べる(間隔どおり)',
+        '<p><code>ReadLastTime(fp)</code> がログの<b>末尾30バイト</b>へ <code>fseek</code> し、そこから読める行のうち<b>最後の「有効な日時」</b>を前回として返します(ファイル全体は読みません)。</p>' +
+        '<p><code>IsOnSchedule(前回, 今, 間隔)</code> は、<b>前回 + 間隔(分×60秒)</b>と今の差の絶対値が <code>kAllowableLagSeconds</code>(<b>10秒</b>)以内かを調べます。</p>' +
+        '<p>今(緑)が帯の中 = <b>間隔どおり</b>。行末に何も付けません。</p>' +
+        '<p class="gg-files">📄 <code>ReadLastTime</code> / <code>IsValidDate</code> / <code>IsOnSchedule</code>(<code>mktime</code> で秒に直して比較)</p>'),
+      step(6, '⑤ 前回の日時と比べる(ずれている)',
+        '<p>今(赤)が帯の外 = <b>間隔が合っていない</b>。PCが止まっていた、間隔の設定と実行の周期が違う、続けて押した、などです。</p>' +
+        '<p>この場合、書く行の末尾に <code>kWarningMark</code>(<code>" !"</code>)を足します(<code>line += kWarningMark</code>)。</p>' +
+        '<p>前回が読み取れなかったとき(0のまま)は <code>mktime</code> が <code>-1</code> を返し、差が大きくなるので、やはり「ずれ」扱いになります。</p>' +
+        '<p class="gg-files">📄 <code>OnBnClickedExec</code>(<code>if (!IsOnSchedule(...)) line += kWarningMark</code>)</p>'),
+      step(7, '⑥ 末尾へ1行追記',
+        '<p><code>fseek(fp, 0, SEEK_END)</code> で末尾へ動かし、<code>fprintf(fp, "%s\\n", ...)</code> で1行書いて <code>fclose</code> します。</p>' +
+        '<ul><li>読み込みから書き込みへ切り替えるときは <code>fseek</code> が必要(C標準の決まり)なので、必ず入れてある</li><li><b>過去の行は書き換えず</b>、足すだけ</li><li>左 = 間隔どおり(日時だけ) / 右 = ずれていた(行末に <code>!</code>)</li></ul>' +
+        '<p>書き終えると画面には何も出ず、ダイアログは開いたままです(続けて押せる)。</p>' +
+        '<p class="gg-files">📄 <code>OnBnClickedExec</code> の末尾</p>',
+        ['nwA', 'nwB', 'noteA', 'noteB']),
+    ],
+  });
+})();
+</script>
+</body>
+</html>

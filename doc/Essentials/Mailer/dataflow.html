@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = ML.col;
+  var H = 0.7;   // 矢印の高さ(箱の上面あたり)
+
+  // ノードの座標 [x, z]
+  var N = {
+    user: [-20, -5], ui: [-11, -5], param: [-2, -5], repl: [7, -5], esc: [16, -5],
+    browser: [-11, 3], exec: [-2, 3], chk: [7, 3], url: [16, 3],
+    ptr: [-20, 11], loc: [-11, 11], sr: [-2, 11], jfs: [7, 11], file: [16, 11],
+    chooser: [-11, 19], sysm: [-2, 19],
+  };
+  function at(k, dz, dy) { return [N[k][0], dy == null ? H : dy, N[k][1] + (dz || 0)]; }
+  function ids(nodes, arrows) {
+    return nodes.concat((arrows || []).map(function (a) { return 'a-' + a; }));
+  }
+
+  GameGuide.start({
+    title: 'Mailer データの流れ',
+    back: 'index.html',
+    subtitle: '入力 → 件名の日付置換 → URLエスケープ → ブラウザ起動、と 設定の保存・読み込み を、粒の動きで追います',
+    camera: { pos: [-2, 36, 30], target: [-2, 0, 5] },
+
+    build: function (g) {
+      function node(id, label, color, w) {
+        ML.node(g, id, [N[id][0], 0, N[id][1]], [w || 4.6, 1.2, 2.2], color, label, { labelSize: 0.34 });
+      }
+      // ---- 箱 ----
+      node('ui', 'MainWindow\nTextBox 6個 / DatePicker', C.view, 5.0);
+      node('param', 'ExecParam\nCreateNum / IntervalMsec / UserDate', C.view, 5.2);
+      node('repl', 'Logic\n.ReplaceDatePlaceholders', C.service, 5.0);
+      node('esc', 'Logic\n.EscapeUrlParam', C.service);
+      node('url', 'OpenBrowser()\n_mailUrl + &to/&cc/&bcc/&su/&body', C.view, 5.4);
+      node('chk', 'Logic\n.IsUrlTooLong (> 32000)', C.service);
+      node('exec', 'StcUtils\n.ExecuteProcess(ブラウザ, URL)', C.common, 5.2);
+      node('browser', 'ブラウザ\nGmail 作成画面', C.os);
+      node('ptr', 'DataFolder.txt\n(exe と同じフォルダ)', C.file);
+      node('loc', 'UserDataLocation\n.GetUserDataFolder()', C.common);
+      node('sr', 'WpfSaveRestore\nLoadOrDefault / Save', C.common);
+      node('jfs', 'JsonFileStorage\n+ AtomicFile', C.common);
+      node('file', 'Mailer.json\n(既定: %LOCALAPPDATA%\\Mailer)', C.file, 5.0);
+      node('chooser', 'DataFolderChooser\n(フォルダ選択)', C.common);
+      node('sysm', 'システムメニュー\nデータ保存先を変更(&D)...', C.view, 5.0);
+
+      // ユーザー(人の形)
+      g.group('user', { pos: [N.user[0], 0, N.user[1]] });
+      g.cylinder({ parent: 'user', radius: 0.55, height: 1.2, pos: [0, 0.6, 0], color: '#4fa3ff' });
+      g.sphere({ parent: 'user', radius: 0.4, pos: [0, 1.6, 0], color: '#4fa3ff' });
+      g.label('ユーザー', [0, 2.7, 0], { parent: 'user', size: 0.32, bg: '#00000088' });
+
+      // ---- 矢印(id は 'a-' + 名前) ----
+      function A(name, from, to, color, lift, label) { g.arrow(from, to, { id: 'a-' + name, color: color, lift: lift == null ? 1 : lift, radius: 0.05, label: label, labelSize: 0.26, labelBg: '#000000aa' }); }
+      // 保存先と読み込み
+      A('ptr-loc', at('ptr', 0), at('loc', 0), C.file, 0.6, '1行目=保存先');
+      A('loc-sr', at('loc', 0), at('sr', 0), C.common, 0.8, 'Mailer.json のパス');
+      A('file-jfs', at('file', -0.4), at('jfs', -0.4), C.data, 1.0, 'JSON文字列');
+      A('jfs-sr', at('jfs', -0.4), at('sr', -0.4), C.data, 1.6, 'GenericProfile');
+      A('sr-ui', at('sr', -0.8), at('ui', 0.6), C.view, 2.2, 'ApplyGenericProfile');
+      // クリック〜起動
+      A('user-ui', at('user', 0), at('ui', 0), '#ffd166', 0.8, 'クリック');
+      A('ui-param', at('ui', 0), at('param', 0), '#ffd166', 0.8, 'TryGetUiParam');
+      A('param-repl', at('param', 0), at('repl', 0), '#ffd166', 0.8, 'userDate = 起点日 + offset');
+      A('repl-esc', at('repl', 0), at('esc', 0), '#ffd166', 0.8, '置換済みの件名');
+      A('esc-url', at('esc', 0.4), at('url', -0.4), '#ffd166', 0.8, '%エンコード済み');
+      A('url-chk', at('url', 0), at('chk', 0), '#ffd166', 0.8, 'browseUrl');
+      A('chk-exec', at('chk', 0), at('exec', 0), '#ffd166', 0.8, '長さ OK');
+      A('exec-browser', at('exec', 0), at('browser', 0), C.os, 0.8, 'Process.Start');
+      // 一括表示のくり返し
+      A('loop', at('exec', -0.8), at('param', 0.8), '#ff9ecb', 3.4, 'Sleep(IntervalMsec) → 次の offset');
+      // 保存
+      A('ui-sr', at('ui', 0.9), at('sr', 0.9), '#ff9ecb', 2.6, 'BuildGenericProfile');
+      A('sr-jfs', at('sr', 0.4), at('jfs', 0.4), '#ff9ecb', 1.2, 'GenericProfile');
+      A('jfs-file', at('jfs', 0.8), at('file', 0.8), '#ff9ecb', 1.6, 'WriteAllText');
+      // 保存先の変更
+      A('sysm-chooser', at('sysm', 0), at('chooser', 0), C.common, 0.8, 'ChooseFolder');
+      A('chooser-ptr', at('chooser', -0.6), at('ptr', 0.6), C.file, 1.4, 'SetUserDataFolder');
+      g.sphere({ id: 'x-toolong', radius: 0.5, pos: [7, 1.6, 6.8], color: '#ff3b4a', emissive: '#ff3b4a', label: '✕ 長すぎ → メッセージを出して中止\n(ブラウザは開かない)', labelSize: 0.3, labelOffset: [0, 1.3, 0] });
+
+      // ---- 粒 ----
+      [['pk1', '#7ef0ff'], ['pk2', '#ffd166'], ['pk3', '#ff9ecb'], ['pk4', '#7ef0ff']].forEach(function (p) {
+        g.sphere({ id: p[0], radius: 0.22, pos: [0, -50, 0], color: p[1], emissive: p[1] });
+      });
+    },
+
+    steps: [
+      {
+        title: '1. 全体像',
+        camera: { pos: [-2, 36, 30], target: [-2, 0, 5] },
+        show: ['a-ptr-loc', 'a-loc-sr', 'a-file-jfs', 'a-jfs-sr', 'a-sr-ui', 'a-user-ui', 'a-ui-param', 'a-param-repl', 'a-repl-esc', 'a-esc-url', 'a-url-chk', 'a-chk-exec', 'a-exec-browser', 'a-ui-sr', 'a-sr-jfs', 'a-jfs-file'],
+        html:
+          '<p>Mailerのデータの動きは、大きく<b>3本</b>です。</p>' +
+          '<table><tr><th>色</th><th>流れ</th></tr>' +
+          '<tr><td>黄色</td><td>メール作成画面を開く(入力 → 件名の置換 → URL → ブラウザ)</td></tr>' +
+          '<tr><td>水色</td><td>設定の読み込み(Mailer.json → 画面の入力欄)</td></tr>' +
+          '<tr><td>ピンク</td><td>設定の保存(画面の入力欄 → Mailer.json)</td></tr></table>' +
+          '<p>箱の色: 青=画面 / オレンジ=ロジック(<code>Logic.cs</code>) / 紫=<code>_Common</code>共有部品 / 黄=ファイル / 赤=外部(ブラウザ)。</p>' +
+          '<p class="gg-files">各ステップで光る箱だけが、そのステップの登場人物です。</p>',
+        update: function (g, t) {
+          ML.chain(g, 'pk1', ['file-jfs', 'jfs-sr', 'sr-ui'], t, 1.2, 5);
+          ML.chain(g, 'pk2', ['user-ui', 'ui-param', 'param-repl', 'repl-esc', 'esc-url', 'url-chk', 'chk-exec', 'exec-browser'], t + 2.4, 0.9, 8);
+        },
+      },
+      {
+        title: '2. 保存先を決めて、設定を読み込む(起動の最初)',
+        camera: { pos: [2, 31, 27], target: [2, 0, 4] },
+        focus: ids(['ptr', 'loc', 'sr', 'jfs', 'file', 'ui'], ['ptr-loc', 'loc-sr', 'file-jfs', 'jfs-sr', 'sr-ui']),
+        show: ['a-ptr-loc', 'a-loc-sr', 'a-file-jfs', 'a-jfs-sr', 'a-sr-ui'],
+        html:
+          '<p><code>MainWindow</code>のコンストラクタが、次の順で設定を復元します。</p>' +
+          '<ol><li><code>UserDataLocation.GetUserDataFolder("Mailer")</code>: exeと同じフォルダの<code>DataFolder.txt</code>(1行目=保存先)を読む。無ければ既定の<code>%LOCALAPPDATA%\\Mailer\\</code></li>' +
+          '<li><code>RegisterSettingItems()</code>: ブラウザパス・To・Cc・Bcc・件名・本文の6つを<code>SaveRestore.RegisterCtrl</code>で登録(キーは<code>Common|textBox_MailTo</code>のような形)</li>' +
+          '<li><code>SaveRestore.LoadOrDefault(Mailer.json)</code>: <code>JsonFileStorage.Load</code>でJSON → <code>GenericProfile</code> → <code>ApplyGenericProfile</code>で各入力欄へ</li>' +
+          '<li><code>WpfProfile.UpdateProfileList</code>: 保存先の<code>*.json</code>を一覧(コンボ)に並べる</li></ol>' +
+          '<div class="gg-note">ファイルが無い・壊れている場合は例外にならず、入力欄は空(既定値)のまま始まります。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk1', ['ptr-loc', 'loc-sr'], t, 1.2, 6);
+          ML.chain(g, 'pk4', ['file-jfs', 'jfs-sr', 'sr-ui'], t + 2.4, 1.2, 6);
+        },
+      },
+      {
+        title: '3. ボタンを押す: 入力値を集める',
+        camera: { pos: [-11, 18, 10], target: [-11, 0, -4] },
+        focus: ids(['user', 'ui', 'param'], ['user-ui', 'ui-param']),
+        show: ['a-user-ui', 'a-ui-param'],
+        html:
+          '<p>「ブラウザで表示」「一括表示」のどちらも、まず<code>TryGetUiParam()</code>で画面の値を<code>ExecParam</code>に集めます。</p>' +
+          '<ol><li>ブラウザパスの存在確認(<code>IsExistFileNameInEnvironment</code>)。無ければ「ファイルが存在しません」で中止</li>' +
+          '<li><code>CreateNum</code>(生成数)・<code>IntervalMsec</code>(インターバル)を数値に変換</li>' +
+          '<li><code>UserDate</code> = 起点日(空なら今日)の年月日 + <b>今の時刻</b>の時分秒</li></ol>' +
+          '<div class="gg-note">ヘルプの「選んだ日付」の置換は、この<code>UserDate</code>が元になります。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk2', ['user-ui', 'ui-param'], t, 1.4, 4);
+          g.pulse(g.get('ui'), t, 0.05);
+        },
+      },
+      {
+        title: '4. 件名の日付を置き換える',
+        camera: { pos: [3, 18, 10], target: [3, 0, -4] },
+        focus: ids(['param', 'repl', 'esc'], ['param-repl', 'repl-esc']),
+        show: ['a-param-repl', 'a-repl-esc'],
+        html:
+          '<p><code>OpenBrowser(daysOffset)</code>が、件名を<code>Logic.ReplaceDatePlaceholders(件名, UserDate + daysOffset日)</code>に通します。中では3段で置換します。</p>' +
+          '<ol><li><code>ReplaceUsersDay</code>: <code>%%USERSDAY%%</code>(年あり) / <code>%%usersday%%</code> → 起点日</li>' +
+          '<li><code>ReplaceRelativeDays</code>: <code>DateTime.Now</code>を基準に <code>%%today%%</code> / <code>%%tomorrow%%</code> / <code>%%weekend%%</code></li>' +
+          '<li><code>ReplaceDayOfWeek</code>: <code>%%dayofweek%%</code>(<code>ddd</code>) / <code>%%DAYOFWEEK%%</code>(<code>dddd</code>)</li></ol>' +
+          '<p><code>%%weekend%%</code>は<code>GetWeekendFriday</code>で「次の金曜日(金曜は当日、土日も次の金曜)」を求めます。日付の書式は<code>ReplaceDay</code>が年あり(<code>2026/10/26</code>)・年なし(<code>10/26</code>)を作ります。</p>' +
+          '<div class="gg-note">本文(<code>textBox_MailBody</code>)はこの置換を通りません。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk2', ['param-repl', 'repl-esc'], t, 1.4, 4);
+          g.pulse(g.get('repl'), t, 0.06);
+        },
+      },
+      {
+        title: '5. URLを組み立てる(エスケープ)',
+        camera: { pos: [10, 20, 12], target: [10, 0, -1] },
+        focus: ids(['repl', 'esc', 'url'], ['repl-esc', 'esc-url']),
+        show: ['a-repl-esc', 'a-esc-url'],
+        html:
+          '<p><code>_mailUrl</code> = <code>https://mail.google.com/mail/?view=cm&amp;fs=1</code> に、空でない項目だけを順に足していきます。</p>' +
+          '<ul><li><code>&amp;to=</code> / <code>&amp;cc=</code> / <code>&amp;bcc=</code> / <code>&amp;su=</code>(置換済みの件名) / <code>&amp;body=</code></li>' +
+          '<li>値は<code>Logic.EscapeUrlParam</code>で<code>Uri.EscapeDataString</code>する。「&amp;」「#」「+」「%」や改行(<code>%0D%0A</code>)も壊れない</li>' +
+          '<li>約65,000文字を超えると<code>EscapeDataString</code>が例外になる(.NET Framework)ため、<b>30,000文字ごとに区切って</b>変換(サロゲートペアの途中では切らない)</li></ul>' +
+          '<div class="gg-note">以前は空白→「+」、改行→「%0D%0A」だけを置換していたため、「Q&amp;A」で値が切れる等の崩れ方をしていました。それを直した部分です。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk2', ['repl-esc', 'esc-url'], t, 1.4, 4);
+          g.pulse(g.get('esc'), t, 0.06);
+        },
+      },
+      {
+        title: '6. 長さをチェックしてブラウザを起動',
+        camera: { pos: [5, 20, 16], target: [5, 0, 2] },
+        focus: ids(['url', 'chk', 'exec', 'browser', 'x-toolong'], ['url-chk', 'chk-exec', 'exec-browser']),
+        show: ['a-url-chk', 'a-chk-exec', 'a-exec-browser', 'x-toolong'],
+        html:
+          '<ol><li><code>Logic.IsUrlTooLong(url)</code>: URLが<code>MaxUrlLength</code>(<b>32,000</b>文字)を超えるか。ブラウザはコマンドライン引数で起動するため、全体の上限(32,767文字)からブラウザのパス分を残した値です</li>' +
+          '<li>超えたら「長すぎてブラウザに渡せません(URLにすると○文字)」を出して<b>中止</b>(以前は例外で落ちていた)</li>' +
+          '<li>超えなければ<code>StcUtils.ExecuteProcess(ブラウザパス, URL)</code> → <code>Process.Start</code>。ハンドルは使わないので<code>using</code>ですぐ解放</li></ol>' +
+          '<p>ブラウザがGmailの作成画面を開き、宛先・件名・本文が入った状態になります。<b>送信はしません</b>。</p>',
+        update: function (g, t) {
+          ML.chain(g, 'pk2', ['url-chk', 'chk-exec', 'exec-browser'], t, 1.3, 5);
+          g.pulse(g.get('x-toolong'), t, 0.2);
+        },
+      },
+      {
+        title: '7. 一括表示: 日付をずらしてくり返す',
+        camera: { pos: [3, 28, 20], target: [3, 0, 0] },
+        focus: ids(['ui', 'param', 'repl', 'esc', 'url', 'chk', 'exec', 'browser'], ['param-repl', 'repl-esc', 'esc-url', 'url-chk', 'chk-exec', 'exec-browser', 'loop']),
+        show: ['a-param-repl', 'a-repl-esc', 'a-esc-url', 'a-url-chk', 'a-chk-exec', 'a-exec-browser', 'a-loop'],
+        html:
+          '<p>「一括表示」は、上の流れ(4〜6)を<b>日数分くり返す</b>だけです(<code>button_OpenBrowse_OneWeek_Click</code>)。</p>' +
+          '<ol><li><code>Logic.GetDayOffsetList(生成数, Reverse)</code>: 例えば生成数5なら <code>0,1,2,3,4</code>、Reverseオンなら <code>4,3,2,1,0</code></li>' +
+          '<li>offsetごとに<code>OpenBrowser(offset)</code>: <code>UserDate + offset日</code>で件名を置換して起動</li>' +
+          '<li>1通開くたびに<code>Thread.Sleep(IntervalMsec)</code>(この間は画面が固まる)</li>' +
+          '<li>途中でURLが長すぎて開けなかったら、そこで全体を中止</li></ol>' +
+          '<div class="gg-note">宛先・本文は毎回同じで、<b>件名の日付だけ</b>が1日ずつ変わります。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk2', ['param-repl', 'repl-esc', 'esc-url', 'url-chk', 'chk-exec', 'exec-browser'], t, 0.8, 7);
+          ML.fly(g, 'pk3', 'loop', t + 3.5, 0.2, 1.6, 7);
+        },
+      },
+      {
+        title: '8. 設定を保存する',
+        camera: { pos: [5, 28, 24], target: [5, 0, 4] },
+        focus: ids(['ui', 'sr', 'jfs', 'file'], ['ui-sr', 'sr-jfs', 'jfs-file']),
+        show: ['a-ui-sr', 'a-sr-jfs', 'a-jfs-file'],
+        html:
+          '<p>「設定保存」を押したときの流れです(<code>button_SaveSetting_Click</code>)。</p>' +
+          '<ol><li><code>WpfProfile.SaveProfileWithDialog</code>: 保存ダイアログで名前を決める(既定は<code>Mailer.json</code>)</li>' +
+          '<li><code>SaveRestore.Save</code> → <code>BuildGenericProfile</code>: 登録した6項目の現在値を<code>GenericProfile.Values</code>(キーは<code>Common|textBox_MailTo</code>等)に集める</li>' +
+          '<li><code>JsonFileStorage.Save</code>: インデント付きJSON(UTF-8・BOMなし)にして、<code>AtomicFile.WriteAllText</code>で書き出す</li>' +
+          '<li>保存した名前が一覧(コンボ)に反映される</li></ol>' +
+          '<p>一覧からプロファイルを選ぶと<code>SelectionChanged</code>で<code>SaveRestore.Load</code>が走り、入力欄がその内容に戻ります。</p>' +
+          '<div class="gg-note">WinForms版Mailerと保存キー・保存先が同じなので、WinForms版で保存したJSONもそのまま読めます。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk3', ['ui-sr', 'sr-jfs', 'jfs-file'], t, 1.4, 5);
+        },
+      },
+      {
+        title: '9. 保存先フォルダを変える',
+        camera: { pos: [-10, 24, 30], target: [-10, 0, 14] },
+        focus: ids(['sysm', 'chooser', 'ptr', 'loc'], ['sysm-chooser', 'chooser-ptr', 'ptr-loc']),
+        show: ['a-sysm-chooser', 'a-chooser-ptr', 'a-ptr-loc'],
+        html:
+          '<p>タイトルバーを右クリックしたシステムメニューの「データ保存先を変更(&amp;D)...」の流れです(<code>WpfDataFolderMenu.Attach</code> → <code>DataFolderMenu.ChangeDataFolder</code>)。</p>' +
+          '<ol><li><code>DataFolderChooser</code>でフォルダを選ぶ(キャンセル・今と同じ場所なら何もしない)</li>' +
+          '<li><code>DataFolderMenu.MoveProfiles</code>: 今のプロファイル(<code>*.json</code>)を新しい場所へ移すか確認。同名があればスキップ</li>' +
+          '<li><code>UserDataLocation.SetUserDataFolder</code>で<code>DataFolder.txt</code>を書き換える</li></ol>' +
+          '<div class="gg-note">変更が反映されるのは<b>次回起動時</b>から(実行中の保存先は<code>readonly</code>で確定済み)。</div>',
+        update: function (g, t) {
+          ML.chain(g, 'pk1', ['sysm-chooser', 'chooser-ptr'], t, 1.4, 4);
+        },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

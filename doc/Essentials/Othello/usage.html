@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Othello 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE, PI = Math.PI;
+  // 画面写真(504x626)を3D空間のパネルとして並べる
+  var PW = 6.4, PH = PW * 626 / 504, PY = 4.3;
+  var PANELS = {
+    start:   { x: -14.4, title: '① 起動直後(人 vs 人)' },
+    midgame: { x: -4.8,  title: '② 対局の途中(置ける場所の灰色マーク)' },
+    com:     { x: 4.8,   title: '③ COM vs COM の途中' },
+    end:     { x: 14.4,  title: '④ 終局(石数と勝敗)' }
+  };
+  // 写真上の位置(0〜1)→パネルのローカル座標
+  function L(fx, fy, z) { return [(fx - 0.5) * PW, (0.5 - fy) * PH, z == null ? 0.2 : z]; }
+  function cam(cx, dist, dy) { return { pos: [cx, PY + (dy == null ? 0.2 : dy), dist || 13.4], target: [cx, PY - 0.1, 0] }; }
+  var WIDE = { pos: [0, 5.2, 31], target: [0, 4.0, 0] };
+
+  // 3D の石(上が黒・下が白の円盤。X軸で回すと裏返る)
+  function stone(g, id, parent, pos) {
+    g.group(id, { parent: parent, pos: pos });
+    g.cylinder({ parent: id, radius: 0.5, height: 0.14, pos: [0, 0.07, 0], color: '#161616', roughness: 0.35 });
+    g.cylinder({ parent: id, radius: 0.5, height: 0.14, pos: [0, -0.07, 0], color: '#f2f2f2', roughness: 0.35 });
+  }
+  function setStone(g, id, o) {
+    var s = g.get(id);
+    s.visible = o.vis !== false;
+    s.rotation.set(o.rot || 0, 0, 0);
+    s.position.y = o.y == null ? 0.2 : o.y;
+    var k = o.sc == null ? 1 : o.sc; s.scale.set(k, k, k);
+  }
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+  GameGuide.start({
+    title: 'Othello 使い方',
+    back: 'index.html',
+    subtitle: '人対人・人対COM・COM対COM / 一手戻す・進める(実際の画面の写真つき)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面写真のパネル ----
+      Object.keys(PANELS).forEach(function (name) {
+        var p = PANELS[name];
+        g.group('p-' + name, { pos: [p.x, PY, 0] });
+        g.box({ id: 'f-' + name, parent: 'p-' + name, size: [PW + 0.3, PH + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.OT_IMGS[name]);
+        var plane = new T.Mesh(new T.PlaneGeometry(PW, PH), new T.MeshBasicMaterial({ map: tex, transparent: true }));
+        g.add('s-' + name, plane, 'p-' + name);
+        g.label(p.title, [0, PH / 2 + 0.55, 0], { id: 't-' + name, parent: 'p-' + name, size: 0.34, bg: '#000000aa' });
+      });
+
+      function co(id, panel, text, fx, fy, color) {
+        g.label(text, L(fx, fy), { id: id, parent: 'p-' + panel, size: 0.21, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      // 起動直後
+      co('c-menu', 'start', '① メニュー\nゲーム / 対戦モード / COMレベル\n持ち時間 / 棋譜', 0.50, 0.135);
+      co('c-board', 'start', '② 8x8 の盤\n(石を置きたいマスをクリック)', 0.50, 0.47, '#7ef0ff');
+      co('c-hint', 'start', '灰色の小さな丸 =\n今の手番が置ける場所', 0.52, 0.30, '#ffd166');
+      co('c-status', 'start', '③ 手番と石数\n「黒の番 (黒:2 白:2)」', 0.60, 0.895, '#5ee6a8');
+      co('c-restart', 'start', '④ ReStart\n(確認ダイアログあり)', 0.82, 0.965, '#ff5f6d');
+      // 対局の途中
+      co('m-turn', 'midgame', '手番が変わると\nマークも出し直される', 0.80, 0.895, '#5ee6a8');
+      co('m-hint', 'midgame', '置ける場所だけマーク\n(挟める所が無いマスには出ない)', 0.50, 0.26, '#ffd166');
+      co('m-click', 'midgame', '置きたいマスをクリック\n→ 挟んだ石が裏返る', 0.30, 0.955, '#7ef0ff');
+      // COM
+      co('k-status', 'com', 'COM同士は自動で進む\n(1手ごとに約0.15秒待つ)', 0.62, 0.90, '#5ee6a8');
+      co('k-nohint', 'com', 'COMの手番では\n置ける場所のマークは出ない', 0.50, 0.50, '#ffd166');
+      co('k-menu', 'com', '対戦モード / COMレベルは\nここから切り替え', 0.40, 0.135, '#7ef0ff');
+      // 終局
+      co('e-status', 'end', '終局 黒:37 白:27 黒の勝ち\n(置ける場所が双方無くなった)', 0.62, 0.90, '#ff5f6d');
+      co('e-board', 'end', '終局後はクリックしても\n何も起きない', 0.50, 0.50, '#ffd166');
+      // 棋譜・持ち時間のメニュー位置
+      co('t-menu', 'start', '持ち時間(なし/30秒〜15分)', 0.60, 0.115, '#ffd166');
+      co('t-kifu', 'start', '棋譜: 表示 / 保存 / 読込', 0.74, 0.17, '#7ef0ff');
+      co('t-game', 'start', 'ゲーム: 開始 / 一手戻す /\n一手進める / 遊び方', 0.20, 0.12, '#5ee6a8');
+
+      // ---- 3D 石の実演(手順3: 挟むと裏返る) ----
+      var BX = -4.8, ROWZ = 3.2;
+      g.box({ id: 'mr-base', size: [7.2, 0.2, 1.6], pos: [BX, 0.0, ROWZ], color: '#0a6a2e', edgeColor: '#5ee6a8', radius: 0.12 });
+      for (var i = 0; i < 5; i++) stone(g, 'mr-' + i, null, [BX + (i - 2) * 1.35, 0.2, ROWZ]);
+      g.label('置く(新しい黒)', [BX - 2.7, 1.9, ROWZ], { id: 'mr-l0', size: 0.26, bg: '#000000bb', color: '#ffd166', border: '#ffd166' });
+      g.label('挟まれた白は\n黒に裏返る', [BX, 2.1, ROWZ], { id: 'mr-l1', size: 0.26, bg: '#000000bb', color: '#7ef0ff', border: '#7ef0ff' });
+      g.label('相手の黒(挟む相手)', [BX + 2.7, 1.9, ROWZ], { id: 'mr-l2', size: 0.26, bg: '#000000bb', color: '#5ee6a8', border: '#5ee6a8' });
+
+      // ---- 履歴ブロック(手順5: 一手戻す/進める) ----
+      var K = ['D.3 黒', 'C.3 白', 'B.3 黒', 'B.2 白', 'B.1 黒', 'E.3 白', 'F.3 黒', 'A.1 白'];
+      for (var j = 0; j < K.length; j++) {
+        g.box({ id: 'hb-' + j, size: [1.45, 0.5, 1.0], pos: [-4.8 + (j - 3.5) * 1.6, 0.25, 3.2], color: '#2d2944', emissive: j % 2 ? '#dddddd' : '#444444', emissiveIntensity: 0.2, radius: 0.08, edgeColor: '#ffd166',
+          label: (j + 1) + '手目\n' + K[j], labelSize: 0.2, labelOffset: [0, 0.75, 0], labelBg: '#000000cc' });
+      }
+      g.sphere({ id: 'hp', radius: 0.2, pos: [-4.8 + (7 - 3.5) * 1.6 + 0.8, 1.55, 3.2], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label('TurnCount\n(いま何手目まで)', [0, 0.6, 0], { id: 'hp-l', parent: 'hp', size: 0.22, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('ポインタより右 = 「一手進める」で戻せる手\n(History には残っている)', [-4.8, 2.7, 3.2], { id: 'hb-l', size: 0.22, bg: '#000000bb', color: '#7ef0ff', border: '#7ef0ff' });
+    },
+
+    steps: [
+      {
+        title: '0. Othello とは',
+        camera: WIDE,
+        focus: ['p-start', 'p-midgame', 'p-com', 'p-end'],
+        html:
+          '<p>8x8 の盤で、黒(先手)と白が交互に石を置き、<b>相手の石を挟んで自分の色にひっくり返す</b>ゲームです。最後に石の多い方が勝ち。</p>' +
+          '<ul><li><b>人 vs 人</b> / <b>人 vs COM</b> / <b>COM vs 人</b> / <b>COM vs COM</b> の4つの対戦モード</li>' +
+          '<li>COM は3段階のレベル(中心優先 / 序盤・中盤・終盤で方針を変える / 開放度で守りを固める)</li>' +
+          '<li><b>一手戻す・一手進める</b>、持ち時間、棋譜の保存と読込つき</li></ul>' +
+          '<p>写真は実際の Othello.exe の画面(対局の盤面だけ)。左から ①起動直後 ②対局途中 ③COM対COM ④終局。「次へ」で順番に寄ります。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. 画面の見かた',
+        camera: cam(-14.4, 13.4),
+        focus: ['p-start'],
+        show: ['c-menu', 'c-board', 'c-hint', 'c-status', 'c-restart'],
+        html:
+          '<table><tr><th>場所</th><th>役割</th></tr>' +
+          '<tr><td>① メニュー</td><td><code>ゲーム</code> <code>対戦モード</code> <code>COMレベル</code> <code>持ち時間</code> <code>棋譜</code></td></tr>' +
+          '<tr><td>② 盤</td><td>緑の 8x8。クリックした場所に石を置く。灰色の小円は「ここに置ける」の案内</td></tr>' +
+          '<tr><td>③ 状態表示</td><td>「黒の番 (黒:2 白:2)」のように、手番と石数。終局すると結果に変わる</td></tr>' +
+          '<tr><td>④ ReStart</td><td>初期画面に戻す(確認ダイアログあり。対戦モード・COMレベル・持ち時間はそのまま)</td></tr></table>' +
+          '<ul><li>ウィンドウの大きさは変えられる。盤は<b>常に正方形</b>のまま拡大される</li>' +
+          '<li>持ち時間を決めると、盤の下に「残り時間 黒:○秒 白:○秒」が出る</li></ul>'
+      },
+      {
+        title: '2. 石を置く',
+        camera: cam(-4.8, 13.4),
+        focus: ['p-midgame'],
+        show: ['m-turn', 'm-hint', 'm-click'],
+        html:
+          '<ol><li>灰色の小円があるマスのうち、置きたい所を<b>クリック</b>(マウスの同じボタンで押して離したときだけ反応)</li>' +
+          '<li>挟んだ相手の石がひっくり返り、手番が相手に移る</li></ol>' +
+          '<ul><li>置ける場所が無いマスをクリックしても<b>何も起きません</b>(手番もそのまま)</li>' +
+          '<li>相手に置ける場所が無いときは<b>自動でパス</b>。自分の手番が続きます</li>' +
+          '<li>COMの手番のあいだは、人のクリックは受け付けません</li>' +
+          '<li>COMの手番では置ける場所のマークは出ません(人への案内だから)</li></ul>'
+      },
+      {
+        title: '3. 挟むと石が裏返る',
+        camera: { pos: [-4.8, 5.2, 18], target: [-4.8, 3.2, 1.2] },
+        focus: ['p-midgame', 'mr-base', 'mr-0', 'mr-1', 'mr-2', 'mr-3', 'mr-4', 'mr-l0', 'mr-l1', 'mr-l2'],
+        show: ['mr-base', 'mr-0', 'mr-1', 'mr-2', 'mr-3', 'mr-4', 'mr-l0', 'mr-l1', 'mr-l2'],
+        update: function (g, t) {
+          var T0 = t % 9;
+          // 0:新しい黒が落ちてくる / 1〜3:白が順に裏返る / 4:相手の黒(動かない)
+          var drop = clamp01((T0 - 0.8) / 1.0);
+          setStone(g, 'mr-0', { vis: drop > 0, y: 0.2 + (1 - drop) * 2.4, rot: 0, sc: 0.5 + 0.5 * drop });
+          for (var i = 1; i <= 3; i++) {
+            var k = clamp01((T0 - (2.4 + (i - 1) * 0.55)) / 0.8);
+            // 3番目(右端に近い白)から順ではなく、置いた石に近い順に裏返る
+            setStone(g, 'mr-' + i, { rot: PI * (1 - k), y: 0.2 + Math.sin(PI * k) * 1.2 });
+          }
+          setStone(g, 'mr-4', { rot: 0 });
+          g.pulse('mr-l1', t, 0.05);
+        },
+        html:
+          '<p>置いた石と、自分の別の石で<b>相手の石が一直線に挟まれる</b>と、その石がすべて自分の色に変わります。</p>' +
+          '<ul><li>調べる方向は<b>縦・横・斜めの8方向</b>。1回の着手で、複数の方向がまとめて裏返ることもある</li>' +
+          '<li>挟まれていない(途中に空きマスがある・盤の端で終わる)方向は何も変わらない</li>' +
+          '<li>石の裏返りは盤面の再描画で一瞬で反映される(この3Dは説明用の動き)</li></ul>' +
+          '<div class="gg-note">「データの流れ」ページでは、同じ判定を3Dの盤で1方向ずつ調べる様子を見られます。</div>'
+      },
+      {
+        title: '4. 人 vs COM / COM vs COM',
+        camera: cam(4.8, 13.4),
+        focus: ['p-com'],
+        show: ['k-status', 'k-nohint', 'k-menu'],
+        html:
+          '<table><tr><th>メニュー「対戦モード」</th><th>黒(先手)</th><th>白</th></tr>' +
+          '<tr><td>人 vs 人</td><td>人</td><td>人</td></tr>' +
+          '<tr><td>人 vs COM</td><td>人</td><td>COM</td></tr>' +
+          '<tr><td>COM vs 人</td><td>COM</td><td>人</td></tr>' +
+          '<tr><td>COM vs COM</td><td>COM</td><td>COM</td></tr></table>' +
+          '<table><tr><th>メニュー「COMレベル」</th><th>考え方</th></tr>' +
+          '<tr><td>レベル1</td><td>盤の<b>中心に近い手</b>を優先</td></tr>' +
+          '<tr><td>レベル2</td><td>序盤は中心寄り / 中盤は<b>返す石が少ない</b>手 / 終盤は<b>多い</b>手</td></tr>' +
+          '<tr><td>レベル3</td><td>打った後に周りの空きマスが少ない(<b>開放度が低い</b>)手</td></tr></table>' +
+          '<ul><li>どのレベルでも最後は<b>角を最優先</b>、角を取られる手は避ける(詳しくは「データの流れ」)</li>' +
+          '<li>対戦モードを選び直すと<b>新しい対局</b>になる(COMレベルは対局を壊さず切り替わる)</li>' +
+          '<li>序盤の最初の3手だけはどのレベルでもランダム(毎回同じ展開にならないように)</li></ul>'
+      },
+      {
+        title: '5. 一手戻す / 一手進める',
+        camera: { pos: [-4.8, 5.6, 18], target: [-4.8, 3.2, 1.0] },
+        focus: ['p-midgame', 'hb-0', 'hb-1', 'hb-2', 'hb-3', 'hb-4', 'hb-5', 'hb-6', 'hb-7', 'hp', 'hp-l', 'hb-l'],
+        show: ['hb-0', 'hb-1', 'hb-2', 'hb-3', 'hb-4', 'hb-5', 'hb-6', 'hb-7', 'hp', 'hp-l', 'hb-l'],
+        update: function (g, t) {
+          // ポインタ(TurnCount)が 8 → 5 → 8 を往復する。ポインタより右のブロックは暗くして「戻した手」を表す
+          var seq = [8, 7, 6, 5, 5, 6, 7, 8, 8], p = Math.floor(t / 0.9) % seq.length, n = seq[p];
+          g.get('hp').position.x = -4.8 + (n - 4) * 1.6 + 0.0;
+          for (var j = 0; j < 8; j++) {
+            var b = g.get('hb-' + j);
+            b.position.y = j < n ? 0.25 : 0.05;
+            b.traverse(function (c) { if (c.isMesh && c.material && c.material.emissiveIntensity != null) c.material.emissiveIntensity = j < n ? 0.5 : 0.04; });
+          }
+        },
+        html:
+          '<p>メニュー「ゲーム」→ <b>一手戻す</b> / <b>一手進める</b>。何手でも、好きなところまで往復できます。</p>' +
+          '<ul><li>「一手戻す」: 直前の1手を取り消す。戻した結果が<b>COMの手番なら、COMがすぐ打ち直す</b></li>' +
+          '<li>「一手進める」: 戻した手を1手やり直す(戻した手は、新しい手を打つまで残っている)</li>' +
+          '<li>戻した状態から<b>別の手を打つと</b>、それより先の「やり直せたはずの手」は消える</li>' +
+          '<li>手数が0なら戻せない・戻した手が無ければ進められない(その間メニューは押せない)</li>' +
+          '<li>時間切れで終わった対局は、戻して続けることはできない</li></ul>' +
+          '<div class="gg-note">3Dの黄色い玉が「いま何手目まで盤に反映しているか」(<code>TurnCount</code>)。暗いブロックが、戻していて進め直せる手です。</div>'
+      },
+      {
+        title: '6. 持ち時間と棋譜',
+        camera: cam(-14.4, 13.4),
+        focus: ['p-start'],
+        show: ['t-menu', 't-kifu', 't-game'],
+        html:
+          '<table><tr><th>メニュー</th><th>できること</th></tr>' +
+          '<tr><td>持ち時間</td><td>なし / 30秒 / 1・2・3・5・10・15分。<b>黒と白それぞれ</b>の1局全体の持ち時間。先に0になった側の負け。選ぶと新しい対局になる</td></tr>' +
+          '<tr><td>棋譜 → 表示</td><td>ここまでの手順を「 1 : D.3 黒」の形式で見る</td></tr>' +
+          '<tr><td>棋譜 → 保存</td><td>同じ形式のテキストファイル(既定名 <code>Othello_kifu.txt</code>)に保存。戻した手も、進め直せる間は含まれる</td></tr>' +
+          '<tr><td>棋譜 → 読込</td><td>棋譜を最初から再生した局面にする。置けない手があればそこで打ち切り、メッセージを出す</td></tr>' +
+          '<tr><td>ゲーム → 開始</td><td>確認なしで新しい対局。棋譜を読み込んだ後は、<b>その局面から</b>対局を始める</td></tr></table>' +
+          '<ul><li>棋譜を読み込んだ直後は「開始」を押すまで、COMも人も打たず、持ち時間も減りません</li></ul>'
+      },
+      {
+        title: '7. 終局と勝敗',
+        camera: cam(14.4, 13.4),
+        focus: ['p-end'],
+        show: ['e-status', 'e-board'],
+        html:
+          '<ul><li><b>双方とも置ける場所が無くなったら終局</b>。盤が埋まっていなくても終わります</li>' +
+          '<li>状態表示が「終局 黒:37 白:27 黒の勝ち」のようになる(同数なら「引き分け」)</li>' +
+          '<li>持ち時間切れのときは「時間切れ(黒) 白の勝ち …」と表示</li>' +
+          '<li>終局後は盤をクリックしても何も起きません。<b>ReStart</b> か「ゲーム → 開始」で次の対局へ</li>' +
+          '<li>終局直前でも「一手戻す」で戻って別の手を試せます(時間切れを除く)</li></ul>'
+      },
+      {
+        title: '8. 注意点・困ったとき',
+        camera: WIDE,
+        focus: ['p-start', 'p-midgame', 'p-com', 'p-end'],
+        html:
+          '<ul><li>「対戦モード」「持ち時間」を選び直すと、今の対局は<b>確認なしで</b>新しくなります。</li>' +
+          '<li>「ReStart」だけは確認ダイアログが出ます。「開始」は確認なしです。</li>' +
+          '<li>COM vs COM は止められません(途中で止めたいときは別のモードを選んで新しい対局にします)。</li>' +
+          '<li>COMのレベル1は手が単純です。勝ちたいときはレベル3から試してください。</li>' +
+          '<li>ウィンドウはこれより小さくできません(盤が潰れないため)。</li></ul>' +
+          '<div class="gg-note">仕組みの詳細は「データの流れ」「内部設計」のページへ。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

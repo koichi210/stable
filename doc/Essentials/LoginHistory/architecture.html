@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginHistory 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { app: '#4fa3ff', dlg: '#c77dff', help: '#ff9f43', res: '#8f89b3', ext: '#5d5a78', old: '#4d4a63' };
+  var BASE = { app: 16.8, dlg: 12.6, help: 8.4, res: 4.2, ext: 0 };      // 各層の床の高さ
+  var BX = {};                                            // id -> { x, y, z }(箱の中心)
+
+  function cls(g, id, layer, x, w, label, color) {
+    var y = BASE[layer] + 0.62;
+    BX[id] = { x: x, y: y, z: 0 };
+    g.box({ id: id, size: [w, 1.1, 2.2], pos: [x, y, 0], radius: 0.14, color: color || COL[layer], label: label, labelSize: 0.28, labelOffset: [0, 1.15, 0] });
+  }
+  // 箱から箱への依存の矢印。上下の層なら箱の下面→上面、同じ層なら上を回す
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to, zf = 1.4;
+    if (Math.abs(A.y - B.y) < 0.1) { from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y + 0.55, zf]; }
+    else if (A.y > B.y) { from = [A.x, A.y - 0.55, zf]; to = [B.x, B.y + 0.6, zf]; }
+    else { from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y - 0.6, zf]; }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26, head: 0.32 });
+  }
+
+  var NOTE_CAM = { pos: [0, 12, 31], target: [0, 8.6, 0] };
+
+  GameGuide.start({
+    title: 'LoginHistory 内部設計',
+    subtitle: 'クラス・ファイル・関数の層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: NOTE_CAM,
+    floor: false,
+
+    build: function (g) {
+      function layer(id, key, text, color, lc) {
+        g.plate({ id: id, size: [35, 3.4], pos: [0, BASE[key] + 0.03, 0], color: color, opacity: 0.55, label: text, labelSize: 0.4, labelOffset: [-15.6, 0.3, 2.3], labelColor: lc });
+      }
+      layer('L-app', 'app', 'アプリ層\n(login_history.cc/.h)', '#26304f', '#bcd6ff');
+      layer('L-dlg', 'dlg', 'ダイアログ層\n(login_history_dlg.cc/.h)', '#352a4f', '#e2ccff');
+      layer('L-help', 'help', '補助関数(無名namespace)\n(login_history_dlg.cc)', '#4a3524', '#ffd9ae');
+      layer('L-res', 'res', 'リソース・ビルド設定', '#34304a', '#d5d0f2');
+      layer('L-ext', 'ext', 'OS・CRT・ファイル', '#2b2a3d', '#cfcbe8');
+
+      // アプリ層
+      cls(g, 'app', 'app', -6, 6.4, 'LoginHistoryApp\n(CWinApp)');
+      cls(g, 'theapp', 'app', 1.2, 3.8, 'the_app\n(グローバル1個)');
+      // ダイアログ層
+      cls(g, 'dlg', 'dlg', -4, 8, 'LoginHistoryDlg\n(CDialogEx)');
+      cls(g, 'mem', 'dlg', 5.2, 6.4, 'メンバー\nicon_ / log_name_');
+      // 補助関数
+      cls(g, 'open', 'help', -13, 4.2, 'OpenFile');
+      cls(g, 'cyc', 'help', -8, 5.4, 'LoadCycleFromIni');
+      cls(g, 'fmt', 'help', -2.8, 4.2, 'FormatTime');
+      cls(g, 'valid', 'help', 2, 4.2, 'IsValidDate');
+      cls(g, 'last', 'help', 7, 4.6, 'ReadLastTime');
+      cls(g, 'sched', 'help', 12.4, 4.6, 'IsOnSchedule');
+      // リソース
+      cls(g, 'rc', 'res', -10, 6.6, 'LoginHistory.rc\n(IDD_LOGINHISTORY_DIALOG)');
+      cls(g, 'resh', 'res', -2.6, 6, 'resource.h\n(IDBT_EXEC ほか)');
+      cls(g, 'ico', 'res', 4, 4.8, 'LoginHistory.ico\n(IDR_MAINFRAME)');
+      cls(g, 'pch', 'res', 10.4, 5.6, 'stdafx.h / .cpp\n(プリコンパイル済みヘッダ)');
+      // 外部
+      cls(g, 'mfc', 'ext', -12.6, 5, 'MFC(静的リンク)\nCWinApp / CDialogEx');
+      cls(g, 'crt', 'ext', -6, 6.4, 'CRT\n_fsopen / fgets / mktime …');
+      cls(g, 'ini', 'ext', 0, 3.8, 'set.ini\n(カレントフォルダ)');
+      cls(g, 'log', 'ext', 4.9, 4.6, 'ログファイル\n(画面で指定)');
+      cls(g, 'old', 'ext', 12, 6.2, 'logger.cpp(旧コンソール版)\nビルド対象外', COL.old);
+
+      // 依存の矢印(ステップごとに show で出し入れ)
+      arr(g, 'a-app-dlg', 'app', 'dlg', 'DoModal()', C.gold, 1.2);
+      arr(g, 'a-dlg-mem', 'dlg', 'mem', 'DoDataExchange', C.data, 0.6);
+      arr(g, 'a-dlg-cyc', 'dlg', 'cyc', '① 間隔', C.gold, 0.9);
+      arr(g, 'a-dlg-open', 'dlg', 'open', '② 開く', C.gold, 0.9);
+      arr(g, 'a-dlg-last', 'dlg', 'last', '③ 前回', C.gold, 0.9);
+      arr(g, 'a-dlg-sched', 'dlg', 'sched', '④ 判定', C.gold, 0.9);
+      arr(g, 'a-dlg-fmt', 'dlg', 'fmt', '⑤ 整形', C.gold, 0.9);
+      arr(g, 'a-last-valid', 'last', 'valid', '有効な日時か', C.data, 0.9);
+      arr(g, 'a-open-crt', 'open', 'crt', '_fsopen', C.gold, 0.5);
+      arr(g, 'a-cyc-ini', 'cyc', 'ini', 'fgets', C.gold, 0.5);
+      arr(g, 'a-open-log', 'open', 'log', '読み書き', C.gold, 1.6);
+      arr(g, 'a-sched-crt', 'sched', 'crt', 'mktime', C.gold, 2.4);
+      arr(g, 'a-dlg-rc', 'dlg', 'rc', 'IDD', C.data, 0.6);
+      arr(g, 'a-app-mfc', 'app', 'mfc', '継承', C.data, 1.0);
+      arr(g, 'a-dlg-mfc', 'dlg', 'mfc', '継承', C.data, 1.0);
+      arr(g, 'a-rc-resh', 'rc', 'resh', 'ID', C.data, 0.5);
+      arr(g, 'a-rc-ico', 'rc', 'ico', 'ICON', C.data, 1.0);
+    },
+
+    steps: [
+      {
+        title: '全体: 小さな層構造',
+        camera: NOTE_CAM,
+        show: ['a-app-dlg', 'a-dlg-mem', 'a-dlg-cyc', 'a-dlg-open', 'a-dlg-last', 'a-dlg-sched', 'a-dlg-fmt'],
+        html:
+          '<p>稼働ログツール LoginHistory(C++ / MFC)は、<b>クラス2つ + 補助関数6つ</b>だけの小さなアプリです。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>アプリ</td><td><code>LoginHistoryApp</code>(<code>login_history.cc/.h</code>)</td></tr>' +
+          '<tr><td>ダイアログ</td><td><code>LoginHistoryDlg</code>(<code>login_history_dlg.cc/.h</code>)</td></tr>' +
+          '<tr><td>補助関数</td><td>無名namespace(<code>OpenFile</code> / <code>LoadCycleFromIni</code> / <code>FormatTime</code> / <code>IsValidDate</code> / <code>ReadLastTime</code> / <code>IsOnSchedule</code>)</td></tr>' +
+          '<tr><td>リソース・外部</td><td><code>LoginHistory.rc</code>・<code>resource.h</code>、MFC・CRT、<code>set.ini</code>・ログファイル</td></tr></table>' +
+          '<p><b>設計の要点</b>: 仕事は<b>ボタン1つのハンドラ(<code>OnBnClickedExec</code>)</b>に集まり、その部品(間隔を読む・前回を読む・間隔を判定する…)を無名namespaceの関数に切り出してある。ウィンドウは1つ、スレッドもタイマーも無く、押されたら1行書いて待つだけ。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに注目する箱が明るくなります。</p>',
+      },
+      {
+        title: 'アプリ層: LoginHistoryApp',
+        camera: { pos: [-3, 17, 22], target: [-3, 16.6, 0] },
+        focus: ['app', 'theapp', 'dlg', 'a-app-dlg', 'L-app'],
+        show: ['a-app-dlg'],
+        html:
+          '<p><b><code>LoginHistoryApp</code></b>(<code>CWinApp</code> 派生)と、そのグローバルな実体 <code>the_app</code> が1つだけあります。</p>' +
+          '<ul><li><code>InitInstance()</code>: <code>InitCommonControlsEx(ICC_WIN95_CLASSES)</code> を呼び(<b>これが無いと、ComCtl32 v6 を使うマニフェストでウィンドウ作成に失敗する</b>とコメントで説明)、<code>CWinApp::InitInstance()</code> のあと、<code>LoginHistoryDlg dlg;</code> を作って <code>m_pMainWnd = &amp;dlg; dlg.DoModal();</code></li>' +
+          '<li>ダイアログを閉じたら <b><code>return FALSE</code></b>。メッセージポンプを始めずにアプリが終わる(ダイアログ型MFCの定型)</li>' +
+          '<li>コンストラクタで <code>m_dwRestartManagerSupportFlags = AFX_RESTART_MANAGER_SUPPORT_RESTART</code>。メッセージマップは <code>ID_HELP</code> → <code>CWinApp::OnHelp</code> だけ</li></ul>' +
+          '<p class="gg-files">📄 <code>login_history.h</code> / <code>login_history.cc</code></p>',
+      },
+      {
+        title: 'ダイアログ層: LoginHistoryDlg',
+        camera: { pos: [1, 13, 23], target: [1, 12.6, 0] },
+        focus: ['dlg', 'mem', 'a-dlg-mem', 'app', 'a-app-dlg', 'L-dlg'],
+        show: ['a-app-dlg', 'a-dlg-mem'],
+        html:
+          '<p><b><code>LoginHistoryDlg</code></b>(<code>CDialogEx</code> 派生、<code>enum { IDD = IDD_LOGINHISTORY_DIALOG }</code>)が、画面と処理のすべてを持ちます。</p>' +
+          '<ul><li>メンバーは2つだけ: <code>HICON icon_</code> と、出力先の欄とつながる <code>CString log_name_</code></li>' +
+          '<li><code>DoDataExchange</code>: <code>DDX_Text(dx, IDET_LOGNAME, log_name_)</code>。<code>UpdateData(TRUE/FALSE)</code> で欄と変数が行き来する</li>' +
+          '<li><code>OnInitDialog</code>: アイコンを設定し、<code>log_name_ = kDefaultLogFileName</code>(<code>"C:\\\\Alive.log"</code>)にして <code>UpdateData(FALSE)</code>。<b>入力を保存・復元する仕組みは無い</b></li>' +
+          '<li><code>OnPaint</code> / <code>OnQueryDragIcon</code>: 最小化時にアイコンを描く定型</li>' +
+          '<li>メッセージマップ: <code>ON_BN_CLICKED(IDBT_EXEC, OnBnClickedExec)</code>。「OK」は <code>IDOK</code> の既定動作でダイアログを閉じる</li></ul>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.h</code> / <code>login_history_dlg.cc</code></p>',
+      },
+      {
+        title: '中核: OnBnClickedExec の呼び出し',
+        camera: { pos: [1, 11, 33], target: [1, 10.2, 0] },
+        focus: ['dlg', 'cyc', 'open', 'last', 'sched', 'fmt', 'valid', 'a-dlg-cyc', 'a-dlg-open', 'a-dlg-last', 'a-dlg-sched', 'a-dlg-fmt', 'a-last-valid', 'L-dlg', 'L-help'],
+        show: ['a-dlg-cyc', 'a-dlg-open', 'a-dlg-last', 'a-dlg-sched', 'a-dlg-fmt', 'a-last-valid'],
+        html:
+          '<p>ボタンを押したときの処理 <code>OnBnClickedExec</code> は、次の順で補助関数を呼びます。</p>' +
+          '<ol><li><code>UpdateData()</code> → <code>LoadCycleFromIni(kDefaultCycleMinutes)</code>: 間隔(分)</li>' +
+          '<li><code>time</code> / <code>localtime_s</code> で <code>now_time</code>。<code>OpenFile(log_name_, "r+")</code>:<br>　開けなければ <code>"w"</code> で作って <code>FormatTime</code> の1行だけ書き、<b>return</b></li>' +
+          '<li><code>ReadLastTime(fp)</code>: 前回の日時(中で <code>IsValidDate</code>)</li>' +
+          '<li><code>IsOnSchedule(前回, 今, 間隔)</code> が偽なら、行末に <code>kWarningMark</code></li>' +
+          '<li><code>fseek(SEEK_END)</code> → <code>fprintf</code> → <code>fclose</code></li></ol>' +
+          '<p>状態を持たず、「<b>読む → 比べる → 1行足す</b>」だけの一直線の処理です。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> の <code>LoginHistoryDlg::OnBnClickedExec</code></p>',
+      },
+      {
+        title: '補助関数と定数(無名namespace)',
+        camera: { pos: [1, 9, 33], target: [1, 8.4, 0] },
+        focus: ['open', 'cyc', 'fmt', 'valid', 'last', 'sched', 'a-last-valid', 'L-help'],
+        show: ['a-last-valid'],
+        html:
+          '<p>ファイル内だけで使う関数を、無名namespaceに置いています(他のファイルからは見えない)。</p>' +
+          '<table><tr><th>関数</th><th>役目</th></tr>' +
+          '<tr><td><code>OpenFile</code></td><td><code>_fsopen(..., _SH_DENYNO)</code>。他プロセスと共有可能な開き方</td></tr>' +
+          '<tr><td><code>LoadCycleFromIni</code></td><td><code>set.ini</code> の <code>Cycle=</code> 行を読む(無ければ既定値)</td></tr>' +
+          '<tr><td><code>FormatTime</code></td><td><code>tm</code> → <code>"YYYY.MM.DD_hh:mm:ss"</code>(<code>CStringA</code>)</td></tr>' +
+          '<tr><td><code>IsValidDate</code></td><td>年月日時分秒が妥当な範囲か</td></tr>' +
+          '<tr><td><code>ReadLastTime</code></td><td>末尾30バイトを読み、最後の有効な日時を返す。<code>tm_isdst = -1</code> で夏時間は <code>mktime</code> に任せる</td></tr>' +
+          '<tr><td><code>IsOnSchedule</code></td><td><code>llabs(今 - (前回 + 間隔×60秒)) &lt;= 10</code></td></tr></table>' +
+          '<p>定数: <code>kDefaultCycleMinutes = 60</code>、<code>kAllowableLagSeconds = 10</code>、<code>kLineBufferSize = 30</code>、<code>kWarningMark = " !"</code>、<code>kIniFileName = "set.ini"</code>、<code>kDefaultLogFileName</code>。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> 冒頭の <code>namespace { ... }</code></p>',
+      },
+      {
+        title: 'リソースとビルド設定',
+        camera: { pos: [0, 5, 33], target: [0, 4.6, 0] },
+        focus: ['rc', 'resh', 'ico', 'pch', 'dlg', 'a-dlg-rc', 'a-rc-resh', 'a-rc-ico', 'L-res'],
+        show: ['a-dlg-rc', 'a-rc-resh', 'a-rc-ico'],
+        html:
+          '<ul><li><b><code>LoginHistory.rc</code></b>: ダイアログ <code>IDD_LOGINHISTORY_DIALOG</code>(122×61 ダイアログ単位、フォント MS UI Gothic 9)。キャプション <code>LoginHistory</code>、「ログ出力先：」のラベル、編集欄 <code>IDET_LOGNAME</code>、「ロギング実行」<code>IDBT_EXEC</code>、「OK」<code>IDOK</code>。アイコン <code>IDR_MAINFRAME</code> = <code>res\\LoginHistory.ico</code></li>' +
+          '<li><b><code>resource.h</code></b>: 上のIDの番号表(<code>IDBT_EXEC = 1000</code>、<code>IDET_LOGNAME = 1001</code> など)</li>' +
+          '<li><b><code>stdafx.h / stdafx.cpp</code></b>: プリコンパイル済みヘッダ。<code>targetver.h</code> は対象Windowsの指定</li></ul>' +
+          '<p><b>ビルド設定(<code>LoginHistory.vcxproj</code>)</b>: <b>x64</b>(Debug / Release)、ツールセット <code>v142</code>(VS2019)、<b>MFC は静的リンク</b>(<code>UseOfMfc = Static</code>、別途MFC DLLの配布は要らない)、文字セットは <code>MultiByte</code>(ログはANSI/CP932で書かれる)。コンパイル対象は <code>login_history.cc</code> / <code>login_history_dlg.cc</code> / <code>stdafx.cpp</code>。</p>' +
+          '<p class="gg-files">📄 <code>LoginHistory.rc</code>、<code>resource.h</code>、<code>LoginHistory.vcxproj</code>、<code>Essentials\\LoginHistory\\LoginHistory.sln</code></p>',
+      },
+      {
+        title: '外部への依存(OS・CRT・ファイル)',
+        camera: { pos: [0, 6, 36], target: [0, 5.5, 0] },
+        focus: ['mfc', 'crt', 'ini', 'log', 'open', 'cyc', 'sched', 'app', 'dlg', 'a-open-crt', 'a-cyc-ini', 'a-open-log', 'a-sched-crt', 'a-app-mfc', 'a-dlg-mfc', 'L-ext'],
+        show: ['a-open-crt', 'a-cyc-ini', 'a-open-log', 'a-sched-crt', 'a-app-mfc', 'a-dlg-mfc'],
+        html:
+          '<table><tr><th>依存先</th><th>使い道</th></tr>' +
+          '<tr><td>MFC(静的)</td><td><code>CWinApp</code> / <code>CDialogEx</code> / <code>DDX_Text</code> / <code>CString</code> / <code>CStringA</code></td></tr>' +
+          '<tr><td>C ランタイム</td><td><code>_fsopen</code>・<code>fgets</code>・<code>sscanf_s</code>・<code>fseek</code>・<code>fprintf</code>(ファイル入出力)、<code>time</code>・<code>localtime_s</code>・<code>mktime</code>(時刻)、<code>llabs</code></td></tr>' +
+          '<tr><td><code>set.ini</code></td><td>記録間隔だけを読む。カレントフォルダ基準(無くても動く)</td></tr>' +
+          '<tr><td>ログファイル</td><td>画面で指定した場所。<code>"r+"</code> で開いて末尾に追記</td></tr></table>' +
+          '<p>Win32 API の直接呼び出し、他ライブラリ、<code>_Common</code> の共通部品は<b>使っていません</b>。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code>、<code>stdafx.h</code></p>',
+      },
+      {
+        title: '旧版と設計上の割り切り',
+        camera: { pos: [6, 3, 27], target: [6, 1.8, 0] },
+        focus: ['old', 'ini', 'log', 'dlg', 'L-ext'],
+        html:
+          '<p>ソースの中の <b><code>logger.cpp</code></b> は、<b>ビルド対象に入っていない</b>古いコンソール版(<code>_tmain</code>)です。現行のダイアログ版との違い:</p>' +
+          '<table><tr><th></th><th>旧 logger.cpp</th><th>現行(MFC)</th></tr>' +
+          '<tr><td>入口</td><td>コマンドライン(<code>_tmain</code>)</td><td>ダイアログのボタン</td></tr>' +
+          '<tr><td>出力先</td><td>既定 <code>C:\\temp\\Alive.log</code>、<code>set.ini</code> の <code>FileName=</code> で変更</td><td>画面の入力(<code>FileName=</code> は読まない)</td></tr>' +
+          '<tr><td>日時の判定</td><td>同じ(間隔 ±10秒、行末 <code>!</code>)</td><td>同じ(<code>IsOnSchedule</code>)</td></tr></table>' +
+          '<p><b>割り切り</b>(ソースを読んで分かること):</p>' +
+          '<ul><li>常駐もタイマーも無く、「一定間隔」は外から起動して作る</li>' +
+          '<li>書き込み失敗(フォルダが無い等)は黙って何もしない</li>' +
+          '<li>前回の日時は末尾30バイトだけから読む(行の長さが固定の形式だから成り立つ)</li>' +
+          '<li>ログはANSI(MultiByte)のテキスト。日時と <code>!</code> だけなので文字化けの心配は無い</li></ul>' +
+          '<p class="gg-files">📄 <code>logger.cpp</code>(参考)、<code>login_history_dlg.cc</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

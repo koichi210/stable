@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheetos ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p style="margin:0 0 10px"><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>Cheetos ドキュメント</h1>
+  <p class="lead">画面(全画面・モニター・ウィンドウ)を決めた間隔で連続キャプチャして保存し、撮った画像を切り取り・回転・縦横の振り分け・結合・集約で仕上げる Windows 用ツール(C# / WPF / .NET Framework 4.0 Client・x64)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小、矢印キー(←→)でステップ送りができます。画面写真は<b>アプリの設定画面だけ</b>で、撮影した画像(自分の画面)は一切載せていません。写っているパス・ファイル名・画像は<b>すべてダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎞️ 使い方</div>
+      <div class="tech">Three.js / 実画面の写真 / 全14ステップ</div>
+      <div class="d">CaptureWindow タブで「保存先・撮る対象・待ち時間・繰り返し数」を決めて連続キャプチャ。そのあと PictTrim / Rotation / DistOrient / PictMerge / FileCollect の各タブで画像を仕上げる流れを、実際の画面を3D空間に並べてカメラが寄りながら説明します。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子・ブロックのアニメ / 全13ステップ</div>
+      <div class="d">設定 → UIスレッドで値を読み取り → 専用の撮影スレッド → (マウス移動・待機・撮影) × 行 × 繰り返し → PNGファイル。そのあと「バックアップ → 加工 → 上書き」の共通パターンで各タブが画像を処理していく様子を、光の粒の流れで追います。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全11ステップ</div>
+      <div class="d">画面・加工ロジック・共通部品(_Common)・OS/外部・テストの層に、<code>MainWindow</code>(partial 6ファイル) / <code>CaptWindow</code> / <code>PicEdit</code> / <code>PictMerge</code> / <code>Rotation</code> / <code>Logic</code> などの実際のクラス・ファイルを並べて、責務と依存の向きを説明します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/Cheetos</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OthelloMfc 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="img-data.js"></script>
+<script src="om-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var X0 = -11, X1 = 0, X2 = 11;     // 3枚の盤面スクショの中心x(左から 起動直後 / 対局中 / 終局後)
+  var TOP = 8.4;                      // 上段(盤面)パネルの下端
+  var GOLD = C.gold;
+  var OVERVIEW = { pos: [0, 9, 35], target: [0, 9, 0] };
+  OM.reg('start', X0, TOP, 9.6); OM.reg('playing', X1, TOP, 9.6); OM.reg('ended', X2, TOP, 9.6);
+  OM.reg('kifu', X1, 0.5, 3.4); OM.reg('enddlg', X2, 0.5, 3.6);
+
+  GameGuide.start({
+    title: 'OthelloMfc 使い方',
+    subtitle: '実際の画面で、メニュー → 置ける場所 → 打つ → 手番とスコア → 棋譜 → 終局、までを1歩ずつ',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      OM.panel(g, 'p-start', 'start', X0, TOP, 9.6);
+      OM.panel(g, 'p-play', 'playing', X1, TOP, 9.6);
+      OM.panel(g, 'p-end', 'ended', X2, TOP, 9.6);
+      OM.panel(g, 'p-kifu', 'kifu', X1, 0.5, 3.4);
+      OM.panel(g, 'p-dlg', 'enddlg', X2, 0.5, 3.6);
+      g.label('① 起動直後', [X0, TOP + 9.08 + 0.9, 0.3], { size: 0.5, color: '#fff' });
+      g.label('② 対局中(持ち時間5分)', [X1, TOP + 9.08 + 0.9, 0.3], { size: 0.5, color: '#fff' });
+      g.label('③ 終局後(COM vs COM)', [X2, TOP + 9.08 + 0.9, 0.3], { size: 0.5, color: '#fff' });
+      g.label('「操作 → 棋譜 → 表示」のダイアログ', [X1, 8.0, 0.3], { size: 0.32, color: '#fff' });
+      g.label('終局のダイアログ', [X2, 4.5, 0.3], { size: 0.32, color: '#fff' });
+      g.arrow([X0 + 5.2, TOP + 4.5, 0.3], [X1 - 5.2, TOP + 4.5, 0.3], { color: GOLD, lift: 0.5, label: '打つ', labelSize: 0.3 });
+      g.arrow([X1 + 5.2, TOP + 4.5, 0.3], [X2 - 5.2, TOP + 4.5, 0.3], { color: GOLD, lift: 0.5, label: '最後まで', labelSize: 0.3 });
+
+      // メニューの構成(起動直後パネルの下)
+      g.label(
+        'ゲーム(G):  スタート / ストップ / リセット / 終了\n' +
+        '設定(S):  置ける座標を表示 / COMレベル(1〜3)\n' +
+        '　　　　　プレイモード(4種) / 制限時間(なし〜15分)\n' +
+        '操作(O):  棋譜(表示・保存・読み込み) / 一手送る / 一手戻す\n' +
+        'ヘルプ(H):  バージョン情報 / オセロの遊び方',
+        [X0, 4.0, 0.3], { id: 'menu-note', size: 0.4, color: '#ffffff', bg: '#00000066' });
+
+      // 注目枠(ピクセルはスクショ上の座標)
+      OM.hl(g, 'h-menu', 'start', 2, 31, 226, 50);
+      OM.hl(g, 'h-board', 'start', 26, 76, 474, 524, C.good);
+      OM.hl(g, 'h-info0', 'start', 486, 100, 592, 150, C.good);
+      OM.hl(g, 'h-dots', 'playing', 26, 76, 474, 524);
+      OM.hl(g, 'h-cell', 'playing', 138, 76, 194, 132, C.enemy);
+      OM.hl(g, 'h-info', 'playing', 486, 100, 592, 285, C.good);
+      OM.hl(g, 'h-time', 'playing', 486, 180, 592, 285, C.enemy);
+      OM.hl(g, 'h-kifu', 'kifu', 0, 0, 175, 367, C.good);
+      OM.hl(g, 'h-title', 'ended', 0, 0, 220, 30, C.enemy);
+      OM.hl(g, 'h-endboard', 'ended', 26, 76, 474, 524);
+      OM.hl(g, 'h-enddlg', 'enddlg', 0, 0, 173, 152, C.enemy);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p><b>OthelloMfc</b> は、普通のオセロを遊べるWindowsアプリ(C++ / MFC)です。1つのダイアログに盤面を描き、メニューで操作します。</p>' +
+          '<ol><li>起動すると<b>人(黒) vs COM(白)</b>、COMレベル3、「置ける座標を表示」ON</li><li>盤のマスをクリックして打つ(最初の1手でゲーム開始)</li><li>COMが自動で打つ</li><li>どちらも置けなくなったら終局、石の数を表示</li></ol>' +
+          '<p>写っているのは、このガイド用に実際に動かした画面です。ドラッグで回転、ホイールで拡大、←→キーでステップ送りができます。</p>' +
+          '<p class="gg-files">📄 <code>othello_dlg.cc</code> / <code>othello.rc</code>(メニューとダイアログの定義)</p>',
+      },
+      {
+        title: '1. 起動直後の画面',
+        camera: OM.cam('start', 300, 300, 12.5),
+        show: ['h-board', 'h-info0'],
+        html:
+          '<p>8×8の盤の上に列 <b>A〜H</b>、左に行 <b>1〜8</b>。中央に白黒2個ずつの初期配置(<code>Board::Reset</code>)で、先手は<b>黒</b>です。</p>' +
+          '<ul><li>右側に <code>【黒の番】</code> と石数 <code>黒: 2 白: 2</code>(<code>OthelloDlg::UpdateScore</code>)</li>' +
+          '<li>盤の大きさは<b>ウィンドウに合わせて変わります</b>(<code>UpdateLayout</code> が、収まる最大のマスの大きさ <code>cell_size_</code> を計算)。最小サイズは <code>OnGetMinMaxInfo</code> で決めています</li>' +
+          '<li>ゲームを始める前でも、置ける場所には小さな<b>青い点</b>が出ます</li></ul>' +
+          '<p class="gg-files">📄 <code>othello_dlg.cc</code> の <code>OnInitDialog</code> / <code>OnPaint</code> / <code>DrawBoard</code></p>',
+      },
+      {
+        title: '2. メニューでできること',
+        camera: OM.cam('start', 113, 40, 7),
+        show: ['h-menu'],
+        html:
+          '<table><tr><th>メニュー</th><th>内容</th></tr>' +
+          '<tr><td>ゲーム</td><td>スタート / ストップ(一時停止) / リセット / 終了</td></tr>' +
+          '<tr><td>設定</td><td>置ける座標を表示(ON/OFF) / <b>COMレベル 1〜3</b>(既定3) / <b>プレイモード</b> / <b>制限時間</b>(なし・30秒〜15分)</td></tr>' +
+          '<tr><td>操作</td><td>棋譜(表示・保存・読み込み) / 一手送る / 一手戻す</td></tr>' +
+          '<tr><td>ヘルプ</td><td>バージョン情報 / オセロの遊び方</td></tr></table>' +
+          '<p>プレイモードは <code>PLAYER VS PLAYER</code> / <code>PLAYER VS COM</code>(人が黒) / <code>COM VS PLAYER</code>(COMが黒) / <code>COM VS COM</code> の4つ。メニューIDの並びと <code>PlayMode</code> の並びを揃えてあるので、<code>OnPlayMode</code> は ID から引き算するだけです。</p>' +
+          '<div class="gg-note">制限時間は<b>対局中は変えられません</b>(<code>EnableTimeLimitMenus(false)</code>)。リセットか終局で選べるようになります。</div>' +
+          '<p class="gg-files">📄 <code>othello.rc</code>(IDR_MENU1) / <code>resource.h</code> / <code>OthelloDlg::OnPlayMode</code> ほか</p>',
+      },
+      {
+        title: '3. 置ける場所の点',
+        camera: OM.cam('playing', 250, 300, 11.5),
+        show: ['h-dots'],
+        html:
+          '<p>手番の色で<b>置ける場所</b>に小さな点が出ます(<code>DrawMovableMarks</code>)。人の手番は<b style="color:#4fa3ff">青</b>、COMの手番は<b style="color:#ff5f6d">赤</b>です。</p>' +
+          '<ul><li>点が出るのは「相手の石を挟んで裏返せる」マスだけ(<code>Board::GetMovablePositions</code>)</li>' +
+          '<li>「設定 → 置ける座標を表示」でOFFにすると、点を出さずに遊べます(<code>OnToggleShowMovable</code>)</li></ul>' +
+          '<p>この画面は黒が13個、白が9個の途中局面(18手目まで進んだところ)です。</p>' +
+          '<p class="gg-files">📄 <code>othello_dlg.cc</code> の <code>DrawMovableMarks</code>、<code>board.cc</code> の <code>GetMovablePositions</code></p>',
+      },
+      {
+        title: '4. クリックして打つ',
+        camera: OM.cam('playing', 166, 104, 6),
+        show: ['h-cell'],
+        html:
+          '<p>置ける場所のマスをクリックすると、石が置かれて、挟んだ相手の石がまとめて裏返ります。</p>' +
+          '<ul><li>マウスを<b>押したマスと、離したマスが同じ</b>ときだけ打ちます(<code>OnLButtonDown</code> で <code>pressed_cell_</code> を覚え、<code>OnLButtonUp</code> で比べる)。押したまま別のマスへずらせば取り消せます</li>' +
+          '<li>置けないマスのクリックは<b>何も起きません</b></li>' +
+          '<li>COMの番のクリックは無視。<b>最初の1手を打った時点で自動的にゲーム開始</b>(「スタート」を押さなくてもよい)</li>' +
+          '<li>一時停止中にクリックすると、「スタートを押してね」という案内が出ます</li></ul>' +
+          '<p>そのあとCOMが自動で打ちます。COMの思考は「データの流れ」「内部設計」ページで詳しく。</p>' +
+          '<p class="gg-files">📄 <code>OnLButtonDown</code> / <code>OnLButtonUp</code> / <code>HitTestCell</code> / <code>OthelloDlg::PlayMove</code></p>',
+      },
+      {
+        title: '5. 手番・スコア・持ち時間',
+        camera: OM.cam('playing', 540, 190, 6.5),
+        show: ['h-info', 'h-time'],
+        html:
+          '<p>盤の右に、今の状態が出ます。</p>' +
+          '<ul><li><code>【黒の番】</code> と <code>黒:13　白: 9</code>(石の数。<code>Board::CountStones</code>)</li>' +
+          '<li><b>黒/白の残り時間</b>(「設定 → 制限時間」を選ぶと表示)。<b>手番の側だけ</b>が減ります。100msごとのタイマ(<code>kBlackTimerId</code> / <code>kWhiteTimerId</code>)で減算</li>' +
+          '<li>どちらかが 00:00 になると<b>タイムアウト負け</b>(<code>EndGame(true)</code>)</li></ul>' +
+          '<div class="gg-note">相手に置ける場所がないときは、相手が<b>パス</b>して同じ人がもう一度打ちます(「白は置くところがありません。」の表示)。両者とも置けなければ終局です。</div>' +
+          '<p class="gg-files">📄 <code>UpdateScore</code> / <code>UpdateTimeLabels</code> / <code>OnTimer</code> / <code>ChangeTurn</code></p>',
+      },
+      {
+        title: '6. 棋譜と、一手戻す/送る',
+        camera: { pos: [X1, 4.1, 12], target: [X1, 4.1, 0] },
+        show: ['h-kifu'],
+        html:
+          '<p>「操作 → 棋譜 → 表示」で、ここまでの手が一覧で出ます。書式は <code>手番号 : 列.行 色</code>(例: <code>3 : C.4 黒</code>)。</p>' +
+          '<ul><li><b>保存</b>: テキストファイル(拡張子 <code>.rkf</code>)に書き出し(<code>GameManager::SaveKifu</code>)</li>' +
+          '<li><b>読み込み</b>: 書式に合わない行は読み飛ばし、<b>打てない手が出たら失敗</b>(<code>LoadKifu</code>)。読み込んだ直後は開始前なので、「スタート」で再開</li>' +
+          '<li><b>一手戻す / 一手送る</b>: 石の裏返しを逆にたどります(<code>Board::Undo</code>)。戻した先から別の手を打てば、その先の棋譜は捨てられます</li></ul>' +
+          '<p>一手戻す・送るを使うと自動で<b>一時停止</b>になります。終局後は使えません。</p>' +
+          '<p class="gg-files">📄 <code>game_manager.cc</code> の <code>GetKifuText</code> / <code>Undo</code> / <code>Redo</code>、<code>othello_dlg.cc</code> の <code>OnKifuShow</code> ほか</p>',
+      },
+      {
+        title: '7. 終局',
+        camera: { pos: [X2 - 1.5, 9, 27], target: [X2 - 1.5, 9, 0] },
+        show: ['h-title', 'h-endboard', 'h-enddlg'],
+        html:
+          '<p>どちらも置けなくなると終局。<b>石数のダイアログ</b>(例: <code>黒：42　白：22 ゲーム終了</code>)が出て、タイトルが <code>othello  終了</code> に変わります。この例はCOM vs COMで、黒42対白22で黒の勝ちでした。</p>' +
+          '<ul><li>タイムアウト負けのときは、先に「<code>タイムアウト 黒の負けです。</code>」が出ます</li>' +
+          '<li>終局後に「スタート」を押すと、新しい対局を始めます(<code>StartGame</code> が <code>NewGame</code> を呼ぶ)</li>' +
+          '<li>COM vs COM は、スタートを押すだけでCOM同士が最後まで打ちます(10msごと)</li></ul>' +
+          '<p class="gg-files">📄 <code>OthelloDlg::EndGame</code> / <code>PlayMove</code></p>',
+      },
+      {
+        title: 'おまけ: 動作の細かいところ',
+        camera: OVERVIEW,
+        html:
+          '<ul><li>設定は保存しません(COMレベルやモードは起動のたびに既定へ戻る)</li>' +
+          '<li>Enterキーでダイアログは閉じません(<code>OnOK</code> を空にしてある)</li>' +
+          '<li>ウィンドウの大きさを変えるたびに盤を描き直します(<code>OnSize</code> → <code>UpdateLayout</code> → <code>Invalidate</code>)</li>' +
+          '<li>COMの打つ手は、レベル1〜3で考え方が違います(「内部設計」ページ)</li></ul>' +
+          '<p class="gg-files">📄 <code>othello_dlg.cc</code> / <code>com_player.cc</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

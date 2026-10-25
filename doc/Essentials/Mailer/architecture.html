@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = ML.col;
+  var EXT = '#8a8399';
+  // レイヤ(上から下へ依存する)。y は各レイヤの板の高さ
+  var Y = { test: 12, view: 9, logic: 6, cw: 3, cb: 0, ext: -3 };
+  // クラスの座標 [x, レイヤ]
+  var K = {
+    lt: [-6, 'test'], st: [6, 'test'],
+    app: [-9, 'view'], main: [0, 'view'], ep: [9, 'view'],
+    lrep: [-9, 'logic'], lday: [-3, 'logic'], lesc: [3, 'logic'], loff: [9, 'logic'],
+    wsr: [-12, 'cw'], wpr: [-6, 'cw'], tbx: [0, 'cw'], wdm: [6, 'cw'], grd: [12, 'cw'],
+    stc: [-12, 'cb'], jfs: [-6, 'cb'], afl: [0, 'cb'], udl: [6, 'cb'], dfm: [12, 'cb'],
+    json: [-9, 'ext'], ptr: [-3, 'ext'], br: [3, 'ext'], nug: [9, 'ext'],
+  };
+  function p(k, dz) { return [K[k][0], Y[K[k][1]] + 0.55, dz || 0]; }
+  function ids(list, arrows) { return list.concat((arrows || []).map(function (a) { return 'a-' + a; })); }
+  var LAYER = {
+    test: ['test-plate', ['lt', 'st']],
+    view: ['view-plate', ['app', 'main', 'ep']],
+    logic: ['logic-plate', ['lrep', 'lday', 'lesc', 'loff']],
+    cw: ['cw-plate', ['wsr', 'wpr', 'tbx', 'wdm', 'grd']],
+    cb: ['cb-plate', ['stc', 'jfs', 'afl', 'udl', 'dfm']],
+    ext: ['ext-plate', ['json', 'ptr', 'br', 'nug']],
+  };
+  function layerIds(name) { return [LAYER[name][0]].concat(LAYER[name][1]); }
+
+  GameGuide.start({
+    title: 'Mailer 内部設計',
+    back: 'index.html',
+    subtitle: '画面 → ロジック → 共有部品(_Common) → 外部、の層構成。実際のクラス名・ファイル名・メソッド名で',
+    camera: { pos: [15, 10.5, 25], target: [0, 4.5, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- レイヤの板 ----
+      var plates = [
+        ['test', 'テスト (Tests/Mailer.Tests)', '#ff9ecb'],
+        ['view', '画面層 (View / XAML)', C.view],
+        ['logic', 'ロジック層 (Logic.cs)', C.service],
+        ['cw', '共有部品: WPF向け (_Common/Wpf/)', C.common],
+        ['cb', '共有部品: 基盤 (_Common/)', C.common],
+        ['ext', '外部 (ファイル・ブラウザ・NuGet)', EXT],
+      ];
+      plates.forEach(function (pl) {
+        g.box({ id: pl[0] + '-plate', size: [30, 0.2, 5.4], pos: [0, Y[pl[0]], 0], color: pl[2], opacity: 0.28, edges: true, edgeColor: pl[2], radius: 0.3 });
+        g.label(pl[1], [-9.5, 0.35, 3.1], { size: 0.34, bg: '#000000aa', color: '#ffffff', parent: pl[0] + '-plate' });
+      });
+
+      // ---- クラスの箱 ----
+      function cls(id, label, color, w) {
+        var k = K[id];
+        g.box({ id: id, size: [w || 5.4, 0.9, 2.0], pos: [k[0], Y[k[1]] + 0.55, 0], color: color, radius: 0.15, label: label, labelSize: 0.3, labelBg: '#000000aa', labelOffset: [0, 1.2, 0.4] });
+      }
+      cls('lt', 'LogicTests\nLogicTests.cs (18件)', '#ff9ecb');
+      cls('st', 'SaveRestoreTests\nSaveRestoreTests.cs (4件)', '#ff9ecb');
+      cls('app', 'App\nApp.xaml(.cs)', C.view);
+      cls('main', 'MainWindow\nMainWindow.xaml(.cs)', C.view);
+      cls('ep', 'ExecParam\n(MainWindow内のprivate class)', C.view);
+      cls('lrep', 'ReplaceDatePlaceholders\n(置換の入口)', C.service);
+      cls('lday', 'ReplaceDay\nGetWeekendFriday', C.service);
+      cls('lesc', 'EscapeUrlParam\nIsUrlTooLong', C.service);
+      cls('loff', 'GetDayOffsetList\n(一括表示の日数)', C.service);
+      cls('wsr', 'WpfSaveRestore\nWpfSaveRestore.cs', C.common);
+      cls('wpr', 'WpfProfile\nWpfProfile.cs', C.common);
+      cls('tbx', 'TextBoxEx / Placeholder\nWpfPathDropControls.cs ほか', C.common);
+      cls('wdm', 'WpfDataFolderMenu\nWpfDataFolderMenu.cs', C.common);
+      cls('grd', 'StcWpfExceptionGuard\n(_Common/ 直下)', C.common);
+      cls('stc', 'StcUtils / GenericProfile\nStandardTemplateClass.cs', C.common);
+      cls('jfs', 'JsonFileStorage\nJsonFileStorage.cs', C.common);
+      cls('afl', 'AtomicFile\nAtomicFile.cs', C.common);
+      cls('udl', 'UserDataLocation\nUserDataLocation.cs', C.common);
+      cls('dfm', 'DataFolderMenu / Chooser\nDataFolderMenu.cs ほか', C.common);
+      cls('json', 'Mailer.json\n(プロファイル)', C.file);
+      cls('ptr', 'DataFolder.txt\n(保存先の案内板)', C.file);
+      cls('br', 'ブラウザ\n(Gmail 作成画面)', C.os);
+      cls('nug', 'Newtonsoft.Json 13.0.4\nWindowsAPICodePack-Shell', EXT);
+
+      // ---- 依存の矢印(id は 'a-' + 名前)。「使う側 → 使われる側」 ----
+      function A(name, from, to, color, lift, label) {
+        g.arrow(from, to, { id: 'a-' + name, color: color || '#ffd166', lift: lift == null ? 0.7 : lift, radius: 0.05, label: label, labelSize: 0.25, labelBg: '#000000bb' });
+      }
+      A('app-main', p('app'), p('main'), C.view, 1.2, 'StartupUri');
+      A('app-grd', p('app', 0.8), p('grd', 0.8), C.common, 1.0, 'Install(this)');
+      A('main-ep', p('main', 0.5), p('ep', 0.5), C.view, 1.0, null);
+      A('main-lrep', p('main', 0.4), p('lrep', 0.4), C.service, 0.8, '件名の置換');
+      A('main-lesc', p('main', -0.2), p('lesc', -0.2), C.service, 0.6, 'URLエスケープ・長さ');
+      A('main-loff', p('main', -0.6), p('loff', -0.6), C.service, 0.5, null);
+      A('lrep-lday', p('lrep', 0.6), p('lday', 0.6), C.service, 1.0, null);
+      A('main-wsr', p('main', 0.6), p('wsr', 0.6), C.common, 0.5, 'SaveRestore');
+      A('main-wpr', p('main', 0.2), p('wpr', 0.2), C.common, 0.4, null);
+      A('main-tbx', p('main', -0.4), p('tbx', -0.4), C.common, 0.4, 'stc:TextBoxEx');
+      A('main-wdm', p('main', -0.8), p('wdm', -0.8), C.common, 0.4, 'Attach');
+      A('main-stc', p('main', 0.9), p('stc', 0.9), C.common, 0.3, 'ExecuteProcess');
+      A('wsr-jfs', p('wsr', -0.3), p('jfs', -0.3), C.common, 0.6, 'Load / Save');
+      A('wsr-stc', p('wsr', 0.5), p('stc', 0.5), C.common, 0.4, 'GenericProfile');
+      A('wpr-stc', p('wpr', 0.8), p('stc', 0.8), C.common, 0.5, null);
+      A('jfs-afl', p('jfs', 0.3), p('afl', 0.3), C.common, 0.6, 'WriteAllText');
+      A('main-udl', p('main', -0.9), p('udl', -0.9), C.common, 0.3, 'GetUserDataFolder');
+      A('main-dfm', p('main', -1.1), p('dfm', -1.1), C.common, 0.3, 'ChangeDataFolder');
+      A('jfs-json', p('jfs', 1.0), p('json', 1.0), C.file, 1.8, 'ReadAllText');
+      A('afl-json', p('afl', 1.0), p('json', 1.1), C.file, 2.2, '一時ファイル → 置換');
+      A('udl-ptr', p('udl', 0.5), p('ptr', 0.5), C.file, 1.2, 'Get / Set');
+      A('stc-br', p('stc', -0.6), p('br', -0.6), C.os, 2.4, 'Process.Start');
+      A('dfm-nug', p('dfm', 0.5), p('nug', 0.5), '#b8b2d6', 1.4, 'CommonOpenFileDialog');
+      A('lt-lrep', p('lt', 0.4), p('lrep', 0.4), '#ff9ecb', 0.8, 'Logic を直接呼ぶ');
+      A('lt-lesc', p('lt', -0.4), p('lesc', -0.4), '#ff9ecb', 0.6, null);
+      A('st-main', p('st', 0.3), p('main', 0.3), '#ff9ecb', 1.0, 'new MainWindow()');
+    },
+
+    steps: [
+      {
+        title: '1. 層構成',
+        camera: { pos: [15, 10.5, 25], target: [0, 4.5, 0] },
+        html:
+          '<p>Mailerは、<b>1つのWPFプロジェクト</b>(<code>Mailer.csproj</code>、<code>.NET Framework 4.5</code>)です。画面の部品は<code>MainWindow</code>に集まり、判断のあるロジックだけ<code>Logic.cs</code>に切り出してあります。</p>' +
+          '<table><tr><th>層</th><th>置き場</th><th>役割</th></tr>' +
+          '<tr><td>画面</td><td><code>App.xaml</code> / <code>MainWindow.xaml(.cs)</code></td><td>見た目と操作の受け付け</td></tr>' +
+          '<tr><td>ロジック</td><td><code>Logic.cs</code></td><td>日付置換・URLエスケープ等の<b>画面に依存しない</b>処理</td></tr>' +
+          '<tr><td>共有部品</td><td><code>_Common/</code>(リンク参照)</td><td>設定の保存・保存先・プロセス起動など、他ツールと共通</td></tr>' +
+          '<tr><td>外部</td><td>-</td><td>JSON・ブラウザ・NuGet</td></tr>' +
+          '<tr><td>テスト</td><td><code>Tests/Mailer.Tests</code></td><td>MSTest(<code>.NET Framework 4.7.2</code>)</td></tr></table>' +
+          '<p class="gg-files">ドラッグで回転して、層を横から眺めることもできます。</p>',
+      },
+      {
+        title: '2. 画面層: MainWindow',
+        camera: { pos: [7, 14, 25], target: [2, 8, 0] },
+        focus: ids(layerIds('view'), ['app-main', 'main-ep']),
+        show: ['a-app-main', 'a-main-ep'],
+        html:
+          '<ul><li><b><code>App</code></b>: <code>StartupUri="MainWindow.xaml"</code>。起動時に<code>StcWpfExceptionGuard.Install(this)</code>で、握りつぶされない例外をメッセージ表示にする</li>' +
+          '<li><b><code>MainWindow</code></b>: 画面の本体。ViewModelは作らず、<b>コードビハインド</b>で全部を受ける<br>' +
+          '<code>button_OpenBrowse_Click</code> / <code>button_OpenBrowse_OneWeek_Click</code> / <code>OpenBrowser(int daysOffset)</code> / <code>TryGetUiParam</code><br>' +
+          '<code>button_SaveSetting_Click</code> / <code>comboBox_LoadSetting_SelectionChanged</code> / <code>RegisterSettingItems</code> / <code>button_Help_Click</code> / <code>textBox_BrowserPath_KeyDown</code></li>' +
+          '<li><b><code>ExecParam</code></b>: 実行時のパラメータ(<code>CreateNum</code> / <code>IntervalMsec</code> / <code>UserDate</code>)を持つ、<code>MainWindow</code>内の小さなprivateクラス</li></ul>' +
+          '<div class="gg-note">URLの組み立て(<code>OpenBrowser</code>)は画面側、<b>値の加工</b>は<code>Logic</code>側、と分担しています。</div>',
+        update: function (g, t) { g.pulse(g.get('main'), t, 0.04); },
+      },
+      {
+        title: '3. ロジック層: Logic.cs',
+        camera: { pos: [7, 11, 25], target: [2, 6, 0] },
+        focus: ids(layerIds('logic').concat(['main']), ['main-lrep', 'main-lesc', 'main-loff', 'lrep-lday']),
+        show: ['a-main-lrep', 'a-main-lesc', 'a-main-loff', 'a-lrep-lday'],
+        html:
+          '<p><code>internal static class Logic</code>。もともと<code>Form1.cs</code>(WinForms版)の中に<code>private</code>で埋め込まれていた処理を、<b>テストできる形に切り出した</b>ものです。</p>' +
+          '<table><tr><th>メソッド</th><th>役割</th></tr>' +
+          '<tr><td><code>ReplaceDatePlaceholders</code></td><td>件名の置換の入口。下の3つを順に通す(<code>ReplaceUsersDay</code> / <code>ReplaceRelativeDays</code> / <code>ReplaceDayOfWeek</code>)</td></tr>' +
+          '<tr><td><code>ReplaceDay</code> / <code>GetWeekendFriday</code></td><td>日付の書式(年あり・なし)と「次の金曜」の計算</td></tr>' +
+          '<tr><td><code>EscapeUrlParam</code> / <code>IsUrlTooLong</code></td><td>URLパラメータ化と、長すぎ判定(<code>MaxUrlLength = 32000</code>)</td></tr>' +
+          '<tr><td><code>GetDayOffsetList</code></td><td>一括表示の日数オフセット(Reverseで降順)</td></tr></table>' +
+          '<div class="gg-note">画面(<code>Window</code>)を一切参照しません。だから画面を作らずに単体テストできます。</div>',
+        update: function (g, t) { g.pulse(g.get('lrep'), t, 0.04); },
+      },
+      {
+        title: '4. 共有部品: _Common をリンクして使う',
+        camera: { pos: [4, 8, 33], target: [0, 1.8, 0] },
+        focus: ids(layerIds('cw').concat(layerIds('cb')).concat(['main']), ['main-wsr', 'main-wpr', 'main-tbx', 'main-wdm', 'main-stc', 'wsr-jfs', 'wsr-stc', 'jfs-afl', 'main-udl', 'main-dfm', 'app-grd']),
+        show: ['a-main-wsr', 'a-main-wpr', 'a-main-tbx', 'a-main-wdm', 'a-main-stc', 'a-wsr-jfs', 'a-wsr-stc', 'a-jfs-afl', 'a-main-udl', 'a-main-dfm', 'a-app-grd'],
+        html:
+          '<p><code>Mailer.csproj</code>が、<code>Essentials\\_Common</code>のファイルを<b>コピーせずリンク参照</b>(<code>Compile Include ... Link</code>)しています。</p>' +
+          '<table><tr><th>部品</th><th>Mailerでの使いどころ</th></tr>' +
+          '<tr><td><code>WpfSaveRestore</code></td><td>6つの入力欄を<code>RegisterCtrl</code>で登録し、<code>Save</code> / <code>Load</code> / <code>LoadOrDefault</code></td></tr>' +
+          '<tr><td><code>WpfProfile</code></td><td>プロファイル一覧(<code>UpdateProfileList</code>)と保存ダイアログ(<code>SaveProfileWithDialog</code>)</td></tr>' +
+          '<tr><td><code>TextBoxEx</code> / <code>Placeholder</code></td><td>入力欄と、薄い入力例の表示(XAMLの<code>stc:Placeholder.Text</code>)</td></tr>' +
+          '<tr><td><code>JsonFileStorage</code> / <code>AtomicFile</code></td><td>JSONの読み書き。書き込みは一時ファイル経由で、途中で落ちても壊れにくい</td></tr>' +
+          '<tr><td><code>UserDataLocation</code></td><td>保存先の決定(<code>DataFolder.txt</code>方式、既定は<code>%LOCALAPPDATA%\\Mailer</code>)</td></tr>' +
+          '<tr><td><code>WpfDataFolderMenu</code> / <code>DataFolderMenu</code></td><td>システムメニューの「データ保存先を変更」と引っ越し</td></tr>' +
+          '<tr><td><code>StcUtils</code> / <code>StcFileInputOutput</code></td><td>ブラウザの起動(<code>ExecuteProcess</code>)・パス確認・保存ダイアログ</td></tr>' +
+          '<tr><td><code>StcWpfExceptionGuard</code></td><td>予期しない例外の通知(<code>App</code>から)</td></tr></table>' +
+          '<div class="gg-note">保存先や保存形式の仕組みは、他のEssentialsツールと同じ部品です。直すと全ツールに効きます。</div>',
+        update: function (g, t) { g.pulse(g.get('wsr'), t, 0.04); },
+      },
+      {
+        title: '5. 外部とのつながり',
+        camera: { pos: [8, 3, 28], target: [2, -1.5, 0] },
+        focus: ids(layerIds('ext').concat(['jfs', 'afl', 'udl', 'stc', 'dfm']), ['jfs-json', 'afl-json', 'udl-ptr', 'stc-br', 'dfm-nug']),
+        show: ['a-jfs-json', 'a-afl-json', 'a-udl-ptr', 'a-stc-br', 'a-dfm-nug'],
+        html:
+          '<table><tr><th>外部</th><th>誰が使う</th></tr>' +
+          '<tr><td><code>Mailer.json</code></td><td><code>JsonFileStorage</code>が読み、<code>AtomicFile</code>が書く(中身は<code>GenericProfile</code>)</td></tr>' +
+          '<tr><td><code>DataFolder.txt</code></td><td><code>UserDataLocation</code>。exeの隣の案内板(1行目=実データフォルダ)</td></tr>' +
+          '<tr><td>ブラウザ</td><td><code>StcUtils.ExecuteProcess</code>が<code>Process.Start</code>でGmailのURLを渡して起動</td></tr>' +
+          '<tr><td><code>Newtonsoft.Json</code> 13.0.4</td><td>JSONの変換(<code>JsonFileStorage</code>)</td></tr>' +
+          '<tr><td><code>WindowsAPICodePack-Shell</code> 1.1.1</td><td>フォルダ選択ダイアログ(<code>DataFolderChooser</code>)</td></tr></table>' +
+          '<p class="gg-files">データが実際に流れる順序は「データの流れ」のページへ。</p>',
+        update: function (g, t) { g.pulse(g.get('json'), t, 0.05); },
+      },
+      {
+        title: '6. テスト',
+        camera: { pos: [8, 15, 26], target: [0, 8.5, 0] },
+        focus: ids(layerIds('test').concat(['main', 'lrep', 'lesc']), ['lt-lrep', 'lt-lesc', 'st-main']),
+        show: ['a-lt-lrep', 'a-lt-lesc', 'a-st-main'],
+        html:
+          '<p><code>Tests/Mailer.Tests</code>(MSTest 2.2.10)。<code>AssemblyInfo.cs</code>の<code>InternalsVisibleTo("Mailer.Tests")</code>で、<code>internal</code>の<code>Logic</code>を直接テストします。</p>' +
+          '<ul><li><b><code>LogicTests</code></b>(18件): 日付の書式・曜日・<code>%%today%%</code>系・<code>GetWeekendFriday</code>(金曜は当日、土日は次の金曜)・<code>GetDayOffsetList</code>・<code>EscapeUrlParam</code>(区切り文字・改行・約65,520文字超でも例外にならない)・<code>IsUrlTooLong</code></li>' +
+          '<li><b><code>SaveRestoreTests</code></b>(4件): <code>new MainWindow()</code>して6項目が保存→読み直しで戻ること、WinForms版のJSONが読めること、存在しないファイルで例外にならないこと。WPFのUIスレッドは<code>StaRunner</code>で用意</li></ul>' +
+          '<div class="gg-note">ロジックを切り出したのは、まさにこのテストのためです。</div>',
+        update: function (g, t) { g.pulse(g.get('lt'), t, 0.04); g.pulse(g.get('st'), t, 0.04); },
+      },
+      {
+        title: '7. 依存の向きと設計のねらい',
+        camera: { pos: [15, 10.5, 25], target: [0, 4.5, 0] },
+        show: ['a-app-main', 'a-main-ep', 'a-main-lrep', 'a-main-lesc', 'a-main-loff', 'a-lrep-lday', 'a-main-wsr', 'a-main-wpr', 'a-main-tbx', 'a-main-wdm', 'a-main-stc', 'a-wsr-jfs', 'a-wsr-stc', 'a-jfs-afl', 'a-main-udl', 'a-main-dfm', 'a-app-grd', 'a-jfs-json', 'a-udl-ptr', 'a-stc-br', 'a-dfm-nug', 'a-lt-lrep', 'a-st-main'],
+        html:
+          '<p>矢印は<b>上の層から下の層へ</b>だけ向いています(下の層は上を知りません)。<code>Logic</code>は<code>MainWindow</code>を知りません。</p>' +
+          '<ol><li><b>画面は薄く</b>: <code>MainWindow</code>は入力を集めてURLを組み立てるだけ。置換・エスケープ・長さ判定は<code>Logic</code>へ</li>' +
+          '<li><b>壊れない保存</b>: JSONは<code>AtomicFile</code>経由で書き、読めなければ既定値で起動</li>' +
+          '<li><b>WinForms版と互換</b>: 保存キー・保存先が同じで、既存のプロファイルがそのまま読める</li>' +
+          '<li><b>送信はしない</b>: 作成画面を開くだけ。最後は人が確認して送る</li>' +
+          '<li><b>共有部品は別管理</b>: 保存先・保存形式・プロセス起動は<code>_Common</code>に分け、他ツールと共有</li></ol>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

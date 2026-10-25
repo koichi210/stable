@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheetos 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+<script src="ch-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var GOLD = C.gold, GOOD = C.good, RED = C.enemy, CY = C.data;
+
+  // 上の段(by=7.7)と下の段(by=0.5)に、実画面を10枚。番号は説明の順(タブの並びと同じ)
+  var TOP = 7.7, BOT = 0.5;
+  var OVERVIEW = { pos: [13.2, 7.4, 30.5], target: [13.2, 7.2, 0] };
+  // パネルの置き場所(id, 画像, 中心x, 下端y)。ステップのカメラ計算が build より先なので、先に登録しておく
+  var PLAN = [
+    ['p-cap', 'cap', 0, TOP], ['p-run', 'run', 7.2, TOP], ['p-trim', 'trim', 14.4, TOP], ['p-trimdone', 'trimdone', 21.6, TOP], ['p-rot', 'rot', 28.8, TOP],
+    ['p-rotprev', 'rotprev', 0, BOT], ['p-dist', 'dist', 9.4, BOT], ['p-distsample', 'distsample', 15.1, BOT], ['p-merge', 'merge', 21.4, BOT], ['p-collect', 'collect', 28.4, BOT],
+  ];
+  PLAN.forEach(function (p) { CH.place(p[0], p[1], p[2], p[3]); });
+
+  GameGuide.start({
+    title: 'Cheetos 使い方',
+    subtitle: '実際の画面で、連続キャプチャの設定 → 実行 → 撮った画像の仕上げ(切り取り・回転・振り分け・結合・集約)を1歩ずつ',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;                       // 全体図は遠くまで見せたいのでフォグを切る
+      g.controls.maxDistance = 70;
+
+      PLAN.forEach(function (p) { CH.panel(g, p[0], p[1], p[2], p[3]); });
+      // CH.panel は id をキーにして位置を覚える。ハイライト用には 'p-xxx' の id を使う
+      var topY = TOP + 5.91 + 0.8, botY = BOT + 5.07 + 0.55;
+      var lab = { size: 0.42, color: '#fff' };
+      g.label('① CaptureWindow タブ\n(設定)', [0, topY, 0.3], lab);
+      g.label('② Capture 実行中', [7.2, topY, 0.3], lab);
+      g.label('③ PictTrim タブ', [14.4, topY, 0.3], lab);
+      g.label('④ 切り取り後', [21.6, topY, 0.3], lab);
+      g.label('⑤ Rotation タブ', [28.8, topY, 0.3], lab);
+      g.label('⑥ RotationPreview\n(プレビュー画面)', [0, botY, 0.3], lab);
+      g.label('⑦ DistOrient タブ', [9.4, BOT + 5.91 + 0.6, 0.3], lab);
+      g.label('⑧ 「取得」の結果', [15.1, BOT + 3.7 + 0.6, 0.3], lab);
+      g.label('⑨ PictMerge タブ', [21.4, BOT + 5.91 + 0.6, 0.3], lab);
+      g.label('⑩ FileCollect タブ', [28.4, BOT + 5.91 + 0.6, 0.3], lab);
+
+      // ステップごとに出す注目枠（ピクセルはスクショ上の座標）
+      CH.hl(g, 'h-path', 'p-cap', 316, 62, 914, 150);
+      CH.hl(g, 'h-stamp', 'p-cap', 334, 154, 722, 190, GOOD);
+      CH.hl(g, 'h-target', 'p-cap', 34, 208, 304, 368);
+      CH.hl(g, 'h-grid', 'p-cap', 316, 200, 914, 376);
+      CH.hl(g, 'h-grid-head', 'p-cap', 316, 206, 914, 248, GOOD);
+      CH.hl(g, 'h-sleep', 'p-cap', 203, 380, 306, 420);
+      CH.hl(g, 'h-loop', 'p-cap', 203, 423, 306, 462, GOOD);
+      CH.hl(g, 'h-addline', 'p-cap', 316, 578, 582, 626);
+      CH.hl(g, 'h-capbtn', 'p-run', 790, 576, 914, 626, RED);
+      CH.hl(g, 'h-progress', 'p-run', 4, 660, 932, 790, GOOD);
+      CH.hl(g, 'h-common', 'p-cap', 0, 806, 934, 862);
+
+      CH.hl(g, 'h-t-folder', 'p-trim', 18, 62, 914, 108);
+      CH.hl(g, 'h-t-base', 'p-trim', 52, 118, 268, 204);
+      CH.hl(g, 'h-t-end', 'p-trim', 52, 230, 282, 392, GOOD);
+      CH.hl(g, 'h-t-list', 'p-trim', 304, 116, 914, 570);
+      CH.hl(g, 'h-t-btn', 'p-trim', 790, 576, 914, 626, RED);
+      CH.hl(g, 'h-td-status', 'p-trimdone', 722, 738, 916, 780, GOOD);
+
+      CH.hl(g, 'h-r-params', 'p-rot', 52, 118, 268, 246);
+      CH.hl(g, 'h-r-prev', 'p-rot', 94, 254, 266, 304, GOOD);
+      CH.hl(g, 'h-r-btn', 'p-rot', 788, 576, 914, 626, RED);
+      CH.hl(g, 'h-rp-path', 'p-rotprev', 0, 0, 1000, 40);
+      CH.hl(g, 'h-rp-params', 'p-rotprev', 280, 54, 780, 98, GOOD);
+      CH.hl(g, 'h-rp-src', 'p-rotprev', 5, 112, 575, 530);
+      CH.hl(g, 'h-rp-dst', 'p-rotprev', 580, 112, 996, 682, RED);
+
+      CH.hl(g, 'h-d-paths', 'p-dist', 46, 62, 914, 194);
+      CH.hl(g, 'h-d-target', 'p-dist', 46, 196, 914, 238);
+      CH.hl(g, 'h-d-white', 'p-dist', 46, 242, 914, 284, GOOD);
+      CH.hl(g, 'h-d-btn', 'p-dist', 790, 288, 914, 338, RED);
+      CH.hl(g, 'h-d-sample', 'p-dist', 46, 360, 912, 502, GOOD);
+
+      CH.hl(g, 'h-m-ids', 'p-merge', 20, 116, 424, 204);
+      CH.hl(g, 'h-m-range', 'p-merge', 20, 206, 424, 624, GOOD);
+      CH.hl(g, 'h-m-list', 'p-merge', 446, 116, 914, 570);
+      CH.hl(g, 'h-m-btn', 'p-merge', 790, 576, 914, 626, RED);
+
+      CH.hl(g, 'h-c-paths', 'p-collect', 24, 62, 914, 194);
+      CH.hl(g, 'h-c-btn', 'p-collect', 628, 200, 914, 250, RED);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p><b>Cheetos</b> は、<b>画面(全画面・モニター・ウィンドウ)を決めた間隔で連続キャプチャして PNG で保存</b>し、撮った画像をまとめて仕上げる Windows アプリ(C# / WPF)です。画面上部の<b>6つのタブ</b>でできています。</p>' +
+          '<ol><li><b>CaptureWindow</b>: 連続キャプチャ。保存先・撮る対象・待ち時間・繰り返し数を決めて「Capture」</li>' +
+          '<li><b>PictTrim</b>: 画像を指定の四角形で切り取り</li><li><b>Rotation</b>: 指定の点を中心に回転</li>' +
+          '<li><b>DistOrient</b>: 縦長/横長を見分けて別フォルダへ振り分け</li><li><b>PictMerge</b>: 2枚の画像の一部を貼り合わせ</li><li><b>FileCollect</b>: パターンに合うファイルを1か所へ集約</li></ol>' +
+          '<p>上の段の左から右が「撮る → 切り取る → 回転」、下の段が「プレビュー → 振り分け → 結合 → 集約」の順です。<b>撮ったあとの加工タブは、すべて同じ流れ</b>(フォルダ → リストアップ → 選択 → 実行。元ファイルは <code>Bk_</code> で始まるフォルダへ退避してから上書き)で使えます。</p>' +
+          '<p class="gg-note">写っているのは<b>設定画面だけ</b>で、パス・ファイル名・画像はこのガイド用のダミーです。<b>実際に撮影した画像(自分の画面)は載せていません</b>。ドラッグで回転、ホイールで拡大、矢印キー(←→)でも進めます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code>(+ <code>CaptureWindow.cs</code> <code>PictTrim.cs</code> <code>Rotation.cs</code> <code>DistOrient.cs</code> <code>PictMerge.cs</code>)</p>',
+      },
+      {
+        title: '1. 保存先とファイル名を決める',
+        camera: CH.cam('p-cap', 615, 150, 9.2),
+        show: ['h-path', 'h-stamp'],
+        html:
+          '<p>CaptureWindow タブの上3つが「どこに・どんな名前で」保存するかです。</p>' +
+          '<ul><li><b>フォルダパス</b>: 保存先。<b>無ければ自動で作ります</b>。Enter を押すとそのフォルダをエクスプローラーで開きます</li>' +
+          '<li><b>ファイル名プリフィックス</b>: 名前の先頭に付ける文字</li>' +
+          '<li><b>ファイル名にタイムスタンプを使用する</b>: ONだと Capture を押した時刻(<code>yyyy_MM_dd_HH_mm_ss</code>)も入る</li></ul>' +
+          '<p>ファイル名は <code>接頭辞_[タイムスタンプ_]繰り返し番号4桁_撮影番号.png</code>。この画面の設定なら、1回目のループの1枚目が <code>demo_0001_1.png</code>、2枚目が <code>demo_0001_2.png</code>、2回目のループは <code>demo_0002_1.png</code> … と並びます。</p>' +
+          '<div class="gg-note">フォルダパスを<b>手で入力すると</b>、他タブ(PictTrim・Rotation・DistOrient・PictMerge・FileCollect)のフォルダ欄にも同じパスが入ります(DistOrient の移動先は末尾に <code>_port</code> / <code>_land</code> が付く)。撮ったあとすぐ加工に移れる工夫です。</div>' +
+          '<p class="gg-files">📄 <code>Logic.BuildFilePathPrefix</code>、<code>CaptureWindow.cs</code> の <code>Button_Capture_Click</code> / <code>cw_TextBox_SavePath_KeyUp</code></p>',
+      },
+      {
+        title: '2. 何を撮るか(Capture対象)',
+        camera: CH.cam('p-cap', 170, 288, 7.2),
+        show: ['h-target'],
+        html:
+          '<table><tr><th>選択肢</th><th>撮るもの</th><th>仕組み</th></tr>' +
+          '<tr><td><b>FullScreen</b>(既定)</td><td>画面全体</td><td><code>Ctrl+PrintScreen</code> を送ってクリップボードの画像を保存</td></tr>' +
+          '<tr><td><b>CurrentScreen</b></td><td>このウィンドウがあるモニタ1枚</td><td>そのモニタの範囲を <code>CopyFromScreen</code> で撮る(表示倍率が100%でも欠けないよう物理ピクセルで範囲を計算)</td></tr>' +
+          '<tr><td><b>CurrentWindow</b></td><td>撮影した時点で最前面のウィンドウ</td><td><code>Alt+PrintScreen</code> を送ってクリップボードの画像を保存</td></tr></table>' +
+          '<div class="gg-note"><b>撮影中に画面に映ったものはそのまま保存されます</b>。個人情報や通知が出る状態で長時間回さない、保存先をほかの人が見られる場所にしない、といった点は使う人が気をつけます(このガイドでも、実際の撮影画像は載せていません)。</div>' +
+          '<p class="gg-files">📄 <code>_Common/StandardTemplateClass.cs</code> の <code>CaptWindow.CaptureEvent</code> / <code>SaveWithPrintScreen</code> / <code>SaveWithCaptureCurrentScreen</code> / <code>GetPhysicalBounds</code></p>',
+      },
+      {
+        title: '3. 表(グリッド)に「撮影の手順」を書く',
+        camera: CH.cam('p-cap', 614, 390, 8.3),
+        show: ['h-grid', 'h-grid-head', 'h-addline'],
+        html:
+          '<p>右の表の<b>1行が1回の「動かす → 待つ → 撮る」</b>です。上の行から順に実行します。</p>' +
+          '<table><tr><th>列</th><th>意味</th></tr>' +
+          '<tr><td>Sleep(msec)</td><td>マウス操作のあと、撮る前に待つ時間。<b>空欄なら直前の待ち時間を引き継ぐ</b></td></tr>' +
+          '<tr><td>MouseX / MouseY</td><td>マウスを動かす先(画面座標、px)。<b>どちらかが空欄ならマウスは動かさない</b></td></tr>' +
+          '<tr><td>MouseAction</td><td><code>Move</code>: 動かすだけ / <code>LeftDown</code>(空欄も同じ): 動かして<b>左クリック</b></td></tr>' +
+          '<tr><td>Capture</td><td><b>〇の行だけ</b>撮る(×・空欄は撮らない)</td></tr></table>' +
+          '<p>画面の例は、<b>1行目</b>=マウスは動かさず3秒待って撮る、<b>2行目</b>=(640, 360)へ動かして1秒待って撮る、<b>3行目</b>=何もしない(×)。ドロップダウンの列は1回クリックでプルダウンが開き、<b>一行追加</b>は選択行の下に行を足します(Move・×で入る)。</p>' +
+          '<p>クリックしたい場所の座標は、このタブの上でマウスを動かすと左下の小さな欄(<code>X=…, Y=…</code>)に出るので、それを写せます。</p>' +
+          '<p class="gg-files">📄 <code>CaptureGridRow.cs</code>(1行=5列の文字列)、<code>MainWindow.xaml.cs</code> の <code>_dataGridColumns</code> / <code>cw_Button_AddLine_Click</code>、<code>CaptureWindow.cs</code> の <code>tabPageCaptureWindow_MouseMove</code></p>',
+      },
+      {
+        title: '4. 待ち時間と繰り返し数 = 撮影の間隔',
+        camera: CH.cam('p-cap', 255, 420, 6.2),
+        show: ['h-sleep', 'h-loop'],
+        html:
+          '<ul><li><b>Sleep(msec)</b>: <b>Capture を押してから最初の動作までの待ち</b>。その間にウィンドウを切り替えたり、撮りたい画面を開いたりできます。空欄なら待ちません</li>' +
+          '<li><b>繰り返し数</b>: 表の全行を何周するか。空欄なら1回。↑↓キーで1ずつ増減できます</li></ul>' +
+          '<p><b>「決めた間隔で連続キャプチャ」</b>は、表の Sleep と繰り返し数の組み合わせで作ります。たとえば<b>1行だけ</b>(Sleep=5000、Capture=〇)にして繰り返し数=100なら、5秒おきに100枚です。</p>' +
+          '<div class="gg-note">待ち時間は<b>1秒刻み</b>で処理されるので、1500ms は2秒になります(1秒ごとに「中断されていないか」を確かめながら待つ作りのため。切り上げ)。撮影そのものにかかる時間は別に足されます。</div>' +
+          '<p class="gg-files">📄 <code>CaptWindow.ExecuteSleep</code>(<code>SleepCycle</code> = 1秒)、<code>CaptureWindow.cs</code> の <code>CaptureForeground</code></p>',
+      },
+      {
+        title: '5. Capture を押す → 実行中の表示',
+        camera: CH.cam('p-run', 470, 650, 9.2),
+        show: ['h-capbtn', 'h-progress'],
+        html:
+          '<p>「Capture」を押すと、ボタンが<b>「中断」</b>に変わり、下の「処理状況」に進み具合が出ます。</p>' +
+          '<ul><li><b>開始</b>: 押した時刻 / <b>終了予想</b>: 1周目が終わった時点で、経過時間から全体の終わる時刻を見積もって表示</li>' +
+          '<li><b>プログレスバーと「1/4」</b>: 終わった周回数 / 全体の周回数</li>' +
+          '<li>撮影は<b>専用のスレッド</b>で動くので、画面は固まりません。<b>「中断」を押すと</b>待機中でも次の行でも打ち切ります</li>' +
+          '<li>全部終わる(中断も含む)と、<b>マウスカーソルは Capture を押した時の位置へ戻ります</b>。撮れなかったファイル名があれば、まとめてダイアログで知らせます</li></ul>' +
+          '<div class="gg-note">このガイドの撮影では、自分の画面が映らないよう、<b>表の全行を Capture=×・マウス座標なしにして</b>実行中の表示だけを撮りました(画像は一切保存していません)。</div>' +
+          '<p class="gg-files">📄 <code>CaptureWindow.cs</code> の <code>Button_Capture_Click</code> / <code>CaptureForeground</code>、<code>Logic.CalcExpectEndTime</code>、<code>MainWindow.xaml.cs</code> の <code>SetStartTime</code> / <code>SetExpectEndTime</code> / <code>ShowProgress</code></p>',
+      },
+      {
+        title: '6. PictTrim: 画像を四角く切り取る',
+        camera: CH.cam('p-trim', 470, 330, 11.5),
+        show: ['h-t-folder', 'h-t-base', 'h-t-end', 'h-t-list'],
+        html:
+          '<p>撮った画像の<b>不要な縁を切り落とす</b>タブです。</p>' +
+          '<ol><li><b>フォルダパス</b>: フォルダを<b>ドラッグ＆ドロップ</b>(CaptureWindow で入れたパスが引き継がれます)</li>' +
+          '<li><b>リストアップ</b>で、フォルダ直下のファイルを一覧に出す</li>' +
+          '<li>処理したいファイルを選ぶ(<code>Ctrl+A</code>で全選択。ダブルクリックで開く)。<b>選んだものだけが対象</b>です</li>' +
+          '<li><b>原点(X, Y)</b> = 切り取る四角形の左上。<b>終点</b>は「座標で指定」(右下の座標。その位置自体は含まない)か「サイズで指定」(幅・高さ)で入れる。切り替えると入力中の値を<b>換算し直します</b></li></ol>' +
+          '<p>この画面の例は、原点(0, 40)から終点(640, 400) = 幅640・高さ360 を切り取る設定です。</p>' +
+          '<p class="gg-files">📄 <code>PictTrim.cs</code> の <code>ListUpTrim</code> / <code>UpdatePictTrimSize</code> / <code>ConvertPictTrimTarget</code></p>',
+      },
+      {
+        title: '7. 「切り取り」を実行する',
+        camera: CH.cam('p-trimdone', 614, 650, 9.2),
+        show: ['h-t-btn', 'h-td-status'],
+        html:
+          '<p>「切り取り」を押すと、選んだファイルを<b>元と同じ名前で上書き</b>します。上書きの前に、元のファイルを<b>フォルダ内の <code>Bk_Trim</code> へコピー</b>してあるので、やり直せます。</p>' +
+          '<ul><li>実行中はボタンが「中断」になり、もう一度押すと途中で止められます</li>' +
+          '<li>終わると「<b>6/6 完了</b>」と出て、一覧が読み直されます(選択は解除される)</li>' +
+          '<li>幅・高さが0以下、数字でない値が入っているときは、始める前にメッセージで止まります</li></ul>' +
+          '<p>この画面は、ダミーの画像6枚(説明用に作ったグラデーション画像)を実際に切り取った直後です。</p>' +
+          '<p class="gg-files">📄 <code>PictTrim.cs</code> の <code>Button_Trim_Click</code> / <code>bkgWorkerTrim_DoWork</code>、<code>PicEdit.TrimExec</code> / <code>SaveCanvas</code></p>',
+      },
+      {
+        title: '8. Rotation: 指定の点を中心に回す',
+        camera: CH.cam('p-rot', 470, 330, 11.5),
+        show: ['h-r-params', 'h-r-prev', 'h-r-btn'],
+        html:
+          '<p>画像の傾きを直したり、向きを変えたりするタブです。リストアップ・選択・実行は PictTrim と同じ。</p>' +
+          '<ul><li><b>原点(X, Y)</b>: 回転<b>後</b>の画像の上で、元画像の左上隅を置く座標。<b>この点を中心に回ります</b></li>' +
+          '<li><b>角度</b>: 度(整数)。<b>正の値で時計回り</b></li>' +
+          '<li><b>プレビュー</b>: 結果を目で確かめる画面を開く(次のステップ)</li></ul>' +
+          '<div class="gg-note">回転後の画像は<b>元画像の対角線の長さの正方形</b>になります。絵のない余白は透明のままです。実行すると上書き保存し、元は <code>Bk_Rotate</code> へコピーします。</div>' +
+          '<p class="gg-files">📄 <code>Rotation.cs</code> の <code>Rotation.DrawRotated</code> / <code>RotateExecute</code>、<code>pr_Button_Rotation_Click</code> / <code>bkgWorkerRotation_DoWork</code></p>',
+      },
+      {
+        title: '9. RotationPreview: 回した結果を先に見る',
+        camera: CH.cam('p-rotprev', 520, 380, 11),
+        show: ['h-rp-path', 'h-rp-params', 'h-rp-src', 'h-rp-dst'],
+        html:
+          '<p>「プレビュー」で開く別画面です。<b>ファイルを1枚読み込んで、原点・角度を変えながら回転結果を見られます</b>。</p>' +
+          '<ul><li><b>ファイルパス</b>に画像を入れて <b>load</b> → 左に<b>元画像</b>、右に<b>回転結果</b></li>' +
+          '<li><b>原点X・原点Y・角度</b>は、書き換えるたび・<b>↑↓キーで±1</b>するたびに、右の結果がすぐ描き直されます</li>' +
+          '<li><b>OK</b> で閉じると、その3つの値が Rotation タブへ入ります(Cancel なら入りません)</li></ul>' +
+          '<p>この画面の例は、(220, 0) を中心に90度回すと、横長の画像が左上に縦長に収まるところです。画像はこのガイド用のダミーです。</p>' +
+          '<p class="gg-files">📄 <code>RotationPreview.xaml(.cs)</code> の <code>button_ClickDraw</code> / <code>Draw</code> / <code>StepTextBoxValueByArrowKey</code>、<code>Logic.StepValueByArrowKey</code></p>',
+      },
+      {
+        title: '10. DistOrient: 縦長と横長を振り分ける',
+        camera: { pos: [11.5, 3.4, 12.5], target: [11.5, 3.0, 0] },
+        show: ['h-d-paths', 'h-d-target', 'h-d-white', 'h-d-btn', 'h-d-sample'],
+        html:
+          '<p>スキャンや撮影で混ざった画像を、<b>縦長用と横長用のフォルダに分ける</b>タブです。</p>' +
+          '<ul><li><b>移動元</b>・<b>移動先[縦]</b>・<b>移動先[横]</b>・<b>対象ファイル</b>(<code>page_*.png</code> のようなパターン。移動元フォルダ直下だけ)</li>' +
+          '<li>見分け方: 画像の<b>左右の端の帯</b>(幅=「白判定の長さ」px)を PNG にしたときのサイズを見ます。<b>両方ともしきい値(帯の幅 × 画像の高さ ÷ 係数)以下</b>(=ほぼ真っ白な縁がある)なら<b>縦</b>、そうでなければ<b>横</b>。係数は既定30で、大きいほど「白」と判定されにくくなります</li>' +
+          '<li><b>移動</b>です(コピーではない)。移せなかったものはまとめて警告で知らせます</li></ul>' +
+          '<p>下の<b>Sample</b>に画像を1枚入れて<b>取得</b>を押すと、<b>ファイルは動かさずに</b>判定結果としきい値を出します(右の小さな画面)。例: <code>IsPortrait=True</code> / <code>BaseSize=933</code> / <code>LeftPictSize=739</code> / <code>RightPictSize=739</code> → 左右とも933以下なので縦。値を試してから本番で実行できます。</p>' +
+          '<p class="gg-files">📄 <code>DistOrient.cs</code> の <code>do_Distribute_Click</code> / <code>bkgWorkerOrient_DoWork</code>、<code>Logic.IsPortrait</code> / <code>GetTrimmedPngByteLength</code></p>',
+      },
+      {
+        title: '11. PictMerge: 2枚の一部を貼り合わせる',
+        camera: CH.cam('p-merge', 470, 380, 11.5),
+        show: ['h-m-ids', 'h-m-range', 'h-m-list', 'h-m-btn'],
+        html:
+          '<p>「<b>マージ先</b>の画像に、<b>マージ元</b>の画像の一部を同じ位置へ貼る」タブです(たとえば、撮り直した部分だけ差し替える)。</p>' +
+          '<ul><li><b>マージ先の識別子</b> <code>_1</code> / <b>マージ元の識別子</b> <code>_2</code>: 拡張子の直前の文字。<code>demo_0001_1.png</code>(先)に <code>demo_0001_2.png</code>(元)を貼る、という対応</li>' +
+          '<li><b>切取る高さの範囲</b>: 1行に1つ「<code>開始,終了</code>」(px)。<code>-</code> は、開始なら0・終了なら画像の下端。例の <code>0,100</code> と <code>300,-</code> は「上から100pxまで」と「300pxから下」を元から写す</li>' +
+          '<li>一覧から選んだもののうち、<b>マージ先の識別子を含むものだけ</b>処理します</li></ul>' +
+          '<p>結合すると、マージ先を上書き保存し、<b>元のマージ先とマージ元は <code>Bk_Merge</code> へ退避</b>します(マージ元は元の場所からは無くなる)。範囲の書式が不正(開始が負・終了が開始より小さい・画像の高さを超える等)なら、始める前に確認ダイアログで「不正な行を飛ばして続けるか」を聞きます。</p>' +
+          '<p class="gg-files">📄 <code>PictMerge.cs</code> の <code>PictMerge.MergeExecute</code> / <code>BuildInvalidTrimHeightsMessage</code>、<code>MainWindow.MergeExec</code></p>',
+      },
+      {
+        title: '12. FileCollect: ファイルを1か所に集める',
+        camera: CH.cam('p-collect', 540, 150, 9.2),
+        show: ['h-c-paths', 'h-c-btn'],
+        html:
+          '<p>画像を加工するタブではなく、<b>ファイルを移すだけ</b>のタブです。</p>' +
+          '<ul><li><b>移動元</b>フォルダ直下の、<b>対象ファイル</b>(<code>demo_*.png</code> のようなパターン)を、<b>移動先</b>へ<b>移動</b>します(コピーではない)</li>' +
+          '<li>移動先が無ければ作るか確認します</li>' +
+          '<li>同じ名前が移動先にあれば、<b>上書きせず</b> <code>名前 (2).png</code>、<code>名前 (3).png</code> … と連番を付けて避けます</li>' +
+          '<li>移動元と移動先が同じフォルダなら、そのファイルは動かしません</li></ul>' +
+          '<p>各タブで出た結果を、あとでまとめて持ち出すときなどに使います。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>fc_Button_Collect_Click</code>、<code>Logic.GetNonConflictFilePath</code></p>',
+      },
+      {
+        title: '共通: 処理状況・設定の保存・保存先',
+        camera: CH.cam('p-cap', 467, 735, 11.5),
+        show: ['h-progress', 'h-common'],
+        html:
+          '<p>どのタブでも、下の<b>処理状況</b>(開始時刻・終了予想・進捗バー・「3/6」などの件数)が共通で使われます。</p>' +
+          '<p>いちばん下は<b>設定の保存</b>です。</p>' +
+          '<ul><li><b>設定値保存</b>(または <code>Ctrl+S</code>)で、全タブの入力値と表の中身を <code>JSON</code> ファイルに保存。プルダウンで選ぶと読み込みます。複数の設定を名前を付けて使い分けられます</li>' +
+          '<li>起動時は <code>Cheetos.json</code> を自動で読み込みます(無ければ既定値)</li>' +
+          '<li>保存先は <code>%LOCALAPPDATA%\\Cheetos\\</code>。<b>exe と同じフォルダの <code>DataFolder.txt</code></b> の1行目のパスで別の場所に変えられます(タイトルバーを右クリックしても変更できる)</li>' +
+          '<li>以前の WinForms 版 Cheetos で保存した設定ファイルも、そのまま読めます</li></ul>' +
+          '<p class="gg-note">ラベル(「フォルダパス：」など)を<b>ダブルクリック</b>するとパス欄の読み取り専用を切り替えられます。パス欄は、フォルダのドラッグ＆ドロップで入れるのが基本です。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RegisterSaveRestoreItems</code> / <code>ProfileSave_Click</code>、<code>_Common/Wpf/WpfSaveRestore.cs</code> / <code>WpfProfile.cs</code> / <code>UserDataLocation.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

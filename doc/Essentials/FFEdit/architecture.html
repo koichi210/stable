@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFEdit 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { ui: '#4fa3ff', logic: '#ff9f43', common: '#c77dff', ext: '#5d5a78', test: '#5ee6a8' };
+  var BASE = { ui: 16.8, logic: 12.6, common: 8.4, ext: 4.2 };      // 各層の床の高さ
+  var BX = {};                                                      // id -> { x, y, z }(箱の中心)
+
+  function cls(g, id, layer, x, w, label, color, ly) {
+    var y = BASE[layer] + 0.62;
+    BX[id] = { x: x, y: y, z: 0 };
+    g.box({ id: id, size: [w, 1.1, 2.2], pos: [x, y, 0], radius: 0.14, color: color || COL[layer], label: label, labelSize: 0.28, labelOffset: [0, ly || 1.15, 0] });
+  }
+  // 箱から箱への依存の矢印。上下の層なら箱の下面→上面、同じ層なら上を回す
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to;
+    var zf = 1.4;                      // 箱の手前の面より前を通して、箱に隠れないようにする
+    if (Math.abs(A.y - B.y) < 0.1) {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y + 0.55, zf];
+    } else if (A.y > B.y) {
+      from = [A.x, A.y - 0.55, zf]; to = [B.x, B.y + 0.6, zf];
+    } else {
+      from = [A.x, A.y + 0.55, zf]; to = [B.x, B.y - 0.6, zf];
+    }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.25, head: 0.32 });
+  }
+
+  var NOTE_CAM = { pos: [-1.2, 12, 42], target: [-1.2, 10.4, 0] };
+
+  GameGuide.start({
+    title: 'FFEdit 内部設計',
+    subtitle: 'クラス・ファイルの層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: NOTE_CAM,
+    floor: false,
+
+    build: function (g) {
+      // 層の床
+      function layer(id, key, depthLabel, color, lc) {
+        g.plate({ id: id, size: [44, 3.4], pos: [-2.4, BASE[key] + 0.03, 0], color: color, opacity: 0.55, label: depthLabel, labelSize: 0.4, labelOffset: [-19.7, 0.3, 0], labelColor: lc });
+      }
+      layer('L-ui', 'ui', '画面(UI)層', '#26304f', '#bcd6ff');
+      layer('L-logic', 'logic', '処理ロジック層', '#4a3524', '#ffd9ae');
+      layer('L-common', 'common', '共通部品 _Common\n(ファイルとして取り込み)', '#352a4f', '#e2ccff');
+      layer('L-ext', 'ext', 'OS・外部', '#2b2a3d', '#cfcbe8');
+
+      // 画面(UI)層
+      cls(g, 'app', 'ui', -12, 4.4, 'App\n(.xaml / .xaml.cs)');
+      cls(g, 'mw', 'ui', -3, 8.4, 'MainWindow\n(.xaml / .xaml.cs)');
+      cls(g, 'err', 'ui', 5.6, 4.4, 'ErrorMsg\n(.xaml / .xaml.cs)');
+      // 処理ロジック層
+      cls(g, 'rename', 'logic', -14.5, 3.6, 'Rename\n(Rename.cs)');
+      cls(g, 'ts', 'logic', -10.2, 3.6, 'TimeStamp\n(TimeStamp.cs)');
+      cls(g, 'fn', 'logic', -5.9, 3.6, 'Function\n(Function.cs)');
+      cls(g, 'fm', 'logic', -0.8, 4.6, 'FileMng\n(FileMng.cs)');
+      cls(g, 'tt', 'logic', 4.4, 3.6, 'TimeText\n(TimeText.cs)');
+      cls(g, 'tests', 'logic', 13, 5.2, 'FFEdit.Tests\n(MSTest・71テスト)', COL.test);
+      // 共通部品 _Common
+      cls(g, 'pm', 'common', -16.2, 3.4, 'StcProcessMemory\n(ProcessMemory.cs)', null, 1.15);
+      cls(g, 'std', 'common', -12.3, 3.6, 'StcUtils\nStcFileInputOutput', null, 2.2);
+      cls(g, 'nat', 'common', -8.3, 3.8, 'NaturalString\nComparer', null, 1.15);
+      cls(g, 'wsr', 'common', -4.3, 3.8, 'WpfSaveRestore\n+ GenericProfile', null, 2.2);
+      cls(g, 'jfs', 'common', -0.3, 3.8, 'JsonFileStorage\n+ AtomicFile', null, 1.15);
+      cls(g, 'uloc', 'common', 3.7, 3.8, 'UserDataLocation\n(DataFolder.txt)', null, 2.2);
+      cls(g, 'dfm', 'common', 7.9, 3.9, 'DataFolderMenu\nWpfDataFolderMenu\nDataFolderChooser', null, 1.3);
+      cls(g, 'wcu', 'common', 12.1, 3.9, 'WpfControlUtils\nTextBoxEx / ComboBoxEx\nPlaceholder', null, 2.4);
+      cls(g, 'guard', 'common', 16.3, 3.4, 'StcWpf\nExceptionGuard');
+      // 外部
+      cls(g, 'w-io', 'ext', -13.5, 5.4, 'System.IO\nFile / Directory / FileInfo');
+      cls(g, 'w-cmd', 'ext', -7.2, 5.4, 'cmd.exe\n(dir / sort / rd)');
+      cls(g, 'json', 'ext', -1.2, 5.4, 'Newtonsoft.Json\n13.0.4');
+      cls(g, 'wacp', 'ext', 5.2, 5.6, 'WindowsAPICodePack\n-Shell 1.1.1');
+      cls(g, 'wf', 'ext', 11.2, 5.4, 'System.Windows.Forms\n(FolderBrowser等の元)');
+      cls(g, 'wpf', 'ext', 17, 3.6, 'WPF\n(.NET 4.0)');
+
+      // 依存の矢印(ステップごとに show で出し入れ)
+      arr(g, 'a-app-mw', 'app', 'mw', '起動', C.gold, 1.6);
+      arr(g, 'a-app-guard', 'app', 'guard', 'Install()', C.gold, 0.6);
+      arr(g, 'a-mw-err', 'mw', 'err', 'ShowDialog', C.enemy, 1.2);
+      arr(g, 'a-mw-rename', 'mw', 'rename', 'Execute()', C.gold, 0.7);
+      arr(g, 'a-mw-ts', 'mw', 'ts', 'Execute()', C.gold, 0.7);
+      arr(g, 'a-mw-fn', 'mw', 'fn', 'Execute()', C.gold, 0.7);
+      arr(g, 'a-mw-tt', 'mw', 'tt', '時刻欄', C.data, 0.7);
+      arr(g, 'a-rename-fm', 'rename', 'fm', 'Move / 記録', C.good, 0.5);
+      arr(g, 'a-fn-fm', 'fn', 'fm', 'Move / Copy / 記録', C.good, 0.5);
+      arr(g, 'a-fm-pm', 'fm', 'pm', '継承', C.data, 0.5);
+      arr(g, 'a-fm-std', 'fm', 'std', 'bat作成・実行', C.gold, 0.5);
+      arr(g, 'a-mw-wsr', 'mw', 'wsr', '登録 / Save', C.gold, 0.9);
+      arr(g, 'a-wsr-jfs', 'wsr', 'jfs', 'GenericProfile', C.data, 0.9);
+      arr(g, 'a-mw-uloc', 'mw', 'uloc', 'GetUserDataFolder', C.gold, 0.9);
+      arr(g, 'a-mw-dfm', 'mw', 'dfm', 'データ保存先を変更', C.gold, 0.9);
+      arr(g, 'a-mw-nat', 'mw', 'nat', '自然順ソート', C.gold, 0.9);
+      arr(g, 'a-mw-wcu', 'mw', 'wcu', '一覧・履歴・入力欄', C.gold, 0.9);
+      arr(g, 'a-jfs-json', 'jfs', 'json', 'JSON', C.gold, 0.5);
+      arr(g, 'a-dfm-wacp', 'dfm', 'wacp', 'フォルダ選択', C.gold, 0.5);
+      arr(g, 'a-dfm-wf', 'dfm', 'wf', 'システムメニュー', C.gold, 0.9);
+      arr(g, 'a-fm-io', 'fm', 'w-io', 'File.Move ほか', C.gold, 0.5);
+      arr(g, 'a-fm-cmd', 'fm', 'w-cmd', 'rd', C.gold, 0.5);
+      arr(g, 'a-ts-io', 'ts', 'w-io', 'FileInfo', C.gold, 0.5);
+      arr(g, 'a-tests', 'tests', 'rename', 'InternalsVisibleTo', C.good, 1.2);
+
+      // ステップ7: 実行ボタンの流れ(粒が流れる)
+      var A = BX.mw, Z = 1.4;
+      g.flow([A.x - 2.4, A.y - 0.6, Z], [BX.rename.x + 1, BX.rename.y + 0.6, Z], { id: 'fl-run', color: C.gold, lift: 0.8, count: 5, size: 0.16 });
+      g.flow([BX.rename.x + 1.6, BX.rename.y - 0.6, Z], [BX.fm.x - 1.4, BX.fm.y + 0.6, Z], { id: 'fl-move', color: C.good, lift: 1.1, count: 5, size: 0.15 });
+      g.flow([BX.fm.x + 0.8, BX.fm.y - 0.6, Z], [BX.pm.x + 1, BX.pm.y + 0.6, Z], { id: 'fl-rec', color: C.data, lift: 1.6, count: 5, size: 0.13, speed: 0.5 });
+      g.flow([BX.err.x - 1.4, BX.err.y - 0.6, Z], [BX.mw.x + 2.4, BX.mw.y - 0.6, Z], { id: 'fl-err', color: C.enemy, lift: 1.4, count: 3, size: 0.14, speed: 0.3 });
+      g.label('① 画面の設定を\nRename に詰めて Execute()', [-13.3, 15.5, 1.6], { id: 't-run', size: 0.3, color: C.gold });
+      g.label('② 1件ずつ Move\n成功したら AddRestoreItem', [-5.2, 15.4, 1.8], { id: 't-move', size: 0.3, color: C.good });
+      g.label('③ 復元スタックに記録', [-14.4, 10.6, 1.6], { id: 't-rec', size: 0.3, color: C.data });
+      g.label('④ 失敗した分は文字列で返り\nErrorMsg ダイアログに出る', [3.6, 15.5, 1.6], { id: 't-err', size: 0.3, color: C.enemy });
+    },
+
+    steps: [
+      {
+        title: '全体: 4つの層',
+        camera: NOTE_CAM,
+        show: ['a-app-mw', 'a-mw-rename', 'a-mw-ts', 'a-mw-fn', 'a-rename-fm', 'a-fn-fm', 'a-fm-pm'],
+        html:
+          '<p>FFEdit(C# / WPF / .NET Framework 4.0 Client・x64)は、小さな4つの層でできています。<b>上の層が下の層を呼ぶ</b>向きで、下の層は上を知りません。</p>' +
+          '<table><tr><th>層</th><th>ファイル</th></tr>' +
+          '<tr><td>画面(UI)</td><td><code>App</code>、<code>MainWindow</code>、<code>ErrorMsg</code>(それぞれ <code>.xaml</code> と <code>.xaml.cs</code>)</td></tr>' +
+          '<tr><td>処理ロジック</td><td><code>Rename.cs</code>、<code>TimeStamp.cs</code>、<code>Function.cs</code>、<code>FileMng.cs</code>、<code>TimeText.cs</code></td></tr>' +
+          '<tr><td>共通部品</td><td><code>Essentials\\_Common</code> のソースを<b>ファイルとして</b>取り込み(別DLLにしない)</td></tr>' +
+          '<tr><td>OS・外部</td><td><code>System.IO</code>、<code>cmd.exe</code>、Newtonsoft.Json、WindowsAPICodePack-Shell ほか</td></tr></table>' +
+          '<p><b>設計の要点</b>: 「名前を変える・時刻を書き換える・移動する」の中身(<code>Rename</code> / <code>TimeStamp</code> / <code>Function</code>)は<b>画面を知らない</b>。画面は設定をプロパティに詰めて <code>Execute()</code> を呼び、返ってきた<b>エラー文字列</b>を見せるだけ。そのおかげで、画面なしで単体テストができます。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに注目する箱が明るくなります。</p>',
+      },
+      {
+        title: '画面(UI)層: App / MainWindow / ErrorMsg',
+        camera: { pos: [-4, 17, 25], target: [-4, 15, 0] },
+        focus: ['mw', 'app', 'err', 'a-app-mw', 'a-app-guard', 'a-mw-err', 'guard', 'L-ui'],
+        show: ['a-app-mw', 'a-app-guard', 'a-mw-err'],
+        html:
+          '<p><b>App</b>(<code>App.xaml.cs</code>)は <code>OnStartup</code> で共通部品 <code>StcWpfExceptionGuard.Install</code> を呼び、予期しない例外をダイアログで知らせます。</p>' +
+          '<p><b>MainWindow</b>は画面そのものと、その操作のすべて:</p>' +
+          '<ul><li><code>MainWindow.xaml</code>: 対象フォルダの <code>ComboBoxEx</code>(<code>comboBox_TargetDir</code>)、対象の条件、<code>TabControl</code>(名称変換 / タイムスタンプ / 機能)、一覧の <code>ListBox</code>(<code>listBox</code>)、「設定保存・復元・実行」ボタン</li>' +
+          '<li><code>MainWindow.xaml.cs</code>: 一覧づくり(<code>UpdateListBox</code> / <code>GetFileList</code>)、実行・復元(<code>button_Execute_Click</code> / <code>button_Restore_Click</code>)、設定の保存読み込み、タブごとのコントロール更新(<code>UpdateNameChangeControl</code> / <code>UpdateFunctionControl</code>)、時刻入力欄の処理</li>' +
+          '<li>持っている状態: <code>_rename</code>・<code>_function</code>(<b>インスタンスを使い回す</b>ので、復元の記録が実行をまたいで残る)、<code>_currentTime</code>、<code>_isUiReady</code>(起動中のイベントを無視するための旗)。<code>TimeStamp</code> は実行のたびに <code>new</code></li></ul>' +
+          '<p><b>ErrorMsg</b>: 失敗した項目の文字列を読み取り専用で見せる小さなダイアログ(<code>new ErrorMsg(errorList) { Owner = this }.ShowDialog()</code>)。</p>' +
+          '<p class="gg-files">📄 <code>App.xaml.cs</code>、<code>MainWindow.xaml</code>、<code>MainWindow.xaml.cs</code>、<code>ErrorMsg.xaml(.cs)</code></p>',
+      },
+      {
+        title: '処理ロジック: Rename / TimeStamp / Function',
+        camera: { pos: [-6, 13, 24], target: [-6, 11, 0] },
+        focus: ['rename', 'ts', 'fn', 'tt', 'mw', 'a-mw-rename', 'a-mw-ts', 'a-mw-fn', 'a-mw-tt', 'a-ts-io', 'w-io', 'L-logic'],
+        show: ['a-mw-rename', 'a-mw-ts', 'a-mw-fn', 'a-mw-tt', 'a-ts-io'],
+        html:
+          '<p>どれも <code>internal class</code> で、<b>プロパティで設定を受け取り、<code>Execute()</code> で実行</b>する同じ形です。</p>' +
+          '<ul><li><b><code>Rename</code></b>: <code>BaseDir</code> / <code>FileList</code> / <code>Type</code>(<code>ChangeType</code> = <code>Number</code> / <code>DelNum</code> / <code>Add</code> / <code>Delete</code> / <code>Replace</code> / <code>OnlyExt</code> / <code>AddDirName</code>) / <code>Param1</code> / <code>Param2</code> / <code>FirstNumber</code> / <code>PaddingDigits</code> / <code>KeepOriginalName</code>。<code>Execute()</code> は失敗分のテキストを返す。<code>GetAutoPaddingDigits</code> は <code>static</code></li>' +
+          '<li><b><code>Function</code></b>: <code>FunctionType</code>(<code>DelEmptyDir</code> / <code>Copy</code> / <code>Move</code>)、<code>DestDir</code>。<code>Execute()</code> も失敗分のテキストを返す</li>' +
+          '<li><b><code>TimeStamp</code></b>: <code>BaseTicks</code> / <code>IntervalTicks</code> と、作成・更新・アクセス日時の3つの更新フラグ。<code>FileInfo</code> を直接書き換える(復元は無いので <code>FileMng</code> は使わない)</li>' +
+          '<li><b><code>TimeText</code></b>(<code>internal static</code>): WinFormsの <code>DateTimePicker</code> の代わりに作った、時刻入力欄の部品。<code>Format</code> / <code>TryParse</code> / <code>GetFieldIndex</code> / <code>Increment</code>(桁上がりなしで欄の中を一周)</li></ul>' +
+          '<p class="gg-files">📄 <code>Rename.cs</code>、<code>Function.cs</code>、<code>TimeStamp.cs</code>、<code>TimeText.cs</code></p>',
+      },
+      {
+        title: 'FileMng と 復元の仕組み',
+        camera: { pos: [-8, 12, 24], target: [-8, 10, 0] },
+        focus: ['fm', 'pm', 'std', 'rename', 'fn', 'w-io', 'w-cmd', 'a-rename-fm', 'a-fn-fm', 'a-fm-pm', 'a-fm-std', 'a-fm-io', 'a-fm-cmd', 'L-logic', 'L-common'],
+        show: ['a-rename-fm', 'a-fn-fm', 'a-fm-pm', 'a-fm-std', 'a-fm-io', 'a-fm-cmd'],
+        html:
+          '<p><code>Rename</code> と <code>Function</code> の両方が、ファイル操作を <b><code>FileMng</code></b> に頼ります。<code>FileMng</code> は共通部品 <b><code>StcProcessMemory</code></b> を<b>継承</b>して、「復元用の記録」を使えるようにしたクラスです。</p>' +
+          '<ul><li><code>Move</code> / <code>Copy</code>: ファイルとフォルダを見分けて <code>File.Move</code> / <code>Directory.Move</code> / <code>File.Copy</code>。<b>例外は飲み込んで <code>false</code></b>を返し、呼び出し側がエラー一覧に集める</li>' +
+          '<li><code>RestoreAll</code>: 直前の1操作分を、記録した順の<b>逆</b>に戻す。以前は <code>Rename</code> と <code>Function</code> に同じ実装があったため、ここに集約した</li>' +
+          '<li><code>DeleteBlankDir</code>: 一時の <code>.bat</code> を作り(<code>StcFileInputOutput.CreateTempFile</code>)、<code>StcUtils.ExecutePathWithWait</code> で完了まで待って、<code>cmd</code> の <code>rd</code> で空フォルダを深い方から消す</li>' +
+          '<li><code>GetErrorText</code>(<code>static</code>): <code>Src=…</code> / <code>Dst=…</code> の1件分</li></ul>' +
+          '<p><b><code>StcProcessMemory</code></b>(<code>ProcessMemory.cs</code>): <code>IncrementSerialNumber</code> / <code>AddRestoreItem</code> / <code>DecrementSerialNumber</code> / <code>HasRestoreItem</code> / <code>PopRestoreItem</code>。<b>操作の番号</b>つきのスタックなので、1回の操作で積んだ分だけをまとめて取り出せます。</p>' +
+          '<p class="gg-files">📄 <code>FileMng.cs</code>、<code>_Common\\ProcessMemory.cs</code>(FileArrangerと共用)</p>',
+      },
+      {
+        title: '共通部品 _Common(ファイルとして取り込み)',
+        camera: { pos: [-0.5, 9.5, 40], target: [-0.5, 8.6, 0] },
+        focus: ['pm', 'std', 'nat', 'wsr', 'jfs', 'uloc', 'dfm', 'wcu', 'guard', 'L-common'],
+        html:
+          '<p><code>FFEdit.csproj</code> は、<code>&lt;Compile Include="..\\..\\_Common\\○○.cs"&gt;</code> に <code>&lt;Link&gt;</code> を付けて、共通部品を<b>ソースファイルとして</b>取り込みます(別DLLにしないので、exeはひとつだけ)。FFEdit が使っているもの:</p>' +
+          '<table><tr><th>部品</th><th>使い道</th></tr>' +
+          '<tr><td><code>StandardTemplateClass.cs</code></td><td><code>StcUtils</code>(カレントディレクトリ・パスを開く・外部プロセスを待つ)、<code>StcFileInputOutput</code>(一時ファイル・削除)、<code>GenericProfile</code></td></tr>' +
+          '<tr><td><code>ProcessMemory.cs</code></td><td>復元スタック(<code>StcProcessMemory</code>)</td></tr>' +
+          '<tr><td><code>NaturalStringComparer.cs</code></td><td>一覧の自然順ソート</td></tr>' +
+          '<tr><td><code>Wpf\\WpfSaveRestore.cs</code> / <code>JsonFileStorage.cs</code> / <code>AtomicFile.cs</code></td><td>設定の登録・保存・読み込み(JSON)</td></tr>' +
+          '<tr><td><code>UserDataLocation.cs</code> / <code>DataFolderMenu.cs</code> / <code>DataFolderChooser.cs</code> / <code>Wpf\\WpfDataFolderMenu.cs</code></td><td>設定の保存先の決定と、タイトルバーメニューからの変更</td></tr>' +
+          '<tr><td><code>Wpf\\WpfControlUtils.cs</code> / <code>WpfPathDropControls.cs</code> / <code>WpfPlaceholder.cs</code> / <code>PathDroppedEventArgs.cs</code></td><td>一覧の選択・コピー、ドロップできる <code>TextBoxEx</code> / <code>ComboBoxEx</code>、入力例の薄い文字</td></tr>' +
+          '<tr><td><code>StcWpfExceptionGuard.cs</code></td><td>想定外の例外をダイアログで知らせる</td></tr></table>' +
+          '<p class="gg-files">📄 <code>FFEdit\\FFEdit.csproj</code>、<code>Essentials\\_Common\\</code></p>',
+      },
+      {
+        title: '設定の保存と保存先',
+        camera: { pos: [0, 15, 30], target: [0, 11, 0] },
+        focus: ['mw', 'wsr', 'jfs', 'uloc', 'dfm', 'json', 'wacp', 'wf', 'a-mw-wsr', 'a-wsr-jfs', 'a-mw-uloc', 'a-mw-dfm', 'a-jfs-json', 'a-dfm-wacp', 'a-dfm-wf', 'L-ui', 'L-common', 'L-ext'],
+        show: ['a-mw-wsr', 'a-wsr-jfs', 'a-mw-uloc', 'a-mw-dfm', 'a-jfs-json', 'a-dfm-wacp', 'a-dfm-wf'],
+        html:
+          '<ul><li><code>MainWindow</code> の <code>RegisterSettingItems</code> が、履歴を持つ4つのコントロールを <code>WpfSaveRestore</code> に登録(<code>RegisterCtrlList</code> / <code>RegisterCtrl</code>)。キーはWinForms版と同じなので、WinForms版で保存した設定も読める</li>' +
+          '<li>保存: <code>SaveSetting</code> が履歴を足してから <code>WpfSaveRestore.Save</code> → <code>GenericProfile</code> を <code>JsonFileStorage.Save</code>(<b>Newtonsoft.Json</b>・UTF-8・整形つき)。書くときは <code>AtomicFile</code> 経由で、一時ファイルに書き切ってから置き換えるので、書き込み途中で落ちても元のファイルは壊れない</li>' +
+          '<li>読み込み: <code>JsonFileStorage.Load&lt;GenericProfile&gt;</code>。ファイルが無い・壊れているときは <code>default</code> が返り、既定値のまま起動</li>' +
+          '<li>保存先: <code>UserDataLocation.GetUserDataFolder("FFEdit")</code> が、exe横の <code>DataFolder.txt</code> の1行目を読む。無ければ <code>%LOCALAPPDATA%\\FFEdit\\</code> を使い、<code>DataFolder.txt</code> を作り直す</li>' +
+          '<li>変更: タイトルバーのシステムメニューに <code>WpfDataFolderMenu.Attach</code> が「データ保存先を変更」を追加。選んだあと、<code>MoveSettingFile</code>(FFEdit は設定ファイル1つだけなのでこれだけ引っ越す)が呼ばれる。フォルダ選択は <code>DataFolderChooser</code>(WindowsAPICodePack-Shell の <code>CommonOpenFileDialog</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RegisterSettingItems</code> / <code>SaveSetting</code> / <code>LoadProc</code> / <code>MoveSettingFile</code></p>',
+      },
+      {
+        title: '外部への依存',
+        camera: { pos: [0, 8.5, 36], target: [0, 7.4, 0] },
+        focus: ['w-io', 'w-cmd', 'json', 'wacp', 'wf', 'wpf', 'fm', 'ts', 'jfs', 'dfm', 'a-fm-io', 'a-fm-cmd', 'a-ts-io', 'a-jfs-json', 'a-dfm-wacp', 'a-dfm-wf', 'L-ext'],
+        show: ['a-fm-io', 'a-fm-cmd', 'a-ts-io', 'a-jfs-json', 'a-dfm-wacp', 'a-dfm-wf'],
+        html:
+          '<table><tr><th>依存先</th><th>使い道</th></tr>' +
+          '<tr><td><code>System.IO</code></td><td>ファイルの移動・コピー、一覧の取得(<code>GetFiles</code> など)、<code>FileInfo</code> の日時プロパティ</td></tr>' +
+          '<tr><td><code>cmd.exe</code>(一時の <code>.bat</code>)</td><td>空フォルダの削除。Windows標準の <code>sort.exe</code> を<b>フルパス</b>で呼ぶ(PATHにGitの <code>sort.exe</code> があると <code>/r</code> が効かず何も消えなくなるため)</td></tr>' +
+          '<tr><td>Newtonsoft.Json 13.0.4</td><td>設定(<code>FFEdit.json</code>)の保存・読み込み</td></tr>' +
+          '<tr><td>WindowsAPICodePack-Shell 1.1.1</td><td>データ保存先を選ぶ新しい見た目のフォルダ選択ダイアログ</td></tr>' +
+          '<tr><td><code>System.Windows.Forms</code></td><td>共通の <code>DataFolderMenu</code>(WinForms版と共用のコード)が参照</td></tr>' +
+          '<tr><td>WPF(<code>PresentationFramework</code> ほか)</td><td>画面。.NET Framework 4.0 の Client Profile、x64 固定(<code>Prefer32Bit=false</code>)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>FFEdit\\FFEdit.csproj</code>、<code>FileMng.cs</code>、<code>TimeStamp.cs</code></p>',
+      },
+      {
+        title: '「実行」ボタンを押したときの呼び出しの流れ',
+        camera: { pos: [-6, 14, 28], target: [-6, 11.8, 0] },
+        focus: ['mw', 'rename', 'fm', 'pm', 'err', 'a-mw-rename', 'a-rename-fm', 'a-fm-pm', 'a-mw-err', 'fl-run', 'fl-move', 'fl-rec', 'fl-err', 't-run', 't-move', 't-rec', 't-err', 'L-ui', 'L-logic', 'L-common'],
+        show: ['a-mw-rename', 'a-rename-fm', 'a-fm-pm', 'a-mw-err', 'fl-run', 'fl-move', 'fl-rec', 'fl-err', 't-run', 't-move', 't-rec', 't-err'],
+        html:
+          '<ol><li><code>button_Execute_Click</code> が、いま開いているタブで分岐。名称変換なら入力を確かめて(<code>IsFirstNumberValid</code> / <code>IsExtensionValid</code>)<code>ChangeName()</code> へ</li>' +
+          '<li><code>ChangeName()</code> が <code>_rename</code> に <code>BaseDir</code> / <code>FileList</code>(<code>GetFileList()</code>)/ <code>Type</code> / <code>Param1,2</code> / <code>FirstNumber</code> / <code>PaddingDigits</code> / <code>KeepOriginalName</code> を詰め、<code>Execute()</code></li>' +
+          '<li><code>Rename.Execute()</code>: 1件ごとに新しい名前を計算し、<code>FileMng.Move</code>。成功なら <code>AddRestoreItem</code>、失敗ならエラー文字列に追加。最後に <code>IncrementSerialNumber()</code></li>' +
+          '<li>戻ってきた文字列が空でなければ <code>ErrorMsg</code> を表示。最後に <code>UpdateListBox()</code> で一覧を更新</li></ol>' +
+          '<p>「復元」は逆向き: <code>button_Restore_Click</code> → <code>Rename.Restore()</code> → <code>FileMng.RestoreAll()</code>。画面側は「戻せたか(bool)」だけを見て、戻せなければ「これ以上復元できません」を出します。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>button_Execute_Click</code> / <code>ChangeName</code>、<code>Rename.cs</code> の <code>Execute</code></p>',
+      },
+      {
+        title: 'プロジェクト構成とテスト',
+        camera: { pos: [-1, 14, 38], target: [-1, 11.5, 0] },
+        focus: ['tests', 'rename', 'ts', 'fn', 'fm', 'tt', 'mw', 'a-tests'],
+        show: ['a-tests'],
+        html:
+          '<p><b>FFEdit.csproj</b>: 従来形式(ToolsVersion 14)で、<code>WinExe</code>、WPF、<code>v4.0</code> Client、<b>x64固定</b>。NuGet は <code>PackageReference</code>(Newtonsoft.Json 13.0.4 / WindowsAPICodePack-Shell 1.1.1)。WinForms版FFEditと同じ設定ファイル形式のまま移植してあります。</p>' +
+          '<p><b>FFEdit.Tests</b>(MSTest 2.2.10、テストだけ <code>v4.7.2</code>): <code>RenameTests</code> / <code>FunctionTests</code> / <code>TimeStampTests</code> / <code>FileMngTests</code> / <code>ProcessMemoryTests</code> / <code>TimeTextTests</code> / <code>SaveRestoreTests</code> / <code>MainWindowTests</code>(計71テスト)。<code>InternalsVisibleTo("FFEdit.Tests")</code> で <code>internal</code> のクラスを直接テストします。</p>' +
+          '<ul><li>名前の計算は <code>private</code> なので、<code>Execute()</code> を通して<b>実際に一時フォルダでリネーム</b>し、ディスク上の結果で確かめる</li>' +
+          '<li><code>MainWindowTests</code> は WPF のウィンドウを動かすため、専用の STA 実行補助(<code>_Common\\Wpf\\Tests\\StaRunner.cs</code>)を使う</li></ul>' +
+          '<p>画面から切り離した <code>Rename</code> / <code>Function</code> / <code>TimeStamp</code> / <code>FileMng</code> を作ってあるのは、このためです。</p>' +
+          '<p class="gg-files">📄 <code>Essentials\\FFEdit\\FFEdit.sln</code>、<code>Tests\\FFEdit.Tests\\</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

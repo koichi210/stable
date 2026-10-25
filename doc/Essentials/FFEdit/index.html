@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFEdit ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>FFEdit ドキュメント</h1>
+  <p class="lead">フォルダ内のファイル・フォルダ名を通し番号などで一括変換し、タイムスタンプの更新や移動・コピーもできるツール「FFEdit」(C# / WPF / .NET Framework)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
+  変換は<b>直前の操作1回分を元に戻せる</b>ので、安心して試せます。画面のスクリーンショットは、このガイド用に作った<b>ダミーフォルダ</b>だけを使っています。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全10ステップ</div>
+      <div class="d">対象フォルダを入れてリストアップ → 通し番号などで名前を一括変換 → 実行 → 復元。タイムスタンプの更新と、移動・コピー・空フォルダ削除の使い方まで。実際の画面を3D空間に並べ、ステップごとにカメラが寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / ブロックが流れるアニメ / 全11ステップ</div>
+      <div class="d">フォルダ → 自然順の一覧 → 処理対象 → 新しい名前の計算 → 実際の移動と「復元用の記録」 → 一覧の更新。タイムスタンプ・移動/コピー・設定の保存先の流れも。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / クラス構成の3D図 / 全9ステップ</div>
+      <div class="d">画面・処理ロジック・共通部品(_Common)・OS/外部の層と、<code>MainWindow</code> / <code>Rename</code> / <code>TimeStamp</code> / <code>Function</code> / <code>FileMng</code> などの実際のクラス・ファイルの役割と依存関係。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/FFEdit</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
+  </p>
+</div>
+</body>
+</html>

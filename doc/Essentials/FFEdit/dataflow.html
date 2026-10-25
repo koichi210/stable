@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFEdit データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 13;                           // 工程(ステージ)どうしの間隔。ファイルのブロックがこの間を流れていく
+  var GREY = new T.Color('#4d4a63');
+
+  // ---- 説明用のファイル6個(ダミー)。OSが返す順に並べてある ----
+  var F = [
+    { n: 'IMG_2.jpg', c: '#4fa3ff' },
+    { n: 'IMG_10.jpg', c: '#5ee6a8' },
+    { n: 'IMG_1.jpg', c: '#ffd166' },
+    { n: 'IMG_20.jpg', c: '#c77dff' },
+    { n: 'IMG_3.jpg', c: '#ff9f43' },
+    { n: 'IMG_11.jpg', c: '#7ef0ff' },
+  ];
+  var RANK = [1, 3, 0, 5, 2, 4];                       // 自然順での順位(0始まり)
+  var SELID = [2, 0, 4, 1];                            // 選択した4件(一覧の上から) = IMG_1, IMG_2, IMG_3, IMG_10
+  var NEWNAME = { 2: '001.jpg', 0: '002.jpg', 4: '003.jpg', 1: '004.jpg' };
+  function isSel(i) { return RANK[i] < 4; }
+  function rz(r) { return -5.25 + r * 2.1; }           // 一覧の行のz
+  function az(r) { return -4.5 + r * 3; }              // 処理中の列のz
+
+  // ブロックの置き場所。ステージ k の中心は x = SX*k
+  function P(k, i) {
+    var r = RANK[i], sel = r < 4, lx, z, st = Math.min(k, 6);
+    if (k === 0) { lx = -3 + (i % 3) * 3; z = -1.8 + Math.floor(i / 3) * 3.6; }
+    else if (k === 1 || k >= 6) { lx = 0; z = rz(r); }
+    else if (k === 2) { lx = sel ? 2.2 : -2.2; z = rz(r); }
+    else if (k === 3) { if (sel) { lx = -3.6 + r * 2.4; z = -5; } else { lx = -2.2; z = rz(r); st = 2; } }
+    else if (k === 4) { if (sel) { lx = 0; z = az(r); } else { lx = -2.2; z = rz(r); st = 2; } }
+    else { if (sel) { lx = -1.5; z = az(r); } else { lx = -2.2; z = rz(r); st = 2; } }
+    return [SX * st + lx, 0.32, z];
+  }
+
+  var files = [];
+  var slabA = [], slabB = [];
+  var STACK_A = [SX * 5 + 4.4, 0, 0], STACK_B = [SX * 6 + 5, 0, 0];
+  function slotPos(base, j) { return [base[0], 0.28 + j * 0.5, base[2]]; }
+
+  function setName(m, txt) {
+    if (m.userData.txt === txt) return;
+    m.userData.txt = txt;
+    window.__g.setLabel(m.userData.label, txt, { size: 0.34 });
+  }
+
+  // ステップ k の毎フレームの処理。位置・色・名前は t から決める(途中のステップへ飛んでも壊れない)
+  function tick(g, t, k) {
+    var ph = k === 0 ? 1 : g.phase(t, 0, 2.0);
+    var i, j, m, r, sel, tint, col, txt, a, b;
+    for (i = 0; i < F.length; i++) {
+      m = files[i]; r = RANK[i]; sel = r < 4;
+      if (!sel && k >= 3 && k <= 5) { m.visible = false; continue; }
+      m.visible = true;
+      if (k === 7) {
+        g.setPos(m, P(6, i));
+      } else if (!sel && k === 6) {
+        g.setPos(m, P(6, i));
+      } else {
+        a = P(k === 0 ? 0 : k - 1, i); b = P(k, i);
+        g.lerpPos(m, a, b, ph);
+      }
+      // 対象外の2件は、選ばれなかった時点で灰色になる(②以降)
+      tint = 0;
+      if (!sel) tint = k === 2 ? g.phase(t, 0.8, 0.8) : (k >= 6 ? 1 : 0);
+      col = new T.Color(F[i].c);
+      if (k === 7 && sel) {                                    // 復元: 戻った瞬間に光る
+        var tp = 0.6 + 0.8 * (3 - r) + 0.9;
+        col.lerp(new T.Color('#ffffff'), Math.max(0, 1 - Math.abs(t - tp) / 0.5) * 0.7);
+      }
+      col.lerp(GREY, tint);
+      m.material.color.copy(col);
+      m.scale.setScalar(1 - 0.25 * tint);
+      // 名前
+      txt = F[i].n;
+      if (sel) {
+        if (k === 4) { if (t > 1.9 + 0.6 * r) txt = NEWNAME[i]; }
+        else if (k >= 5 && k <= 6) txt = NEWNAME[i];
+        else if (k === 7) { if (t < 0.6 + 0.8 * (3 - r) + 0.9) txt = NEWNAME[i]; }
+      }
+      setName(m, txt);
+    }
+    // ⑤ 復元用スタックにたまっていく
+    for (j = 0; j < 4; j++) {
+      var s = slabA[j], idj = SELID[j];
+      var kA = g.phase(t, 0.7 + 0.7 * j, 0.9);
+      if (k === 5) {
+        s.visible = t > 0.65 + 0.7 * j;
+        g.arcPos(s, [P(5, idj)[0], 0.5, P(5, idj)[2]], slotPos(STACK_A, j), kA, 2);
+      }
+      // ⑦ 復元: 上からひとつずつ取り出して、元の名前に戻す
+      var sb = slabB[j], kB = g.phase(t, 0.6 + 0.8 * (3 - j), 0.9);
+      if (k === 7) {
+        sb.visible = kB < 0.999;
+        g.arcPos(sb, slotPos(STACK_B, j), [P(6, idj)[0], 0.5, P(6, idj)[2]], kB, 2);
+        sb.scale.setScalar(1 - 0.6 * kB);
+      }
+    }
+  }
+
+  function look(k) {
+    var x = SX * k;
+    if (k === 0) return { pos: [x, 14, 14], target: [x, 0.3, 0] };
+    if (k === 1 || k === 2) return { pos: [x, 18, 13], target: [x, 0.3, 0.5] };
+    if (k === 3) return { pos: [x, 18, 15], target: [x, 0.3, 1.8] };
+    if (k === 4) return { pos: [x, 17, 13], target: [x, 0.3, 0.5] };
+    if (k === 5) return { pos: [x + 1.8, 17, 13], target: [x + 1.8, 0.3, 0.5] };
+    return { pos: [SX * 6 + 2, 18, 13], target: [SX * 6 + 2, 0.3, 0.5] };
+  }
+
+  function step(k, title, html, show, extra) {
+    return {
+      title: title, html: html, camera: look(k), show: ['belt'].concat(show || []),
+      enter: function (g) { files.forEach(function (m, i) { m.userData.txt = F[i].n; }); },
+      update: function (g, t) { tick(g, t, k); if (extra) extra(g, t); },
+    };
+  }
+
+  function stagePlates(g) {
+    var titles = ['⓪ 対象フォルダ(OSが返す順)', '① 一覧 ListBox(自然順)', '② 処理対象 GetFileList()', '③ 実行 → タブで処理を選ぶ', '④ Rename: 新しい名前を計算', '⑤ File.Move + 復元用の記録', '⑥ 一覧を更新 / ⑦ 復元'];
+    for (var k = 0; k <= 6; k++) {
+      g.plate({ parent: 'belt', id: 'st' + k, size: [11, 16], pos: [SX * k, 0.03, 0], color: '#211e33', label: titles[k], labelSize: 0.46, labelOffset: [0, 0.3, -8.6], labelColor: '#ffffff' });
+      if (k < 6) {
+        g.arrow([SX * k + 5.8, 0.5, 0], [SX * (k + 1) - 5.8, 0.5, 0], { parent: 'belt', id: 'ar' + k, color: C.gold, lift: 0.4, head: 0.4 });
+        g.flow([SX * k + 5.8, 0.5, 0], [SX * (k + 1) - 5.8, 0.5, 0], { parent: 'belt', id: 'fl' + k, color: C.data, lift: 0.4, count: 4, size: 0.12 });
+      }
+    }
+  }
+
+  var NAVY = '#2e2a4a';
+  function ovr(s) { s.camera = { pos: [39, 56, 66], target: [39, 0, 1] }; return s; }
+
+  GameGuide.start({
+    title: 'FFEdit データの流れ',
+    subtitle: 'フォルダ → 一覧 → 処理対象 → 新しい名前 → 実際の移動と記録 → 一覧更新 → 復元。ブロックが流れていく',
+    camera: { pos: [39, 56, 66], target: [39, 0, 1] },
+    floor: false,
+
+    build: function (g) {
+      window.__g = g;
+      g.scene.fog = null;
+      g.controls.maxDistance = 130;
+      g.group('belt'); g.group('ts'); g.group('fn'); g.group('st');
+      stagePlates(g);
+      var B = function (o) { o.parent = 'belt'; return o; };
+      var i, j, k;
+
+      // ⓪ 対象フォルダ
+      g.plate(B({ id: 'folder', size: [9.4, 11], pos: [0, 0.07, 0], color: '#3a3560', label: '対象フォルダ(例: Trip)', labelSize: 0.36, labelOffset: [0, 0.3, -5.1] }));
+      g.label('色 = ファイルの違い(同じ色は同じファイル)\nOSが返す順は、数字の順とは限らない', [0, 0.5, 6.2], { parent: 'belt', size: 0.32, color: '#ffffff' });
+
+      // ① 一覧
+      g.plate(B({ id: 'listbox', size: [6.4, 13.6], pos: [SX, 0.07, 0], color: '#2d2944', label: 'listBox', labelSize: 0.34, labelOffset: [0, 0.3, -7.4] }));
+      g.label('Array.Sort(elements,\n  NaturalStringComparer.Instance)\n数字の並びは数値として比べる:\nIMG_2 は IMG_10 より前', [SX + 0.4, 0.5, 6.9], { parent: 'belt', id: 'n-sort', size: 0.3 });
+      for (i = 0; i < 6; i++) {
+        g.label((i + 1) + '', [SX - 2.3, 0.5, rz(i)], { parent: 'belt', size: 0.26, color: '#b8b2d6' });
+      }
+
+      // ② 処理対象
+      g.plate(B({ id: 'p-skip', size: [3.8, 13.6], pos: [SX * 2 - 2.2, 0.07, 0], color: '#2a2740', label: '選ばなかった\n(対象外)', labelSize: 0.32, labelOffset: [0, 0.3, -7.6] }));
+      g.plate(B({ id: 'p-pick', size: [3.8, 13.6], pos: [SX * 2 + 2.2, 0.07, 0], color: '#35456b', label: '選んだ4件\n(対象)', labelSize: 0.32, labelOffset: [0, 0.3, -7.6] }));
+      g.label('「選択項目のみ」ON:\n一覧で選択した項目だけ\nOFFなら一覧の全件', [SX * 2 + 0.2, 0.5, 6.9], { parent: 'belt', id: 'n-pick', size: 0.3 });
+
+      // ③ タブで処理を選ぶ
+      var lanes = ['名称変換 → Rename.Execute()', 'タイムスタンプ → TimeStamp.Execute()', '機能 → Function.Execute()'];
+      for (j = 0; j < 3; j++) {
+        g.plate(B({ id: 'lane' + j, size: [10, 4], pos: [SX * 3, 0.07, -5 + j * 5.5], color: j === 0 ? '#3d4f86' : '#2a2740', label: lanes[j], labelSize: 0.32, labelOffset: [0, 0.3, -2.4] }));
+      }
+      g.label('tabControl.SelectedIndex で分岐\n(button_Execute_Click)', [SX * 3, 0.5, 8.9], { parent: 'belt', id: 'n-tab', size: 0.32 });
+
+      // ④ 名前を計算
+      g.plate(B({ id: 'p-calc', size: [8.4, 14], pos: [SX * 4, 0.07, 0], color: NAVY }));
+      for (j = 0; j < 4; j++) {
+        g.label('index ' + j + ' → 1+' + j + ' = ' + (j + 1) + '\n0埋め3桁 → ' + NEWNAME[SELID[j]].replace('.jpg', ''), [SX * 4 + 3.2, 0.55, az(j)], { parent: 'belt', id: 'calc' + j, size: 0.3, color: C.gold });
+      }
+      g.label('GetChangedName(name, index)\n→ GetNumberedName', [SX * 4 - 0.5, 0.5, 8.0], { parent: 'belt', id: 'n-calc', size: 0.32 });
+
+      // ⑤ 実際に変える + 復元用スタック
+      g.plate(B({ id: 'p-move', size: [4.6, 14], pos: [SX * 5 - 1.5, 0.07, 0], color: NAVY, label: '同じフォルダの中で\nFile.Move(src → dst)', labelSize: 0.28, labelOffset: [0, 0.3, 7.4] }));
+      g.label('復元スタック\n(StcProcessMemory)', [STACK_A[0], 3.9, 0], { parent: 'belt', id: 'n-stackA', size: 0.32, color: C.gold });
+      g.label('① Increment\nSerialNumber()\n② 成功した1件ごとに\nAddRestoreItem(src, dst)', [SX * 5 + 4.4, 0.5, 5.4], { parent: 'belt', id: 'n-stackA2', size: 0.32 });
+      g.label('積まれる中身 (src → dst)\nIMG_1.jpg → 001.jpg\nIMG_2.jpg → 002.jpg\nIMG_3.jpg → 003.jpg\nIMG_10.jpg → 004.jpg', [SX * 5 + 4.4, 0.5, -5.6], { parent: 'belt', id: 'n-stackA3', size: 0.28, color: C.gold });
+      for (j = 0; j < 4; j++) {
+        slabA[j] = g.box(B({ id: 'sA' + j, size: [3.2, 0.4, 1.7], pos: slotPos(STACK_A, j), color: '#d6a63a', edges: true }));
+        slabA[j].visible = false;
+      }
+
+      // ⑥ ⑦ 一覧の更新と復元
+      g.plate(B({ id: 'listbox2', size: [6.4, 13.6], pos: [SX * 6, 0.07, 0], color: '#2d2944', label: 'listBox(UpdateListBox)', labelSize: 0.32, labelOffset: [0, 0.3, -7.4] }));
+      g.label('IMG_11 / IMG_20 は\n対象外だったのでそのまま', [SX * 6 + 0.3, 0.5, 6.9], { parent: 'belt', id: 'n-list2', size: 0.3 });
+      g.label('復元スタック\n(あとから入れた順に取り出す)', [STACK_B[0], 3.9, 0], { parent: 'belt', id: 'n-stackB', size: 0.3, color: C.gold });
+      g.label('「復元」: DecrementSerialNumber()\n→ HasRestoreItem() の間\nPopRestoreItem → Move(dst → src)', [STACK_B[0] - 0.4, 0.5, 5.9], { parent: 'belt', id: 'n-stackB2', size: 0.32 });
+      g.label('取り出す順: 004 → 003 → 002 → 001', [STACK_B[0], 0.5, -5.2], { parent: 'belt', id: 'n-stackB3', size: 0.3, color: C.gold });
+      for (j = 0; j < 4; j++) {
+        slabB[j] = g.box(B({ id: 'sB' + j, size: [3.2, 0.4, 1.7], pos: slotPos(STACK_B, j), color: '#d6a63a', edges: true }));
+      }
+
+      // ファイルのブロック
+      F.forEach(function (f, n) {
+        files[n] = g.box(B({ id: 'f' + n, size: [1.9, 0.5, 0.9], pos: P(0, n), color: f.c, label: f.n, labelSize: 0.34, labelOffset: [0, 1.05, 0], edges: true }));
+        files[n].userData.txt = f.n;
+      });
+
+      // ------------------------------------------------ タイムスタンプのシーン
+      var TS = function (o) { o.parent = 'ts'; return o; };
+      g.plate(TS({ id: 'ts-base', size: [5.6, 4], pos: [-9, 0.07, -3.5], color: '#3a3560', label: '基準日時 (BaseTicks)\n2024/05/03 9:00:00', labelSize: 0.39, labelOffset: [0, 0.3, 0] }));
+      g.plate(TS({ id: 'ts-int', size: [5.6, 3], pos: [-9, 0.07, 2.5], color: '#3a3560', label: '加算間隔 (IntervalTicks)\n1分', labelSize: 0.39, labelOffset: [0, 0.3, 0] }));
+      g.label('1件目 = 基準日時\ni件目 = BaseTicks + IntervalTicks × i', [0, 0.5, -8], { parent: 'ts', size: 0.47, color: C.gold });
+      g.label('FileList の並び順 = 一覧の並び順', [0, 0.5, 7.8], { parent: 'ts', size: 0.39 });
+      var tsFiles = [], tsClock = [], tsBars = [], tsTime = [];
+      for (j = 0; j < 4; j++) {
+        var zz = az(j), nm = NEWNAME[SELID[j]];
+        g.box(TS({ id: 'tsf' + j, size: [1.9, 0.5, 0.9], pos: [0, 0.32, zz], color: F[SELID[j]].c, label: nm, labelSize: 0.35, labelOffset: [0, 0.85, 0] }));
+        tsClock[j] = g.cylinder(TS({ id: 'tsc' + j, radius: 0.6, height: 0.14, pos: [5.2, 0.3, zz], color: '#4d4a63', segments: 40 }));
+        tsTime[j] = g.label('9:0' + j + ':00', [5.2, 1.1, zz], { parent: 'ts', id: 'tst' + j, size: 0.39, color: '#ffffff' });
+        tsBars[j] = [];
+        ['#4fa3ff', '#5ee6a8', '#ff9f43'].forEach(function (cc, q) {
+          var lab = j === 0 ? ['作成', '更新', 'アクセス'][q] : null;
+          tsBars[j][q] = g.box(TS({ id: 'tsb' + j + '_' + q, size: [0.7, 0.35, 0.7], pos: [7.4 + q * 1.3, 0.3, zz], color: cc, emissive: cc, emissiveIntensity: 0.3, edges: false, label: lab, labelSize: 0.34, labelOffset: [0, 0.8, -0.9] }));
+        });
+        g.flow([-6.1, 0.6, -3.5], [4.4, 0.6, zz], { parent: 'ts', id: 'tsfl' + j, color: C.gold, lift: 1.4 + 0.4 * j, count: 3, size: 0.13, speed: 0.3 });
+      }
+      g.label('更新対象にチェックした日時だけ書き換える\n(FileInfo.CreationTime / LastWriteTime / LastAccessTime)', [8.2, 0.5, 7.2], { parent: 'ts', size: 0.36 });
+
+      // ------------------------------------------------ 機能のシーン
+      var FN = function (o) { o.parent = 'fn'; return o; };
+      var rows = [-8, 0, 8];
+      g.plate(FN({ id: 'fn-l0', size: [6.4, 5], pos: [-8, 0.07, rows[0]], color: '#3a3560', label: '元フォルダ', labelSize: 0.39, labelOffset: [-1.9, 0.3, -2.7] }));
+      g.plate(FN({ id: 'fn-r0', size: [6.4, 5], pos: [8, 0.07, rows[0]], color: '#35456b', label: '移動先 (DestDir)', labelSize: 0.39, labelOffset: [-1.5, 0.3, -2.7] }));
+      g.plate(FN({ id: 'fn-l1', size: [6.4, 5], pos: [-8, 0.07, rows[1]], color: '#3a3560', label: '元フォルダ', labelSize: 0.39, labelOffset: [-1.9, 0.3, -2.7] }));
+      g.plate(FN({ id: 'fn-r1', size: [6.4, 5], pos: [8, 0.07, rows[1]], color: '#35456b', label: '移動先 (DestDir)', labelSize: 0.39, labelOffset: [-1.5, 0.3, -2.7] }));
+      g.plate(FN({ id: 'fn-l2', size: [6.4, 5], pos: [-8, 0.07, rows[2]], color: '#3a3560', label: '対象フォルダ', labelSize: 0.39, labelOffset: [-1.7, 0.3, -2.7] }));
+      g.label('移動 (Move)\nFile.Move / Directory.Move\n→ 成功したら AddRestoreItem(記録)', [0, 0.5, rows[0]], { parent: 'fn', size: 0.39, color: C.gold });
+      g.label('コピー (Copy)\nFile.Copy(フォルダは未対応)\n→ 記録しない = 復元できない', [0, 0.5, rows[1]], { parent: 'fn', size: 0.39, color: C.data });
+      g.label('空のフォルダを削除 (DelEmptyDir)\ncmd: dir /ad /b /s | sort /r → rd\n(rd は空のフォルダしか消せない)', [2.2, 0.5, rows[2]], { parent: 'fn', size: 0.39, color: C.enemy });
+      g.label('移動先 = DestDir\\ファイル名だけ(サブフォルダは付かない)', [0, 0.5, -12.4], { parent: 'fn', size: 0.39 });
+      var mv = [], cp = [], cg = [], fd = [];
+      for (j = 0; j < 3; j++) {
+        var xs = -9.6 + j * 1.9;
+        mv[j] = g.box(FN({ id: 'mv' + j, size: [1.5, 0.5, 0.9], pos: [xs, 0.32, rows[0]], color: F[SELID[j]].c, label: F[SELID[j]].n.replace('.jpg', ''), labelSize: 0.38, labelOffset: [0, 0.9, 0] }));
+        cp[j] = g.box(FN({ id: 'cp' + j, size: [1.5, 0.5, 0.9], pos: [xs, 0.32, rows[1]], color: F[SELID[j]].c, label: F[SELID[j]].n.replace('.jpg', ''), labelSize: 0.38, labelOffset: [0, 0.9, 0] }));
+        cg[j] = g.box(FN({ id: 'cg' + j, size: [1.5, 0.5, 0.9], pos: [xs, 0.32, rows[1]], color: F[SELID[j]].c, opacity: 0.8, label: '(コピー)', labelSize: 0.32, labelOffset: [0, 0.9, 0] }));
+        cg[j].visible = false;
+      }
+      var fdNames = ['photos', 'old(空)', 'tmp(空)'];
+      for (j = 0; j < 3; j++) {
+        fd[j] = g.box(FN({ id: 'fd' + j, size: [1.9, 0.4, 1.5], pos: [-9.6 + j * 2.2, 0.27, rows[2]], color: '#e0b85a', label: fdNames[j], labelSize: 0.31, labelOffset: [0, 0.7, 0] }));
+      }
+      g.box(FN({ id: 'fd-inner', size: [0.9, 0.3, 0.6], pos: [-9.6, 0.65, rows[2]], color: '#4fa3ff', edges: false }));
+      g.label('photos は中にファイルがあるので残る', [-5.8, 0.5, rows[2] + 3.3], { parent: 'fn', size: 0.34 });
+
+      // ------------------------------------------------ 設定の保存と読み込みのシーン
+      var ST = function (o) { o.parent = 'st'; return o; };
+      var ctl = ['comboBox_TargetDir\n(対象フォルダの履歴)', 'comboBox_String1\n(入力欄1の履歴)', 'comboBox_String2\n(入力欄2の履歴)', 'textBox_Target_Extension\n(フィルター)'];
+      for (j = 0; j < 4; j++) {
+        g.box(ST({ id: 'ctl' + j, size: [5.2, 0.7, 1.7], pos: [-12.5, 0.4, -6 + j * 4], color: '#4fa3ff', radius: 0.1, label: ctl[j], labelSize: 0.34, labelOffset: [0, 1, 0] }));
+        g.flow([-9.6, 0.9, -6 + j * 4], [-3.5, 0.9, -0.8 + j * 0.5], { parent: 'st', id: 'stfs' + j, color: C.gold, lift: 1.4, count: 3, size: 0.13, speed: 0.3 });
+        g.flow([-3.5, 0.5, -0.3 + j * 0.5], [-9.6, 0.5, -6 + j * 4], { parent: 'st', id: 'stfl' + j, color: C.data, lift: 0.5, count: 2, size: 0.12, speed: 0.25 });
+      }
+      g.box(ST({ id: 'wsr', size: [4.6, 1.4, 6.4], pos: [-1.2, 0.8, 0], color: '#c77dff', radius: 0.12, label: 'WpfSaveRestore\n(GenericProfile に変換)', labelSize: 0.39, labelOffset: [0, 1.3, 0] }));
+      g.plate(ST({ id: 'st-folder', size: [7.4, 9], pos: [10, 0.07, 0], color: '#35456b', label: '保存先フォルダ\n(既定 %LOCALAPPDATA%\\FFEdit\\)', labelSize: 0.36, labelOffset: [0, 0.3, 4.8] }));
+      g.box(ST({ id: 'json', size: [3.6, 0.4, 4.4], pos: [10, 0.3, 0], color: '#6d6990', label: 'FFEdit.json\n(JsonFileStorage)', labelSize: 0.36, labelOffset: [0, 0.8, 0] }));
+      g.flow([1.3, 0.9, 0], [8, 0.7, 0], { parent: 'st', id: 'stsave', color: C.gold, lift: 1.4, count: 4, size: 0.16 });
+      g.flow([8, 0.4, 0.8], [1.3, 0.4, 0.8], { parent: 'st', id: 'stload', color: C.data, lift: 0.5, count: 3, size: 0.13, speed: 0.25 });
+      g.label('保存: 設定保存ボタン / Ctrl+S\nSaveSetting() → Save()', [4.8, 3.2, -2.4], { parent: 'st', size: 0.36, color: C.gold });
+      g.label('読み込み: 起動時 LoadProc()\n(無い・壊れていれば既定値)', [4.8, 1.6, 3.4], { parent: 'st', size: 0.36, color: C.data });
+      g.box(ST({ id: 'ptr', size: [3.8, 0.4, 2], pos: [-1.2, 0.3, -10.5], color: '#6d6990', label: 'exe横の DataFolder.txt\n(1行目 = 保存先のパス)', labelSize: 0.34, labelOffset: [0, 0.8, 0] }));
+      g.arrow([0.9, 0.5, -10.5], [6.6, 0.5, -4.6], { parent: 'st', id: 'ptr-ar', color: C.gold, lift: 0.8, label: '保存先を指す', labelSize: 0.34 });
+      g.label('UserDataLocation.GetUserDataFolder\n(ポインタが無ければ既定の場所を使い、作り直す)', [-1.2, 0.5, -13.2], { parent: 'st', size: 0.34 });
+    },
+
+    steps: [
+      ovr(step(0, '全体の流れ',
+        '<p>ファイルのブロックが、左から右へ<b>工程を進める</b>様子を見ます。主役は<b>名称変換(通し番号)</b>。ブロックの<b>色が1ファイル</b>です。</p>' +
+        '<ol><li>フォルダから<b>一覧</b>を作る(自然順に並べる)</li><li>処理<b>対象</b>を決める(選択のみ/全件)</li><li>タブで処理を選び「実行」</li><li><code>Rename</code>が<b>新しい名前</b>を計算</li><li>実際に<b>移動(改名)</b>し、元に戻す情報を<b>スタックに記録</b></li><li>一覧を更新。「復元」はスタックから取り出して戻す</li></ol>' +
+        '<p>このあと、<b>タイムスタンプ</b>・<b>移動/コピー/空フォルダ削除</b>・<b>設定の保存</b>の流れも見ます。</p>' +
+        '<p class="gg-note">ここに出てくる6個のファイルは説明用のダミーです。矢印キー(←→)でも進めます。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code>(画面) → <code>Rename.cs</code> / <code>TimeStamp.cs</code> / <code>Function.cs</code> → <code>FileMng.cs</code></p>')),
+      step(1, '① フォルダから一覧を作る(自然順)',
+        '<p><code>UpdateListBox</code> が、対象フォルダの中身を <code>Directory.GetFiles</code>(「フォルダ」対象なら <code>GetDirectories</code>)で取り、<b>フィルター</b>(<code>*.jpg</code> など)と<b>サブフォルダも</b>の指定に従って集めます。</p>' +
+        '<ul><li>OSが返す順は数字の順とは限らない(図の左のフォルダ)</li>' +
+        '<li><code>Array.Sort(elements, NaturalStringComparer.Instance)</code> で<b>自然順</b>に。<code>IMG_2</code> が <code>IMG_10</code> より先に来る</li>' +
+        '<li>一覧に入れるのは、対象フォルダ名を取り除いた<b>相対パス</b>(<code>Substring(trimLength)</code>)</li>' +
+        '<li>フォルダが存在しないときは「フォルダパスが不正です」を出して終了</li></ul>' +
+        '<p class="gg-files">📄 <code>MainWindow.UpdateListBox</code> → <code>listBox.Items</code>、<code>_Common\\NaturalStringComparer.cs</code></p>',
+        ['n-sort']),
+      step(2, '② 処理対象を決める',
+        '<p>「実行」のとき、<code>GetFileList()</code> が<b>処理対象のリスト</b>(相対パスの <code>List&lt;String&gt;</code>)を作ります。</p>' +
+        '<ul><li><b>「選択項目のみ」ON</b>: 一覧で選んだ項目だけ(<code>WpfControlUtils.GetSelectedNames</code>)。図では4件を選び、残りの2件(灰色)は対象外</li>' +
+        '<li><b>OFF</b>: 一覧の全項目(<code>listBox.Items</code>)</li></ul>' +
+        '<p>この<b>リストの並び順が、あとの通し番号やタイムスタンプの順番</b>になります。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.GetFileList</code></p>',
+        ['n-pick']),
+      step(3, '③ 「実行」→ タブで処理を選ぶ',
+        '<p><code>button_Execute_Click</code> は、いま開いている<b>タブ</b>(<code>tabControl.SelectedIndex</code>)で処理を切り替えます。</p>' +
+        '<ul><li><b>名称変換</b> → <code>ChangeName()</code> → <code>Rename.Execute()</code>(実行前に「最初の値」「拡張子」の入力をチェック)</li>' +
+        '<li><b>タイムスタンプ</b> → <code>ChangeTimeStamp()</code> → <code>TimeStamp.Execute()</code></li>' +
+        '<li><b>機能</b> → <code>ChangeOtherFunction()</code> → <code>Function.Execute()</code></li></ul>' +
+        '<p>画面は、選んだ設定を各クラスのプロパティ(<code>BaseDir</code> / <code>FileList</code> / <code>Type</code> / <code>Param1</code>…)に詰めて渡すだけ。変換の中身は画面を知りません。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.button_Execute_Click</code> / <code>ChangeName</code></p>',
+        ['n-tab']),
+      step(4, '④ Rename が新しい名前を計算する',
+        '<p><code>Rename.Execute()</code> は、リストの<b>1件ずつ</b> <code>GetChangedName(name, index)</code> で新しい名前を作ります。</p>' +
+        '<ul><li>通し番号なら <code>GetNumberedName</code>: <code>(index + FirstNumber)</code> を <code>PadLeft(PaddingDigits, \'0\')</code> で0埋めし、拡張子を付ける(ONなら「連番＋元の名前」)</li>' +
+        '<li>桁が「自動」なら <code>GetAutoPaddingDigits(最初の値, 件数)</code> で決める</li>' +
+        '<li>サブフォルダの中の項目は、<b>そのフォルダの中で</b>名前だけを変える(<code>Path.GetDirectoryName</code> を保つ)</li>' +
+        '<li>削る文字数が数字でない・長すぎる場合は、<b>その1件だけ</b>をエラー一覧に入れて続行(<code>FormatException</code> など)</li></ul>' +
+        '<p>新旧が同じ名前なら、その件は何もしません。</p>' +
+        '<p class="gg-files">📄 <code>Rename.Execute</code> → <code>GetChangedName</code> → <code>GetNumberedName</code> / <code>GetCharsRemovedName</code> / <code>GetAddedName</code></p>',
+        ['p-calc', 'calc0', 'calc1', 'calc2', 'calc3', 'n-calc']),
+      step(5, '⑤ 実際に変える + 復元用に記録する',
+        '<p>名前が決まったら <code>FileMng.Move(src, dst)</code> で<b>実際に改名</b>します(ファイルは <code>File.Move</code>、フォルダは <code>Directory.Move</code>)。</p>' +
+        '<ul><li>成功した1件ごとに <code>AddRestoreItem(src, dst)</code> で<b>復元スタック</b>へ積む(図の黄色い板)</li>' +
+        '<li>失敗した件は <code>FileMng.GetErrorText</code> で <code>Src=… / Dst=…</code> にして集め、最後に<b>エラー一覧のダイアログ</b>で見せる</li>' +
+        '<li>全件が終わったら <code>IncrementSerialNumber()</code> で<b>操作の番号を1つ進める</b>。同じ番号の記録=「1回の操作」</li></ul>' +
+        '<p>復元用の記録は、<code>StcProcessMemory</code>(<code>_Common\\ProcessMemory.cs</code>)が持つ <code>List&lt;RestoreStruct&gt;</code>。<b>メモリ上だけ</b>なので、アプリを閉じると消えます。</p>' +
+        '<p class="gg-files">📄 <code>FileMng.Move</code>、<code>StcProcessMemory.AddRestoreItem</code> / <code>IncrementSerialNumber</code></p>',
+        ['n-stackA', 'n-stackA2', 'n-stackA3', 'sA0', 'sA1', 'sA2', 'sA3']),
+      step(6, '⑥ 一覧を更新する',
+        '<p>エラーがあればダイアログを出し、最後に <code>UpdateListBox()</code> で<b>一覧を作り直し</b>ます(① と同じ処理)。</p>' +
+        '<ul><li>改名した4件は新しい名前 <code>001.jpg</code>〜<code>004.jpg</code> で並ぶ</li>' +
+        '<li>対象外だった <code>IMG_11.jpg</code> / <code>IMG_20.jpg</code> はそのまま</li>' +
+        '<li>自然順なので、数字だけの名前が先に来る</li></ul>' +
+        '<p>画面を更新するだけで、ディスクを読み直しているので、<b>他のアプリで変わった結果</b>もここで見えます。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.button_Execute_Click</code>(最後の <code>UpdateListBox</code>)、<code>ErrorMsg.xaml.cs</code></p>',
+        ['n-list2']),
+      step(7, '⑦ 「復元」: スタックから取り出して戻す',
+        '<p>「復元」を押すと <code>FileMng.RestoreAll()</code> が働きます。</p>' +
+        '<ol><li><code>DecrementSerialNumber()</code>: 番号を1つ戻す(0なら「これ以上復元できません」)</li>' +
+        '<li><code>HasRestoreItem()</code> が真の間(=<b>直前の操作と同じ番号</b>の記録がある間)、<code>PopRestoreItem</code> で<b>後に積んだものから</b>取り出す</li>' +
+        '<li>取り出した <code>(src, dst)</code> を <code>Move(dst, src)</code> で<b>逆向きに</b>移動</li></ol>' +
+        '<p>押すたびに1回分ずつ、さらに前の操作へ戻れます。<code>Rename</code> と <code>Function</code> は<b>別々の記録</b>(それぞれの <code>FileMng</code>)を持っています。タイムスタンプの更新・コピー・空フォルダ削除は記録しないので戻せません。</p>' +
+        '<p class="gg-files">📄 <code>FileMng.RestoreAll</code>、<code>MainWindow.button_Restore_Click</code></p>',
+        ['n-list2', 'n-stackB', 'n-stackB2', 'n-stackB3', 'sB0', 'sB1', 'sB2', 'sB3']),
+      {
+        title: 'タイムスタンプの流れ',
+        camera: { pos: [-1, 19, 18], target: [-1, 0.3, -0.5] },
+        show: ['ts'],
+        update: function (g, t) {
+          for (var j = 0; j < 4; j++) {
+            var ta = 0.8 + 0.9 * j, k = g.phase(t, ta, 0.6);
+            var clock = g.get('tsc' + j);
+            clock.material.color.copy(new T.Color('#4d4a63').lerp(new T.Color('#ffd166'), k));
+            clock.rotation.y = t * 1.5;
+            g.get('tst' + j).visible = t > ta;
+            for (var q = 0; q < 3; q++) {
+              var b = g.get('tsb' + j + '_' + q);
+              b.scale.setScalar(0.001 + 0.999 * g.phase(t, ta + 0.3 + 0.2 * q, 0.5));
+            }
+          }
+        },
+        html:
+          '<p><code>TimeStamp.Execute()</code> は、リストの<b>i件目</b>に <code>BaseTicks + IntervalTicks × i</code> の日時を設定します。</p>' +
+          '<ul><li><b>1件目</b> = 画面の「基準日」＋「時刻」(<code>ChangeTimeStamp</code> が <code>DateTime</code> にして <code>BaseTicks</code> へ)</li>' +
+          '<li><b>1件ごとの加算</b> = 「加算間隔」(<code>GetTickTime</code>: 秒/分/時間/日。「無し」は0)</li>' +
+          '<li>各ファイルは <code>FileInfo</code> の <code>CreationTime</code> / <code>LastWriteTime</code> / <code>LastAccessTime</code> のうち、<b>チェックしたものだけ</b>を書き換える</li></ul>' +
+          '<p>名前も場所も変わらないので、復元用の記録は積みません(<b>戻せません</b>)。時刻入力欄の処理(<code>H:mm:ss</code>の解釈、↑↓での増減)は小さな <code>TimeText</code> クラスに分かれています。</p>' +
+          '<p class="gg-files">📄 <code>TimeStamp.cs</code>、<code>TimeText.cs</code>、<code>MainWindow.ChangeTimeStamp</code></p>',
+      },
+      {
+        title: '移動・コピー・空フォルダ削除の流れ',
+        camera: { pos: [0, 22, 15.5], target: [0, 0.3, -1] },
+        show: ['fn'],
+        update: function (g, t) {
+          var j, k, s;
+          for (j = 0; j < 3; j++) {
+            var xs = -9.6 + j * 1.9, xd = 6.2 + j * 1.9;
+            // 移動
+            k = g.phase(t, 0.6 + 0.6 * j, 1.1);
+            g.arcPos(g.get('mv' + j), [xs, 0.32, -8], [xd, 0.32, -8], k, 2.2);
+            // コピー: 元は残り、コピーが飛ぶ
+            k = g.phase(t, 0.6 + 0.6 * j, 1.1);
+            var cg = g.get('cg' + j);
+            cg.visible = t > 0.55 + 0.6 * j;
+            g.arcPos(cg, [xs, 0.32, 0], [xd, 0.32, 0], k, 2.2);
+          }
+          // 空フォルダ: 空の2つが消える
+          for (j = 1; j < 3; j++) {
+            var f = g.get('fd' + j);
+            k = g.phase(t, 1.2 + 0.8 * (j - 1), 0.9);
+            f.material.color.copy(new T.Color('#e0b85a').lerp(new T.Color('#ff5f6d'), Math.min(1, k * 2)));
+            f.scale.setScalar(Math.max(0.001, 1 - Math.max(0, k * 2 - 1)));
+          }
+        },
+        html:
+          '<p><code>Function.Execute()</code> も、リストの<b>1件ずつ</b>処理します。移動先は <code>DestDir\\ファイル名だけ</code>(<code>Path.GetFileName</code>)で、移動元と同じパスなら何もしません。移動先のフォルダは <code>Directory.CreateDirectory</code> で作ります。</p>' +
+          '<ul><li><b>移動</b>: <code>FileMng.Move</code> → 成功したら <code>AddRestoreItem</code> で記録(<b>復元できる</b>)。失敗はエラー一覧へ</li>' +
+          '<li><b>コピー</b>: <code>FileMng.Copy</code>(<code>File.Copy</code>。フォルダは「未対応」のメッセージ)。<b>記録しない</b></li>' +
+          '<li><b>空のフォルダを削除</b>: <code>FileMng.DeleteBlankDir</code> が一時の <code>.bat</code> を作り、<code>for /f … in (\'dir … /ad /b /s ^| sort /r\') do rd …</code> を実行して<b>終わるまで待つ</b>。深い方から <code>rd</code> するので、「空のフォルダだけを含むフォルダ」も消える。中身があるフォルダは <code>rd</code> が失敗するので残る</li></ul>' +
+          '<p class="gg-files">📄 <code>Function.cs</code>、<code>FileMng.cs</code>(<code>Move</code> / <code>Copy</code> / <code>DeleteBlankDir</code>)</p>',
+      },
+      {
+        title: '設定の保存と読み込み',
+        camera: { pos: [-1, 25, 21], target: [-1, 0.3, -2.5] },
+        show: ['st'],
+        html:
+          '<p>画面の入力のうち<b>履歴を持つ4つ</b>(対象フォルダ・入力欄1/2・フィルター)だけを保存します。モードの選択やチェックは保存しません。</p>' +
+          '<ul><li>起動時: <code>MainWindow</code> のコンストラクタが <code>RegisterSettingItems</code> で4つを登録し、<code>LoadProc</code> が <code>JsonFileStorage.Load&lt;GenericProfile&gt;</code> で読んで <code>WpfSaveRestore.ApplyGenericProfile</code> に渡す(ファイルが無い・壊れていれば既定値)</li>' +
+          '<li>保存: 「設定保存」/ <code>Ctrl+S</code> → <code>SaveSetting</code>。入力中の文字を履歴へ足してから <code>WpfSaveRestore.Save</code> が <code>FFEdit.json</code> へ書く(UTF-8・整形つき。途中で壊れないよう <code>AtomicFile</code> 経由)</li>' +
+          '<li>保存先: exe横の <code>DataFolder.txt</code> の1行目が指すフォルダ。無ければ <code>%LOCALAPPDATA%\\FFEdit\\</code> を使って作り直す(<code>UserDataLocation</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.SaveSetting</code> / <code>LoadProc</code>、<code>_Common\\Wpf\\WpfSaveRestore.cs</code> / <code>JsonFileStorage.cs</code> / <code>UserDataLocation.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

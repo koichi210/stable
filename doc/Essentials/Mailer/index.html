@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>Mailer ドキュメント</h1>
+  <p class="lead">宛先・件名・本文をあらかじめ決めておき、ボタン1つでブラウザ(Gmail)のメール作成画面を開くツール(C# / WPF / .NET Framework)の仕組みと使い方を、Three.jsの立体図で1歩ずつ解説します。件名に日付を入れて、日をずらした作成画面をまとめて開く機能もあります。<br>
+  図の中の画面は、図解用に作った<b>ダミー設定</b>(example.com の架空アドレス・架空の件名)で撮影したものです。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全8ステップ</div>
+      <div class="d">ブラウザパス → 宛先 → 件名の置換記号 → 本文 → ブラウザで表示 → 一括表示 → 設定の保存。実際の画面を3D空間に並べて、ステップごとにカメラが寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🔀 データの流れ</div>
+      <div class="tech">Three.js / 粒と矢印のアニメーション / 全9ステップ</div>
+      <div class="d">保存先の決定と設定の読み込み → 入力値の取得 → 件名の日付置換 → URLエスケープ → 長さチェックとブラウザ起動 → 一括表示のくり返し → 保存、を光る粒で追えます。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / レイヤの立体図 / 全7ステップ</div>
+      <div class="d">画面(MainWindow)・ロジック(Logic.cs)・共有部品(_Common)・外部の構成。MainWindow / Logic / WpfSaveRestore などの実クラス名と、依存の向きを3Dで。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/Mailer</code>(共有部品は <code>Essentials/_Common</code>)にあります。
+    3D図解の共通フレームワーク(<code>../lib/guide.js</code> / <code>../lib/guide.css</code>)は
+    Essentialsの図解ページで共有しています。
+  </p>
+</div>
+</body>
+</html>

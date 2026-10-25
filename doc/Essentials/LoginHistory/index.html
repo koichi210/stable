@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginHistory ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p><a href="../index.html" style="color:#bcd6ff">← Essentials 一覧へ</a></p>
+  <h1>LoginHistory ドキュメント</h1>
+  <p class="lead">PCが動いていた時刻を、ログファイルに1行ずつ書き残す稼働ログツール「LoginHistory」(C++ / MFC)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
+  「ロギング実行」を押すたびに<b>今の日時を1行追記</b>し、前回から設定した間隔どおりでなければ<b>行末に <code>!</code></b> を付けます。ログの出力先はこのガイド用のダミー、日時の例もダミーです。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全8ステップ</div>
+      <div class="d">出力先を決める → ロギング実行 → set.ini で間隔を変える → ログの読みかた(<code>!</code> の意味)。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / ブロックが流れるアニメ / 全8ステップ</div>
+      <div class="d">ボタン → set.ini の間隔 → 現在時刻 → ログを開く → 前回の時刻と比べる → 1行追記。間隔どおりか、ずれているかで行末の印が変わる様子が見えます。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / クラス構成の3D図 / 全8ステップ</div>
+      <div class="d">アプリ・ダイアログ・補助関数・OS/CRT の層と、<code>LoginHistoryApp</code> / <code>LoginHistoryDlg</code> / <code>ReadLastTime</code> / <code>IsOnSchedule</code> などの実際のクラス・関数の役割と依存関係。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/LoginHistory/Source</code>(実行ファイルは <code>Essentials/LoginHistory/Release</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
+  </p>
+</div>
+</body>
+</html>

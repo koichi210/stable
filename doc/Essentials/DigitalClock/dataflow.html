@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigitalClock データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 13;                                   // ステージ(場面)どうしの間隔
+  var BX = {};                                   // id -> [x, y, z](箱の中心)
+  var COL = { ui: '#4fa3ff', logic: '#ff9f43', os: '#8f89b3', file: '#c77dff', data: '#5ee6a8' };
+
+  // ステージ k のローカル座標(lx, lz) に箱を置く
+  function node(g, id, k, lx, lz, w, label, color) {
+    var p = [SX * k + lx, 0.7, lz];
+    BX[id] = p;
+    g.box({ id: id, size: [w, 1.0, 2.0], pos: p, radius: 0.14, color: color, label: label, labelSize: 0.3, labelOffset: [0, 1.15, 0] });
+  }
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b];
+    var dz = B[2] - A[2], dx = B[0] - A[0];
+    var from, to;
+    // 箱の縁から縁へ(横なら左右の面、縦なら奥行きの面)
+    if (Math.abs(dx) >= Math.abs(dz)) {
+      var s = dx > 0 ? 1 : -1;
+      from = [A[0] + s * 1.4, 0.75, A[2]]; to = [B[0] - s * 1.4, 0.75, B[2]];
+    } else {
+      var q = dz > 0 ? 1 : -1;
+      from = [A[0], 0.75, A[2] + q * 1.1]; to = [B[0], 0.75, B[2] - q * 1.1];
+    }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.5 : lift, label: Math.abs(dx) >= Math.abs(dz) ? '' : label, labelSize: 0.26, head: 0.3 });
+    return [from, to];
+  }
+  function look(k) { return { pos: [SX * k, 12, 15], target: [SX * k, 0.4, 0.2] }; }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function nowText() { var d = new Date(); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
+
+  var clockSprite = null, clockShown = '';
+  var titles = ['⓪ 起動: 位置の復元', '① 起動: 半透明にする', '② 0.5秒ごとのTick', '③ 時刻を文字にする', '④ ドラッグで移動', '⑤ 終了: 位置の保存'];
+
+  GameGuide.start({
+    title: 'DigitalClock データの流れ',
+    subtitle: '起動時の復元・半透明化 → 0.5秒ごとの表示更新 → 移動 → 終了時の保存',
+    camera: { pos: [32.5, 36, 82], target: [32.5, 0, 0] },
+    floor: false,
+
+    build: function (g) {
+      for (var k = 0; k < 6; k++) {
+        g.plate({ id: 'st' + k, size: [11.5, 12], pos: [SX * k, 0.03, 0], color: '#211e33', label: titles[k], labelSize: 0.5, labelOffset: [0, 3.0, -6.4], labelColor: '#ffffff' });
+        if (k < 5) {
+          g.arrow([SX * k + 6.2, 0.4, 0], [SX * (k + 1) - 6.2, 0.4, 0], { id: 'ar' + k, color: C.gold, lift: 0.3, head: 0.35 });
+        }
+      }
+
+      // ---- ⓪ 位置の復元 ----
+      node(g, 'json0', 0, -4, -3, 3.4, 'DigitalClock.json\n(LocalAppData)', COL.file);
+      node(g, 'load0', 0, 0, -3, 3.4, 'JsonFileStorage\n.Load<WindowPlacement>', COL.os);
+      node(g, 'chk0', 0, 4, -3, 3.4, 'Logic\n.IsOnScreen', COL.logic);
+      node(g, 'ok0', 0, 4, 3, 3.4, 'Left / Top に\n保存位置を入れる', COL.data);
+      node(g, 'ng0', 0, -1, 3, 3.6, 'XAMLの初期位置\n(100, 100) のまま', '#5d5a78');
+      arr(g, 'a-j-l', 'json0', 'load0', 'ファイルを読む', C.gold);
+      arr(g, 'a-l-c', 'load0', 'chk0', 'WindowPlacement', C.gold);
+      arr(g, 'a-c-ok', 'chk0', 'ok0', '画面内', C.good);
+      var ng = arr(g, 'a-c-ng', 'chk0', 'ng0', 'null / 画面外 / NaN', C.enemy, 0.8);
+      g.sphere({ id: 'tok0', radius: 0.2, pos: [0, 0.8, 0], color: C.gold, emissive: C.gold, emissiveIntensity: 0.6 });
+
+      // ---- ① 半透明にする ----
+      node(g, 'si1', 1, -4, -3, 3.4, 'Window_\nSourceInitialized', COL.ui);
+      node(g, 'wp1', 1, 0, -3, 3.4, 'KeepLayered\nWndProc', COL.logic);
+      node(g, 'la1', 1, 4, -3, 3.4, 'SetLayered\nWindowAttributes\nalpha=128', COL.os);
+      node(g, 'ow1', 1, -4, 3, 3.4, 'WPF本来の\nWndProc', COL.os);
+      node(g, 'st1', 1, 0, 3, 3.6, 'WM_STYLECHANGING\n(LAYEREDを剥がす)', '#ff5f6d');
+      arr(g, 'a-si-wp', 'si1', 'wp1', 'SetWindowLongPtr', C.gold);
+      arr(g, 'a-wp-la', 'wp1', 'la1', '', C.gold);
+      arr(g, 'a-wp-ow', 'wp1', 'ow1', 'CallWindowProc', C.gold, 0.9);
+      arr(g, 'a-st-wp', 'st1', 'wp1', '付け直す(OR)', C.good, 0.9);
+      g.box({ id: 'win1', size: [2.6, 0.12, 1.8], pos: [SX + 4, 0.18, 3], color: C.me, emissive: C.me, emissiveIntensity: 0.4, opacity: 1, edges: true });
+      g.label('ウィンドウ\n透明度 128/255', [SX + 4, 1.5, 3], { id: 'win1-l', size: 0.3, color: '#fff' });
+      g.flow([SX + 4, 0.7, -2], [SX + 4, 0.5, 2.6], { id: 'fl1', color: C.me, lift: 0.5, count: 4, size: 0.11 });
+
+      // ---- ② 0.5秒ごとのTick ----
+      node(g, 'tm2', 2, -3.5, 0, 3.6, 'DispatcherTimer\n(500ms)', COL.ui);
+      node(g, 'ut2', 2, 3.5, 0, 3.2, 'UpdateTime()', COL.logic);
+      arr(g, 'a-tm-ut', 'tm2', 'ut2', 'Tick', C.gold, 0.8);
+      g.sphere({ id: 'pulse2', radius: 0.22, pos: [SX * 2, 0.8, 0], color: C.gold, emissive: C.gold, emissiveIntensity: 0.7 });
+      g.label('0.5秒に1回 発火', [SX * 2, 0.6, 2.2], { id: 't2a', size: 0.34, color: C.gold });
+      // 秒の目盛り(時間の流れ): 秒ちょうどと、Tickの位置
+      g.box({ id: 'tl2', size: [9, 0.05, 0.1], pos: [SX * 2, 0.1, 4], color: '#6b6788', edges: false });
+      for (var i = 0; i <= 8; i++) {
+        var tick = i % 2 === 0;
+        g.box({ id: 'tk2-' + i, size: [0.06, tick ? 0.9 : 0.5, 0.1], pos: [SX * 2 - 4.5 + i * 1.125, tick ? 0.55 : 0.35, 4], color: tick ? C.good : C.gold, edges: false });
+      }
+      g.label('緑 = 秒が変わる瞬間 / 黄 = Tick', [SX * 2, 1.9, 4.6], { id: 't2b', size: 0.3, color: '#fff' });
+      g.sphere({ id: 'cur2', radius: 0.14, pos: [SX * 2 - 4.5, 1.2, 4], color: C.enemy, emissive: C.enemy, emissiveIntensity: 0.6 });
+
+      // ---- ③ 時刻を文字にする ----
+      node(g, 'dt3', 3, -4.2, -3, 3.2, 'DateTime.Now', COL.os);
+      node(g, 'ft3', 3, 0, -3, 3.6, 'Logic\n.FormatTime', COL.logic);
+      node(g, 'lb3', 3, 4.2, -3, 3.2, 'label_time\n(TextBlock).Text', COL.ui);
+      arr(g, 'a-dt-ft', 'dt3', 'ft3', 'DateTime', C.gold);
+      arr(g, 'a-ft-lb', 'ft3', 'lb3', '"HH:mm:ss"', C.good);
+      g.label('{0:00}:{1:00}:{2:00}\n時・分・秒を2桁ゼロ埋め', [SX * 3, 0.8, 0.8], { id: 't3a', size: 0.3, color: C.gold });
+      clockSprite = g.label('00:00:00', [SX * 3 + 4.2, 1.8, 3.2], { id: 'clk3', size: 0.8, color: C.good, bg: '#14122a', border: '#5ee6a8' });
+      g.flow([SX * 3 - 4.2, 0.7, -1.9], [SX * 3 + 4.2, 1.6, 0.9], { id: 'fl3', color: C.data, lift: 1.0, count: 5, size: 0.12 });
+
+      // ---- ④ ドラッグで移動 ----
+      g.plate({ id: 'desk4', size: [10, 4.8], pos: [SX * 4, 0.08, 3.1], color: '#2d3a5a', opacity: 0.8, label: 'デスクトップ', labelSize: 0.28, labelOffset: [-3.2, 0.2, 2.1], labelColor: '#bcd6ff' });
+      g.box({ id: 'win4', size: [1.8, 0.3, 1.2], pos: [SX * 4, 0.3, 3.1], color: '#4fa3ff', emissive: '#4fa3ff', emissiveIntensity: 0.3, opacity: 0.55, edges: true });
+      g.sphere({ id: 'hand4', radius: 0.18, pos: [SX * 4, 0.7, 3.1], color: C.enemy, emissive: C.enemy, emissiveIntensity: 0.6 });
+      node(g, 'md4', 4, -3.5, -3, 3.8, 'MouseLeftButtonDown\n(label_time)', COL.ui);
+      node(g, 'dm4', 4, 3.5, -3, 3.2, 'DragMove()', COL.os);
+      arr(g, 'a-md-dm', 'md4', 'dm4', '', C.gold);
+      g.label('押している間、OSがウィンドウを動かす', [SX * 4, 0.6, -0.3], { id: 't4a', size: 0.3, color: C.gold });
+
+      // ---- ⑤ 位置の保存 ----
+      node(g, 'cl5', 5, -4.4, -3, 3.4, 'Window_Closing', COL.ui);
+      node(g, 'sv5', 5, 0, -3, 3.4, 'JsonFileStorage\n.Save', COL.os);
+      node(g, 'af5', 5, 4.4, -3, 3.4, 'AtomicFile\n.WriteAllText', COL.os);
+      node(g, 'js5', 5, 4.4, 3, 3.4, 'DigitalClock.json', COL.file);
+      arr(g, 'a-cl-sv', 'cl5', 'sv5', 'new WindowPlacement\n{ Left, Top }', C.gold);
+      arr(g, 'a-sv-af', 'sv5', 'af5', 'JSON文字列', C.gold);
+      arr(g, 'a-af-js', 'af5', 'js5', '.tmp → File.Replace', C.good);
+      g.label('① _clockTimer.Stop()\n② Directory.CreateDirectory\n失敗(IOException等)は握りつぶして終了を妨げない', [SX * 5 - 2.2, 1.0, 3], { id: 't5a', size: 0.28, color: C.gold });
+      g.sphere({ id: 'tok5', radius: 0.2, pos: [SX * 5, 0.8, 0], color: C.gold, emissive: C.gold, emissiveIntensity: 0.6 });
+
+      // ---- 常時動くアニメ ----
+      g.onFrame(function (t) {
+        // 時計の文字(実際の現在時刻)
+        var s = nowText();
+        if (s !== clockShown && clockSprite) { clockShown = s; g.setLabel(clockSprite, s, { size: 0.8, color: C.good, bg: '#14122a', border: '#5ee6a8' }); }
+
+        // ⓪ 設定の読み込み: 8秒周期で「画面内」→「画面外」を交互に
+        var cyc = (t % 10) / 5, ng = cyc >= 1, u = cyc % 1;
+        var tok = g.get('tok0'), sx = SX * 0;
+        var P = [[-4, -3], [0, -3], [4, -3], ng ? [-1, 3] : [4, 3]];
+        var seg = Math.min(2, Math.floor(u * 3.2)), f = Math.min(1, u * 3.2 - seg);
+        if (u * 3.2 > 3) { f = 1; }
+        var a = P[seg], b = P[seg + 1];
+        tok.position.set(sx + a[0] + (b[0] - a[0]) * f, 0.9, a[1] + (b[1] - a[1]) * f);
+        tok.material.color.set(ng ? C.enemy : C.good); tok.material.emissive.set(ng ? C.enemy : C.good);
+
+        // ① 半透明: 透明度が 1 → 0.5 に下がる様子
+        var w1 = g.get('win1'), op = 0.5 + 0.5 * Math.abs(Math.cos(t * 0.8));
+        w1.material.transparent = true; w1.material.opacity = op;
+
+        // ② Tick: 0.5秒ごとの光る玉と、時間カーソル
+        var ph = (t % 0.5) / 0.5;
+        g.get('pulse2').position.set(SX * 2 - 3.5 + 7 * ph, 0.8 + Math.sin(ph * Math.PI) * 0.8, 0);
+        g.get('pulse2').scale.setScalar(ph < 0.15 ? 1.6 : 1);
+        g.get('cur2').position.x = SX * 2 - 4.5 + ((t % 4) / 4) * 9;
+
+        // ④ ドラッグ: ウィンドウが円を描いて動く
+        var ang = t * 0.9, wx = SX * 4 + Math.cos(ang) * 3.4, wz = 3.1 + Math.sin(ang) * 1.5;
+        g.get('win4').position.set(wx, 0.3, wz);
+        g.get('hand4').position.set(wx, 0.75, wz);
+
+        // ⑤ 保存: 文字列がファイルへ向かう
+        var p5 = (t % 3) / 3, k5 = Math.min(1, p5 * 1.4);
+        var q = [[-4.4, -3], [0, -3], [4.4, -3], [4.4, 3]], s5 = Math.min(2, Math.floor(k5 * 3)), f5 = k5 * 3 - s5;
+        g.get('tok5').position.set(SX * 5 + q[s5][0] + (q[s5 + 1][0] - q[s5][0]) * f5, 0.9, q[s5][1] + (q[s5 + 1][1] - q[s5][1]) * f5);
+      });
+    },
+
+    steps: [
+      {
+        title: '全体: 6つの場面',
+        camera: { pos: [32.5, 36, 82], target: [32.5, 0, 0] },
+        show: ['ar0', 'ar1', 'ar2', 'ar3', 'ar4'],
+        html:
+          '<p>DigitalClock のデータの流れは、<b>起動時</b>・<b>動いている間</b>・<b>終了時</b>の3つに分けられます。</p>' +
+          '<table><tr><th>タイミング</th><th>流れ</th></tr>' +
+          '<tr><td>起動時</td><td>⓪ 保存位置を読んで画面内なら反映 / ① ウィンドウを半透明にする</td></tr>' +
+          '<tr><td>動作中</td><td>② 0.5秒ごとにTick → ③ 時刻を <code>HH:mm:ss</code> にして表示 / ④ ドラッグで移動</td></tr>' +
+          '<tr><td>終了時</td><td>⑤ 位置を <code>JSON</code> に保存</td></tr></table>' +
+          '<p>外部との入出力は、<b>設定ファイル1個</b>と<b>システム時計</b>だけ。通信もデータベースもありません。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップ送りで各場面にカメラが寄ります。</p>',
+      },
+      {
+        title: '⓪ 起動: 保存位置を読んで、画面内なら使う',
+        camera: look(0),
+        show: [],
+        html:
+          '<p>コンストラクタの <code>RestorePlacement()</code> が、前回終了時の位置を読み戻します。</p>' +
+          '<ol><li><code>JsonFileStorage.Load&lt;WindowPlacement&gt;</code> で <code>%LOCALAPPDATA%\\DigitalClock\\DigitalClock.json</code> を読む(無い・読めない・壊れているなら <code>null</code>)</li>' +
+          '<li><code>Logic.IsOnScreen</code> で、<b>左上の点が全モニタを合わせた仮想スクリーンの内側か</b>を判定</li>' +
+          '<li>画面内なら <code>Left</code> / <code>Top</code> に代入。そうでなければ何もせず、XAMLの <code>Left="100" Top="100"</code> のまま</li></ol>' +
+          '<p>玉が緑 = 画面内で反映、赤 = 捨てて初期位置、を5秒ごとに繰り返しています。モニタを外した後でも、見えない場所へ時計が行ってしまうことがありません。左サブモニタの負の座標も、仮想スクリーンの範囲で正しく扱えます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RestorePlacement</code>、<code>Logic.cs</code> の <code>IsOnScreen</code>、<code>_Common/JsonFileStorage.cs</code></p>',
+      },
+      {
+        title: '① 起動: 半透明にする(Win32)',
+        camera: look(1),
+        show: ['fl1', 'win1-l'],
+        html:
+          '<p>タイトルバー付きのまま半透明にするため、<code>Window_SourceInitialized</code>(ウィンドウのハンドルができた直後)で次を行います。</p>' +
+          '<ol><li><code>SetWindowLongPtr(GWLP_WNDPROC)</code> で、ウィンドウプロシージャを自前の <code>KeepLayeredWndProc</code> に差し替える</li>' +
+          '<li><code>WS_EX_LAYERED</code>(レイヤードウィンドウ)を付け、<code>SetLayeredWindowAttributes</code> で <code>alpha=128</code> を指定 → 半透明</li></ol>' +
+          '<p>差し替えが必要な理由: WPFは、自前の透過を使わないウィンドウから <code>WS_EX_LAYERED</code> を<b>剥がそうとします</b>(<code>WM_STYLECHANGING</code>)。そこで <code>KeepLayeredWndProc</code> は、本来のWndProc(<code>_originalWndProc</code>)を <code>CallWindowProc</code> で呼んだあと、<code>WM_STYLECHANGING</code> かつ拡張スタイルの変更なら、変更後のスタイルに <code>WS_EX_LAYERED</code> を<b>OR で付け直し</b>ます。</p>' +
+          '<div class="gg-note">デリゲート <code>_wndProcDelegate</code> をフィールドで持つのは、GCに回収されるとウィンドウプロシージャが消えて落ちるためです。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>Window_SourceInitialized</code> / <code>KeepLayeredWndProc</code></p>',
+      },
+      {
+        title: '② 動作中: 0.5秒ごとのTick',
+        camera: look(2),
+        show: ['t2a', 't2b'],
+        html:
+          '<p><code>DispatcherTimer</code>(<code>Interval = 500ms</code>)の <code>Tick</code> ごとに <code>UpdateTime()</code> が呼ばれます。起動時にも1回直接呼んで、最初の画面が <code>00:00:00</code> にならないようにしています。</p>' +
+          '<p>手前の目盛りは時間の流れです。<span style="color:#2a9d6b">緑</span>は「秒が変わる瞬間」、<span style="color:#b8860b">黄</span>は「Tickの瞬間」。Tickは秒の変化より細かい間隔で来るので、表示の遅れは最大でも0.5秒。赤い玉が時間を進めています。</p>' +
+          '<p><code>DispatcherTimer</code> はUIスレッドで動くため、<code>label_time.Text</code> を直接書き換えても安全です。ウィンドウが閉じるときに <code>_clockTimer.Stop()</code> で止めます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>_clockTimer</code> / コンストラクタ / <code>Window_Closing</code></p>',
+      },
+      {
+        title: '③ 動作中: 時刻を文字にして表示',
+        camera: look(3),
+        show: ['t3a', 'fl3'],
+        html:
+          '<p><code>UpdateTime()</code> は <code>DateTime.Now</code> を <code>Logic.FormatTime</code> に渡し、返った文字列を <code>label_time.Text</code> に入れるだけです。</p>' +
+          '<ul><li><code>FormatTime</code> は <code>String.Format("{0:00}:{1:00}:{2:00}", Hour, Minute, Second)</code>。<b>24時間表記</b>で、1桁は <code>09:05:03</code> のようにゼロ埋め</li>' +
+          '<li>画面に触らない純粋な関数なので、<code>LogicTests</code> で単体テストされています(0時 <code>00:00:00</code>・<code>23:59:59</code> など)</li></ul>' +
+          '<p>右の緑の枠は、このページを開いているパソコンの<b>現在時刻</b>で、同じ <code>HH:mm:ss</code> 形式で動いています。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>UpdateTime</code>、<code>Logic.cs</code> の <code>FormatTime</code></p>',
+      },
+      {
+        title: '④ 動作中: ドラッグで移動',
+        camera: { pos: [SX * 4, 11, 12], target: [SX * 4, 0.4, 1.2] },
+        show: ['t4a'],
+        html:
+          '<p>時刻の文字を押すと <code>MouseLeftButtonDown</code> が発火し、<code>DragMove()</code> を呼びます。WPFが「押している間、マウスに合わせてウィンドウを動かす」処理を引き受けるので、座標計算のコードは要りません。</p>' +
+          '<p>動かした結果の位置は、<b>その場では保存しません</b>。保存するのは閉じるときだけ(次の場面)。青い板が動き回っているのが、ドラッグ中のウィンドウのイメージです。</p>' +
+          '<p>位置が変わっても、タイマーと表示更新には影響しません(UIスレッドが別の仕事をするだけ)。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>label_time_MouseLeftButtonDown</code>、<code>MainWindow.xaml</code> の <code>ToolTip</code></p>',
+      },
+      {
+        title: '⑤ 終了: 位置を保存',
+        camera: look(5),
+        show: ['t5a'],
+        html:
+          '<p><code>Window_Closing</code> で次の順に処理します。</p>' +
+          '<ol><li><code>_clockTimer.Stop()</code></li><li><code>Directory.CreateDirectory</code> で保存先フォルダを用意</li>' +
+          '<li><code>JsonFileStorage.Save</code> に <code>new WindowPlacement { Left = Left, Top = Top }</code> を渡す</li></ol>' +
+          '<p><code>Save</code> は JSON(整形済み・BOMなしUTF-8)にして <code>AtomicFile.WriteAllText</code> に渡し、<b>いったん <code>.tmp</code> に書き切ってから <code>File.Replace</code> で置き換え</b>ます。書き込み途中で落ちても元のファイルが壊れません。</p>' +
+          '<p>保存に失敗しても終了は妨げません。<code>IOException</code> と <code>UnauthorizedAccessException</code> だけを握りつぶすので、それ以外の想定外の例外は <code>StcWpfExceptionGuard</code> が知らせます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>Window_Closing</code>、<code>WindowPlacement.cs</code>、<code>_Common/AtomicFile.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

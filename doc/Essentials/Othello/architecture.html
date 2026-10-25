@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Othello 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:    { y: 12, color: C.third,  name: 'UI層\n(Othello/ 画面・イベント)' },
+    view:  { y: 8,  color: C.data,   name: '描画層\n(盤面を絵にする)' },
+    logic: { y: 4,  color: C.good,   name: 'ルール・思考・棋譜層\n(画面に依存しない)' },
+    com:   { y: 0,  color: C.server, name: '共通部品 _Common\n(ソースを取り込んで共有)' },
+    os:    { y: -4, color: C.neutral, name: 'OS・ライブラリ' }
+  };
+  // クラスの配置 [id, 表示名, 層, x, z]
+  var CLS = [
+    ['App', 'App\n(App.xaml.cs)', 'ui', -6, 0],
+    ['MainWindow', 'MainWindow\n(MainWindow.xaml / .xaml.cs)', 'ui', 1, 0],
+    ['BoardRenderer', 'BoardRenderer\n(BoardRenderer.cs)', 'view', -6, 0],
+    ['BoardImage', 'BoardImage\n(BoardImage.cs)', 'view', 1, 0],
+    ['GameMaster', 'GameMaster\n+ StoneColor / KifuMove', 'logic', -8, 0],
+    ['Kifu', 'Kifu\n(Kifu.cs)', 'logic', -1.5, 0],
+    ['ComPlayer', 'ComPlayer\n(ComPlayer.cs)', 'logic', 5, 0],
+    ['Guard', 'StcWpfExceptionGuard\n(_Common)', 'com', -6, 0],
+    ['GDI', 'System.Drawing\nBitmap / Graphics', 'os', -9, 0],
+    ['WPF', 'WPF\nPresentationFramework / Core', 'os', -2.5, 0],
+    ['User32', 'user32\nGetWindowRect / WM_SIZING', 'os', 4, 0],
+    ['Dialogs', 'Microsoft.Win32\nOpen/SaveFileDialog', 'os', 10.5, 0]
+  ];
+  var OVER = { pos: [1.5, 20, 46], target: [1.5, 4.5, 0] };
+  function DC(cx, y) { return { pos: [cx, y + 17, 25], target: [cx, y - 0.5, 6] }; }
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色, ラベル](矢印は上の層から下の層へだけ)
+  var DEPS = [
+    ['MainWindow', 'GameMaster', '#ffd166', '盤・手番・履歴'],
+    ['MainWindow', 'ComPlayer', '#ffd166', 'TryGetMove'],
+    ['MainWindow', 'Kifu', '#ffd166', ''],
+    ['MainWindow', 'BoardRenderer', '#7ef0ff', 'DrawField'],
+    ['MainWindow', 'BoardImage', '#7ef0ff', ''],
+    ['ComPlayer', 'GameMaster', '#5ee6a8', 'Clone / GetValidMoves'],
+    ['Kifu', 'GameMaster', '#5ee6a8', 'TryPut'],
+    ['BoardRenderer', 'GameMaster', '#5ee6a8', 'BoardSize / StoneColor'],
+    ['App', 'Guard', '#ffd166', 'Install'],
+    ['BoardRenderer', 'GDI', '#b8b2d6', ''],
+    ['BoardImage', 'GDI', '#b8b2d6', ''],
+    ['BoardImage', 'WPF', '#b8b2d6', ''],
+    ['MainWindow', 'WPF', '#b8b2d6', ''],
+    ['MainWindow', 'User32', '#b8b2d6', ''],
+    ['MainWindow', 'Dialogs', '#b8b2d6', '']
+  ];
+
+  // 詳細ボックス(その手順でだけ見せる)。rows=[[文字,...],...] を、層の手前(z>0)に並べる
+  var D = {};
+  D.mw = { layer: 'ui', cx: 1, rows: [
+    ['状態: _playMode / _comLevel\n_timeLimitSeconds\n_blackTimeMs / _whiteTimeMs', '状態: _isTimedOut\n_isWaitingForStart\n_pressedButton', 'タイマー: _comMoveTimer(150ms)\n_countdownTimer(100ms)', 'ウィンドウ: WndProc(WM_SIZING)\n盤を正方形に保つ'],
+    ['入力: boardHost_MouseDown/Up\nHandleBoardClick', 'COM: IsComTurn\nMaybeTriggerComMove / DoComMove', '更新: RedrawBoard\nUpdateStatusLabel / UpdateTimeLabel', '対局: ResetGame\nResetTimeLimit / CountDown'],
+    ['メニュー: menuItem_Start / Undo / Redo / PlayMode / ComLevel / TimeLimit / KifuShow / KifuSave / KifuLoad _Click']
+  ], color: C.third };
+  D.view = { layer: 'view', cx: -2, rows: [
+    ['BoardRenderer.Canvas\n(System.Drawing.Bitmap)', 'SetDrawArea / CreateCanvas\nDeleteCanvas', 'DrawField → InitField\nDrawStone / DrawNotice', 'TryGetCell(static)\nGetCellRangeX / Y'],
+    ['BoardImage.ToBitmapSource\nLockBits で直接コピー + Freeze', 'MainWindow が Canvas を\nImage.Source に代入', 'マス目の計算式は\n罫線・石・クリックで共通']
+  ], color: C.data };
+  D.gm = { layer: 'logic', cx: 1, rows: [
+    ['状態: Table[y, x]\nStoneColor 8x8', '状態: CurrentTurn\nIsGameEnd', '状態: TurnCount\n(盤に反映した手数)', '状態: History\nList<KifuMove>'],
+    ['判定: CanPut / CanPutAny\n(private・8方向)', '着手: TryPut → ApplyMove\n→ AdvanceTurn', '戻す/進める: Undo / Redo\n→ ReplayHistory', '問合せ: GetValidMoves\nGetFlippedPositions / CountFlips'],
+    ['他: Initialize / ResetBoardOnly', '他: Clone(仮置き用)', '他: CountStones / GetEnemyColor']
+  ], color: C.good };
+  D.com = { layer: 'logic', cx: 1, rows: [
+    ['入口: TryGetMove\n(gm, color, level)', 'GetCandidates\n(GetValidMoves から)', 'レベル1: SortByCenter\nレベル2: SortByPhase', 'レベル3: SortByOpenness\n(CalcOpenness)'],
+    ['DetermineLocation\n角 > 無難 > 星 > 次星', 'IsCorner / IsStar / IsNextStar\nWouldLetEnemyTakeCorner', 'CountEmptyNeighbors\nSortByKey(キーを先に計算)', 'static Random\n(序盤3手はランダム)']
+  ], color: C.third };
+  D.kifu = { layer: 'logic', cx: 1, rows: [
+    ['Kifu.ToText\n(IList<KifuMove>)', 'Kifu.TryReplay\n(text, gm, out errorMessage)', '書式: 「手数 : 列.行 色」\n例 「 7 : F.3 黒」', '見出し: ***** 棋譜 *****\n(読込時は * 始まりを飛ばす)']
+  ], color: C.hist };
+
+  function detailIds(key) {
+    var r = [];
+    D[key].rows.forEach(function (row, ri) { row.forEach(function (t, i) { r.push('dt-' + key + '-' + ri + '-' + i); }); });
+    return r;
+  }
+  var DETAIL = {};
+  Object.keys(D).forEach(function (k) { DETAIL[k] = detailIds(k); });
+  function detail(g, key) {
+    var d = D[key];
+    d.rows.forEach(function (row, r) {
+      var n = row.length, w = 4.4, sp = 5.0;
+      row.forEach(function (txt, i) {
+        var id = 'dt-' + key + '-' + r + '-' + i;
+        var x = d.cx + (i - (n - 1) / 2) * sp, z = 5.2 + r * 3.6;
+        g.box({ id: id, size: [w, 0.8, 1.7], pos: [x, LAYER[d.layer].y + 0.4, z], color: '#2d2944', emissive: d.color, emissiveIntensity: 0.38, radius: 0.1, edgeColor: d.color,
+          label: txt, labelSize: 0.28, labelOffset: [0, 1.1, 0], labelBg: '#000000cc' });
+      });
+    });
+  }
+
+  GameGuide.start({
+    title: 'Othello 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・主要クラスの責務・依存の向き(実際のクラス名・ファイル名)',
+    camera: OVER,
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [36, 7.4], pos: [0, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-17, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.32, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- クラスの箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.6, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.42, labelOffset: [0, 1.15, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- テスト(右端) ----
+      g.box({ id: 'tests', size: [4.8, 1.2, 2.6], pos: [21.5, 6.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'Othello.Tests (MSTest)\nGameMasterTests / ComPlayerTests\nKifuTests / BoardRendererTests\nMainWindowTests  計43件', labelSize: 0.26, labelOffset: [0, 1.9, 0], labelBg: '#000000cc' });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03, label: d[3] || undefined, labelSize: 0.22 });
+      });
+      g.arrow([19.1, 6.8, 0], [4.2, 4.9, 0], { id: 'dep-tests', color: C.gold, lift: 2.4, head: 0.25, label: '実クラスを直接テスト\n(InternalsVisibleTo)', labelSize: 0.26 });
+
+      // ---- 詳細 ----
+      Object.keys(D).forEach(function (k) { detail(g, k); });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: OVER,
+        update: function (g, t) { g.pulse('GameMaster', t, 0.05); },
+        html:
+          '<p>Othello は <b>WPF(.NET Framework)</b> のデスクトップアプリで、<b>ルールの核 <code>GameMaster</code> は画面を一切知らない</b>、という一方向の層構造です。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>UI層</td><td><code>App</code> と <code>MainWindow</code>(クリック・メニュー・タイマー・持ち時間)</td></tr>' +
+          '<tr><td>描画層</td><td><code>BoardRenderer</code>(盤を Bitmap に描く)と <code>BoardImage</code>(WPF用に変換)</td></tr>' +
+          '<tr><td>ルール・思考・棋譜層</td><td><code>GameMaster</code>(盤・ルール・履歴)、<code>ComPlayer</code>(COM)、<code>Kifu</code>(棋譜)</td></tr>' +
+          '<tr><td>共通部品</td><td><code>Essentials/_Common</code> の <code>StcWpfExceptionGuard</code> だけ</td></tr>' +
+          '<tr><td>OS・ライブラリ</td><td>GDI+(<code>System.Drawing</code>)、WPF、user32、標準ダイアログ</td></tr></table>' +
+          '<p>右端の黄色い箱は単体テスト(<code>Tests/Othello.Tests</code>)。全部で <b>7ファイル</b>の小さなアプリです。</p>' +
+          '<div class="gg-note">元は C++(MFC)版の移植で、ソース中のコメントに対応するC++側の名前(<code>COthelloBase</code>、<code>CComProc</code> など)が残っています。</div>'
+      },
+      {
+        title: '1. UI層(App と MainWindow)',
+        camera: DC(1, 12),
+        focus: ['L-ui', 'Ln-ui'].concat(ids('ui')).concat(DETAIL.mw),
+        show: DETAIL.mw,
+        update: function (g, t) { g.pulse('MainWindow', t, 0.04); },
+        html:
+          '<table><tr><th>クラス / ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>App</code> (App.xaml.cs)</td><td>起動時に <code>StcWpfExceptionGuard.Install</code> で、画面スレッドの未処理例外を共通のエラー通知へ</td></tr>' +
+          '<tr><td><code>MainWindow</code> (MainWindow.xaml / .xaml.cs 約800行)</td><td>メニュー・盤の枠・状態表示・ReStart。<b>状態を持つのは GameMaster だけ</b>で、ここは「いつ何を呼ぶか」を決める</td></tr></table>' +
+          '<ul><li><b>対局の外側の状態</b>: 対戦モード(<code>PlayMode</code> 列挙)、COMレベル、持ち時間と黒白の残り(ms)、時間切れ、棋譜読込後の「開始待ち」</li>' +
+          '<li><b>2つの <code>DispatcherTimer</code></b>: COMの手を150ms遅らせる用と、持ち時間を100msずつ減らす用</li>' +
+          '<li><b>盤を正方形に保つ</b>: <code>WndProc</code> で <code>WM_SIZING</code> を横取りし、幅から高さを逆算(<code>AdjustResizingRectForSquareBoard</code>)</li>' +
+          '<li>画面(xaml)は <code>MainWindow.xaml</code> 1つ。ダイアログは標準の <code>MessageBox</code> / <code>OpenFileDialog</code> / <code>SaveFileDialog</code> だけ</li></ul>'
+      },
+      {
+        title: '2. 描画層(BoardRenderer / BoardImage)',
+        camera: DC(-2, 8),
+        focus: ['L-view', 'Ln-view'].concat(ids('view')).concat(DETAIL.view),
+        show: DETAIL.view,
+        html:
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>BoardRenderer</code></td><td>盤を <code>System.Drawing.Bitmap</code>(<code>Canvas</code>)に描く。緑の下地・罫線(<code>InitField</code>)、石(<code>DrawStone</code>)、置ける場所の灰色の小円(<code>DrawNotice</code>)。<b>描画先のサイズ(px)だけ</b>を受け取る</td></tr>' +
+          '<tr><td><code>BoardImage</code></td><td><code>Bitmap</code> → WPF の <code>BitmapSource</code> へ変換(<code>LockBits</code> で直接コピーして <code>Freeze</code>)</td></tr></table>' +
+          '<ul><li>元の WinForms 版は <code>PictureBox</code> に直接描いていた。WPF には無いので、<b>自前の Bitmap に描いて Image に載せる</b>形にした</li>' +
+          '<li>マス目の位置は「全体 × i / 8」(掛け算が先)。<code>InitField</code>・<code>GetCellRangeX/Y</code>・<code>TryGetCell</code>(クリック判定)が同じ式なので、どの大きさでも罫線・石・クリックがずれない</li>' +
+          '<li><code>GameMaster</code> には依存するが(<code>BoardSize</code>、<code>StoneColor</code>)、ルールは持たない。ここは「絵にするだけ」</li></ul>'
+      },
+      {
+        title: '3. ルール層 GameMaster',
+        camera: DC(1, 4),
+        focus: ['L-logic', 'Ln-logic', 'GameMaster'].concat(DETAIL.gm),
+        show: DETAIL.gm,
+        update: function (g, t) { g.pulse('GameMaster', t, 0.05); },
+        html:
+          '<p><code>GameMaster</code>(GameMaster.cs)は盤の状態とルールのすべてを持ちます。<code>StoneColor</code>(Unknown / Black / White)と <code>KifuMove</code>(X, Y, Color)もこのファイルに同居。</p>' +
+          '<table><tr><th>メンバ</th><th>役割</th></tr>' +
+          '<tr><td><code>Table[y, x]</code> / <code>CurrentTurn</code> / <code>IsGameEnd</code></td><td>盤・手番・終局</td></tr>' +
+          '<tr><td><code>TurnCount</code> / <code>History</code></td><td>反映済みの手数 / 全手の履歴(戻す・進める・棋譜の元)</td></tr>' +
+          '<tr><td><code>CanPut</code> / <code>CanPutAny</code></td><td>8方向の挟み判定(<code>private</code>)。全部の判定の土台</td></tr>' +
+          '<tr><td><code>TryPut</code> → <code>ApplyMove</code> → <code>AdvanceTurn</code></td><td>履歴に残る着手 → 盤の書き換え → 手番交代/パス/終局</td></tr>' +
+          '<tr><td><code>Undo</code> / <code>Redo</code> → <code>ReplayHistory</code></td><td>履歴を頭から再生し直す</td></tr>' +
+          '<tr><td><code>GetValidMoves</code> / <code>GetFlippedPositions</code> / <code>CountFlips</code> / <code>Clone</code></td><td>置ける場所・返る石・返る数・盤のコピー(COMが「もし置いたら」を試すため)</td></tr></table>' +
+          '<div class="gg-note"><code>ApplyMove</code>(履歴に残さない)と <code>TryPut</code>(残す)を分けたのが要。同じ <code>ApplyMove</code> を、棋譜の再生・一手戻す・COMの先読みが共用できます。</div>'
+      },
+      {
+        title: '4. COM(ComPlayer)',
+        camera: DC(1, 4),
+        focus: ['L-logic', 'Ln-logic', 'ComPlayer', 'GameMaster'].concat(DETAIL.com),
+        show: DETAIL.com,
+        update: function (g, t) { g.pulse('ComPlayer', t, 0.05); },
+        html:
+          '<p><code>ComPlayer</code>(ComPlayer.cs)は <b>状態を持たない static クラス</b>。盤(<code>GameMaster</code>)を受け取って1手を返すだけです。</p>' +
+          '<ul><li><code>TryGetMove(gm, color, level, out x, out y)</code>: 候補が無ければ <code>false</code>。<code>TurnCount ≤ 2</code> の間は候補からランダム</li>' +
+          '<li><b>レベル別の並べ替え</b>: L1 <code>SortByCenter</code> / L2 <code>SortByPhase</code>(序盤・中盤・終盤で基準が変わる)/ L3 <code>SortByOpenness</code></li>' +
+          '<li><code>SortByKey</code> は比較のたびにキーを再計算しないよう、先に1回ずつ計算して並べる</li>' +
+          '<li><code>DetermineLocation</code> が最終決定。<b>角 &gt; 無難 &gt; 星 &gt; 次星 &gt; 角を取られる手</b></li>' +
+          '<li><code>WouldLetEnemyTakeCorner</code> は <code>gm.Clone()</code> で複製した盤に仮に <code>TryPut</code> して調べる(本物の盤は変わらない)</li></ul>' +
+          '<div class="gg-note">C++版にあった「相手を全滅させられるか」の判定(AllSteal)は元々無効化されていたため、移植版にも入れていません(ソース中コメント)。</div>'
+      },
+      {
+        title: '5. 棋譜(Kifu)',
+        camera: DC(1, 4),
+        focus: ['L-logic', 'Ln-logic', 'Kifu', 'GameMaster'].concat(DETAIL.kifu),
+        show: DETAIL.kifu,
+        update: function (g, t) { g.pulse('Kifu', t, 0.05); },
+        html:
+          '<p><code>Kifu</code>(Kifu.cs)も static クラス。<code>History</code> とテキストの変換だけを担当します。</p>' +
+          '<ul><li><code>ToText</code>: 1手1行の <code>「手数 : 列.行 色」</code>(例 <code> 7 : F.3 黒</code>)。列は <code>x</code> を A〜H に、行は <code>y+1</code></li>' +
+          '<li><code>TryReplay</code>: <code>gm.Initialize()</code> のあと、各行を解釈して <code>gm.TryPut</code> を1手ずつ呼ぶ。見出し・空行・読めない行は飛ばし、<b>置けない手</b>で打ち切り</li>' +
+          '<li>ルールを <code>Kifu</code> 側に持たないので、棋譜の再生が必ず本物のルールと一致する</li>' +
+          '<li>ファイルの読み書き(<code>File.ReadAllText</code> / <code>WriteAllText</code>)とダイアログは <code>MainWindow</code> 側。<code>Kifu</code> は文字列だけを扱うのでテストしやすい</li></ul>'
+      },
+      {
+        title: '6. 依存の向き',
+        camera: OVER,
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-tests']),
+        update: function (g, t) { g.pulse('GameMaster', t, 0.06); },
+        html:
+          '<p>矢印は<b>上の層から下の層へだけ</b>です。</p>' +
+          '<ul><li><code>GameMaster</code> は <b>誰も呼び出しません</b>(<code>MainWindow</code>・<code>ComPlayer</code>・<code>Kifu</code>・<code>BoardRenderer</code> が一方的に使う)。画面なしで丸ごとテストできる理由です</li>' +
+          '<li><code>ComPlayer</code> と <code>Kifu</code> は <code>GameMaster</code> だけに依存し、画面(<code>MainWindow</code>)を知らない</li>' +
+          '<li><code>MainWindow</code> がすべてを束ねる唯一の場所。対戦モードの「どちらがCOMか」(<code>IsComTurn</code>)もここ</li>' +
+          '<li>唯一の例外的な結びつき: <code>GameMaster</code> が <code>System.Drawing.Point</code> を <code>GetFlippedPositions</code> の戻り値に使っている(座標の入れ物として借りているだけで、描画はしない)</li></ul>'
+      },
+      {
+        title: '7. 共通部品と OS',
+        camera: { pos: [2, 8, 27], target: [2, -1.5, 0] },
+        focus: ['L-com', 'Ln-com', 'L-os', 'Ln-os'].concat(ids('com')).concat(ids('os')),
+        html:
+          '<p><code>Othello.csproj</code> が <code>..\\..\\_Common\\StcWpfExceptionGuard.cs</code> を<b>ファイルとして取り込み</b>(<code>Compile Include</code>)ます。DLLではなくソース共有です。</p>' +
+          '<table><tr><th>部品</th><th>責務</th></tr>' +
+          '<tr><td><code>StcWpfExceptionGuard</code></td><td>画面スレッド・全スレッドの未処理例外を共通形式で通知。起動直後で画面が1枚も無いときは、見えないプロセスが残らないよう終了</td></tr>' +
+          '<tr><td><code>System.Drawing</code>(GDI+)</td><td><code>Bitmap</code> / <code>Graphics</code> で盤を描く</td></tr>' +
+          '<tr><td>WPF</td><td><code>Window</code> / <code>DispatcherTimer</code> / <code>BitmapSource</code> / <code>Menu</code></td></tr>' +
+          '<tr><td>user32(P/Invoke)</td><td><code>GetWindowRect</code> / <code>GetClientRect</code> と <code>WM_SIZING</code> で、盤を正方形に保つ</td></tr>' +
+          '<tr><td><code>Microsoft.Win32</code></td><td>棋譜の <code>OpenFileDialog</code> / <code>SaveFileDialog</code></td></tr></table>' +
+          '<p class="gg-files">対象フレームワークは本体が .NET Framework 4.0(Client Profile)、テストが 4.7.2。外部パッケージは本体には無し(テストだけ MSTest)。</p>'
+      },
+      {
+        title: '8. テスト',
+        camera: { pos: [12, 12, 28], target: [12, 5.5, 0] },
+        focus: ['tests', 'dep-tests', 'GameMaster', 'ComPlayer', 'Kifu', 'BoardRenderer', 'MainWindow'],
+        show: ['dep-tests'],
+        update: function (g, t) { g.pulse('tests', t, 0.05); },
+        html:
+          '<p><code>Tests/Othello.Tests</code>(MSTest)は <code>InternalsVisibleTo("Othello.Tests")</code> で、<code>internal</code> のクラスを<b>そのまま</b>テストします。</p>' +
+          '<table><tr><th>テストクラス</th><th>件数</th><th>見ているもの</th></tr>' +
+          '<tr><td><code>GameMasterTests</code></td><td>11</td><td>初期配置、置いて裏返る、置けない手、手番の交代、Undo/Redo、Undo後の分岐破棄</td></tr>' +
+          '<tr><td><code>ComPlayerTests</code></td><td>4</td><td>常に置ける手を返す、角を優先、COM同士で最後まで打って例外なく終局</td></tr>' +
+          '<tr><td><code>KifuTests</code></td><td>5</td><td>書式、読込、置けない手での打ち切り</td></tr>' +
+          '<tr><td><code>BoardRendererTests</code></td><td>10</td><td>マス目の計算、罫線と石の位置の一致、置ける場所のマーク</td></tr>' +
+          '<tr><td><code>MainWindowTests</code></td><td>13</td><td>画面を実際に生成して、正方形のリサイズ・クリック・COMの手番・持ち時間などを確認</td></tr></table>' +
+          '<div class="gg-note">計43件。画面(<code>MainWindow</code>)まで含めて自動テストしてあるのは、リサイズや高DPIなど「見た目に関わる不具合」を戻さないためです。</div>'
+      },
+      {
+        title: '9. 設計の勘所',
+        camera: OVER,
+        update: function (g, t) { g.pulse('GameMaster', t, 0.04); },
+        html:
+          '<ul><li><b>入口は <code>TryPut</code> ひとつ</b>: クリック・COM・棋譜の読込が、すべて同じ入口から盤を変える</li>' +
+          '<li><b>戻す = 履歴の再生</b>: 石を逆算せず、<code>ReplayHistory</code> で頭から <code>ApplyMove</code> を繰り返す。パス・終局の判定も自然に戻る</li>' +
+          '<li><b>仮置きは <code>Clone</code></b>: COMの「置いたらどうなる」は複製した盤で試し、本物を汚さない</li>' +
+          '<li><b>ルールと表示を分離</b>: <code>GameMaster</code> は画面を知らないので、テストと棋譜再生が楽</li>' +
+          '<li><b>描画は毎回全部描き直す</b>: 差分更新をやめて単純にした(盤が小さいので十分速い)</li>' +
+          '<li><b>COMは1手先の評価だけ</b>: 木探索なし。角・星・開放度のヒューリスティックで軽く動く</li></ul>' +
+          '<div class="gg-note">動きで見たい人は「データの流れ」ページへ。3Dの盤で、反転判定・COMの評価・履歴の再生を追えます。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

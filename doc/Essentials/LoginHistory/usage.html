@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginHistory 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="lh-img.js"></script>
+<script src="lh-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var X0 = -11, X1 = 0, X2 = 11;        // 3枚のパネルの中心x(左から 起動直後 / 出力先を変えたところ / ログファイルの中身)
+  var GOLD = C.gold;
+  var LH_ = window.LH;
+  var TOP = LH_.BOTTOM + LH_.H;         // パネル上端の高さ
+
+  // ログファイルの中身(日時はすべてダミー)。bad = 行末に " !" が付いた行
+  var LINES = [
+    { t: '2026.10.26_09:00:12', bad: false },
+    { t: '2026.10.26_10:00:11', bad: false },
+    { t: '2026.10.26_11:00:12', bad: false },
+    { t: '2026.10.26_15:42:30', bad: true },
+    { t: '2026.10.26_16:42:31', bad: false },
+  ];
+  function lineY(i) { return TOP - 1.4 - i * 0.72; }
+
+  GameGuide.start({
+    title: 'LoginHistory 使い方',
+    subtitle: '実際の画面で、出力先を決める → ロギング実行 → ログを読む、までを1歩ずつ',
+    camera: { pos: [2, 4.8, 33], target: [2, 3.4, 0] },
+    floor: false,
+
+    build: function (g) {
+      LH_.panel(g, 'p-start', 'start', X0);
+      LH_.panel(g, 'p-path', 'path', X1);
+      g.label('① 起動直後', [X0, TOP + 1.0, 0.3], { size: 0.5, color: '#fff' });
+      g.label('② 出力先を入れたところ', [X1, TOP + 1.0, 0.3], { size: 0.5, color: '#fff' });
+      g.label('③ ログファイルの中身(例)', [X2, TOP + 1.0, 0.3], { size: 0.5, color: '#fff' });
+      g.arrow([X0 + 5.2, 3.2, 0.3], [X1 - 5.2, 3.2, 0.3], { color: GOLD, lift: 0.5, label: '出力先を入力', labelSize: 0.3 });
+      g.arrow([X1 + 5.2, 3.2, 0.3], [X2 - 5.2, 3.2, 0.3], { color: GOLD, lift: 0.5, label: 'ロギング実行', labelSize: 0.3 });
+
+      // ③ ログファイルの紙面(ダミーの日時)
+      g.box({ id: 'sheet', size: [9.6, LH_.H, 0.1], pos: [X2, LH_.BOTTOM + LH_.H / 2, 0], color: '#1b1930', edges: false });
+      g.label('Alive.log  (ダミー)', [X2 - 2.5, TOP - 0.55, 0.12], { size: 0.34, color: '#b8b2d6' });
+      LINES.forEach(function (ln, i) {
+        g.label(ln.t, [X2 - 1.9, lineY(i), 0.12], { id: 'ln' + i, size: 0.36, color: '#e9e6f5' });
+        if (ln.bad) g.label('!', [X2 + 0.1, lineY(i), 0.12], { id: 'mark' + i, size: 0.5, color: C.enemy });
+      });
+      g.label('1回押すごとに1行ふえる', [X2, LH_.BOTTOM + 0.3, 0.12], { size: 0.3, color: C.data });
+
+      // ステップごとに出す注目枠(ピクセルはスクショ上の座標)
+      LH_.hl(g, 'h-label', X0, 45, 178, 296, 238);
+      LH_.hl(g, 'h-edit0', X0, 300, 165, 810, 250, C.good);
+      LH_.hl(g, 'h-exec0', X0, 456, 253, 814, 344, C.enemy);
+      LH_.hl(g, 'h-ok0', X0, 456, 360, 814, 450);
+      LH_.hl(g, 'h-edit1', X1, 300, 165, 810, 250, C.good);
+      LH_.hl(g, 'h-exec1', X1, 456, 253, 814, 344, C.enemy);
+      g.box({ id: 'h-first', size: [6.1, 0.62, 0.05], pos: [X2 - 0.3, lineY(0), 0.1], color: C.good, emissive: C.good, emissiveIntensity: 0.5, opacity: 0.13, edgeColor: C.good });
+      g.box({ id: 'h-bad', size: [6.1, 0.62, 0.05], pos: [X2 - 0.3, lineY(3), 0.1], color: C.enemy, emissive: C.enemy, emissiveIntensity: 0.5, opacity: 0.2, edgeColor: C.enemy });
+      g.box({ id: 'h-ok', size: [6.1, 0.62, 0.05], pos: [X2 - 0.3, lineY(1), 0.1], color: C.good, emissive: C.good, emissiveIntensity: 0.5, opacity: 0.13, edgeColor: C.good });
+      g.box({ id: 'h-all', size: [9.2, 4.0, 0.05], pos: [X2, LH_.BOTTOM + LH_.H / 2 - 0.2, 0.1], color: GOLD, emissive: GOLD, emissiveIntensity: 0.5, opacity: 0.08, edgeColor: GOLD });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: { pos: [2, 4.8, 33], target: [2, 3.4, 0] },
+        html:
+          '<p>稼働ログツール <b>LoginHistory</b> は、「ロギング実行」ボタンを押すたびに<b>今の日時を1行、ログファイルへ追記</b>する小さなWindowsアプリ(C++ / MFC)です。「このPCがこの時刻に動いていた」という記録を残すのが目的です。</p>' +
+          '<ol><li>起動する(出力先の欄は毎回 <code>C:\\Alive.log</code> から始まる)</li><li>必要なら出力先を書き換える</li><li>「ロギング実行」→ ログに1行ふえる</li></ol>' +
+          '<p>アプリ自体は<b>ずっと動き続ける常駐プログラムではありません</b>。1回の実行で1行書くだけなので、「一定間隔で書き残す」には、タスクスケジューラなどで<b>間隔ごとに実行する</b>使い方になります(この自動実行の仕組みはソースには含まれません)。</p>' +
+          '<p>写っているのは、このガイド用に<b>ダミーのフォルダ</b>へ出力させたときの画面です。ログの日時の例もダミーです。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> / <code>login_history.cc</code></p>',
+      },
+      {
+        title: '1. 起動直後の画面',
+        camera: LH_.cam(X0, 432, 244, 11),
+        show: ['h-label', 'h-edit0', 'h-exec0', 'h-ok0'],
+        html:
+          '<p>小さなダイアログが1つだけ出ます(ウィンドウ名は <code>LoginHistory</code>)。</p>' +
+          '<ul><li><b>ログ出力先</b>: 書き込むログファイルのパス。起動のたびに <code>C:\\Alive.log</code> が入ります</li>' +
+          '<li><b>ロギング実行</b>: 今の日時を1行追記する</li>' +
+          '<li><b>OK</b>: アプリを閉じる(ログには何も書かない)</li></ul>' +
+          '<div class="gg-note">出力先の入力は<b>保存されません</b>。次に起動すると、また <code>C:\\Alive.log</code> に戻ります。</div>' +
+          '<p class="gg-files">📄 <code>LoginHistory.rc</code>(<code>IDD_LOGINHISTORY_DIALOG</code>)、<code>login_history_dlg.cc</code> の <code>OnInitDialog</code></p>',
+      },
+      {
+        title: '2. 出力先を決める',
+        camera: LH_.cam(X1, 556, 208, 8.6),
+        show: ['h-edit1'],
+        html:
+          '<p>「ログ出力先」の欄に、書き込みたいログファイルの<b>フルパス</b>を入れます。ガイドの撮影では <code>D:\\Temp\\LHDemo\\Alive.log</code> のダミーを指定しました。</p>' +
+          '<ul><li>ファイルが<b>無ければ新しく作ります</b>。あれば末尾に追記します</li>' +
+          '<li>ただし<b>フォルダは作りません</b>。フォルダが無いと、ファイルを作れず何も書かれません(エラー表示も出ません)</li></ul>' +
+          '<div class="gg-note">出力先は画面で指定するしくみで、ソース上は記憶しません。毎回 <code>C:\\Alive.log</code> 以外へ書きたいときは、そのたびに入力が必要です。</div>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> の <code>DoDataExchange</code>(<code>DDX_Text</code>)・<code>OpenFile</code></p>',
+      },
+      {
+        title: '3. ロギング実行(最初の1回)',
+        camera: LH_.cam(X1, 634, 298, 8.6),
+        show: ['h-exec1', 'h-first'],
+        html:
+          '<p>「ロギング実行」を押すと、<b>画面には何も出ず</b>、ログへ1行追記されます。形式は <code>YYYY.MM.DD_hh:mm:ss</code> です。</p>' +
+          '<ul><li><b>ファイルが無いとき(最初の1回)</b>: ファイルを作り、現在日時の1行だけ書く。前回が無いので比べません</li>' +
+          '<li>2回目以降は、末尾へ1行足すだけ。<b>過去の行は書き換えません</b></li></ul>' +
+          '<p>押したあともダイアログは開いたままなので、続けて押せば続けて追記されます(OKで閉じる)。</p>' +
+          '<p class="gg-files">📄 <code>OnBnClickedExec</code>、<code>FormatTime</code></p>',
+      },
+      {
+        title: '4. 記録間隔どおりかを自動で判定',
+        camera: { pos: [X2, 3.6, 14], target: [X2, 3.4, 0] },
+        show: ['h-ok', 'h-bad'],
+        html:
+          '<p>2回目以降は、<b>前回の記録の日時</b>を読んで、「前回 + 記録間隔」と今の時刻を比べます。</p>' +
+          '<table><tr><th>状況</th><th>行末</th></tr>' +
+          '<tr><td>ずれが<b>10秒以内</b>(間隔どおり)</td><td>日時だけ</td></tr>' +
+          '<tr><td>それ以上ずれた(PCが止まっていた・間隔が違う・連続で押した、など)</td><td>日時のあとに <code> !</code></td></tr></table>' +
+          '<p>図の例(ダミー)は、毎時 0 分ごろに1時間間隔で記録していたところ、<b>11時台のあとが約4時間40分あいた</b>ので、15:42 の行に <code>!</code> が付いた様子です。「PCが止まっていた(落ちていた・スリープしていた)」の見つけやすい目印になります。</p>' +
+          '<p>記録間隔は既定で<b>60分</b>。変え方は次のステップです。</p>' +
+          '<p class="gg-files">📄 <code>ReadLastTime</code> / <code>IsOnSchedule</code>(<code>kAllowableLagSeconds = 10</code>、<code>kWarningMark = " !"</code>)</p>',
+      },
+      {
+        title: '5. 記録間隔を変える(set.ini)',
+        camera: { pos: [0, 5, 31], target: [0, 3.4, 0] },
+        html:
+          '<p>記録間隔(分)は、<b>実行時のカレントフォルダにある <code>set.ini</code></b> で決めます。無ければ60分です。</p>' +
+          '<pre style="background:#1b1930;padding:8px 10px;border-radius:6px;color:#e9e6f5;margin:6px 0">; 先頭が ; の行はコメント\nCycle=30</pre>' +
+          '<ul><li><code>Cycle=分</code> の1行だけが読まれます(上の例なら30分間隔で判定)</li>' +
+          '<li><code>;</code> で始まる行は読み飛ばし</li>' +
+          '<li>古い版にあった <code>FileName=</code> の行は<b>今は読まれません</b>。ログの出力先は画面の指定が使われます</li></ul>' +
+          '<div class="gg-note">カレントフォルダを基準に探すので、タスクスケジューラで動かすときは「開始(作業)フォルダ」を <code>set.ini</code> のある場所にしておく必要があります。</div>' +
+          '<p>この間隔は「ずれの判定」にだけ使われます。<b>実行する間隔そのもの</b>は、アプリではなく起動する側(スケジューラ)で決まります。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> の <code>LoadCycleFromIni</code></p>',
+      },
+      {
+        title: '6. ログの読みかた',
+        camera: { pos: [X2, 3.6, 16], target: [X2, 3.4, 0] },
+        show: ['h-all', 'h-bad'],
+        html:
+          '<ul><li>1行 = 1回の実行 = 「その時刻にPCが動いていた」記録</li>' +
+          '<li>行と行の間があいているところ(特に <code>!</code> 付き)が、<b>止まっていた時間帯の目印</b></li>' +
+          '<li>この <code>!</code> は「前回から見て間隔が合わなかった」ことだけを表します。止まった理由までは分かりません</li></ul>' +
+          '<div class="gg-note">ファイルを新しく作るときの最初の1行には <code>!</code> は付きません(比べる相手が無いため)。</div>' +
+          '<p>ファイルは普通のテキストなので、メモ帳や Excel にそのまま読み込めます。</p>' +
+          '<p class="gg-files">📄 <code>login_history_dlg.cc</code> の <code>OnBnClickedExec</code></p>',
+      },
+      {
+        title: 'おまけ: 動作確認で気づくこと',
+        camera: { pos: [0, 5, 31], target: [0, 3.4, 0] },
+        html:
+          '<ul><li>続けて2回押すと、間隔(60分)から外れるので<b>2行目に必ず <code>!</code></b> が付きます(動作確認のとき)</li>' +
+          '<li>前回の記録のちょうど間隔ぶん後(±10秒)に押すと、<code>!</code> は付きません</li>' +
+          '<li>夏時間の切り替わり日でも、1時間ずれて警告になることはありません(<code>tm_isdst = -1</code> で判定)</li></ul>' +
+          '<p>このガイドの撮影では、ダミーの出力先に2回押して <code>!</code> が付くこと、「ちょうど60分前」の行を置いて押すと付かないことをそれぞれ確かめました。ダミーのファイルは撮影後に削除しています。</p>' +
+          '<p class="gg-files">📄 <code>ReadLastTime</code> のコメント</p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

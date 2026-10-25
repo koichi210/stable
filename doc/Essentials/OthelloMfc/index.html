@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OthelloMfc ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <p><a href="../index.html">← Essentials 一覧へ</a></p>
+  <h1>OthelloMfc ドキュメント</h1>
+  <p class="lead">オセロ(C++ / MFC版)「OthelloMfc」の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
+  人 vs COM・COM vs COM などで遊べる、ダイアログベースのオセロです。盤面のスクリーンショットは、このガイド用に実際に遊んだ画面です(個人情報は写っていません)。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全9ステップ</div>
+      <div class="d">メニューの見かた → 置ける場所の点 → クリックで打つ → 手番・スコア・持ち時間 → 棋譜と一手戻す → 終局。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 石の裏返しとCOM思考のアニメ / 全8ステップ</div>
+      <div class="d">クリック → 着手判定(8方向) → 石を置いて裏返す → 手番交代・パス・終局 → COMの思考(候補手の評価と優先度) → 棋譜と一手戻す/送る。盤の上で石が実際に動きます。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / クラス構成の3D図 / 全8ステップ</div>
+      <div class="d">画面・進行・ルール・外部の層と、<code>OthelloApp</code> / <code>OthelloDlg</code> / <code>GameManager</code> / <code>Board</code> / <code>ComPlayer</code> の責務と依存関係。MFCのメッセージマップ、タイマ、描画も。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/OthelloMfc/Source</code>(実行ファイルは <code>Essentials/OthelloMfc/Release</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
+  </p>
+</div>
+</body>
+</html>

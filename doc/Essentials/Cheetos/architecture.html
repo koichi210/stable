@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheetos 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var COL = { ui: '#4fa3ff', logic: '#ff9f43', model: '#c77dff', common: '#3fbf8f', ext: '#6b6890', test: '#e86bb0' };
+  // 各層の中心の高さ。上の層が下の層を呼ぶ向き
+  var Y = { ui: 15.0, logic: 11.2, common: 7.4, ext: 3.6, test: -0.2 };
+  var BX = {};                                         // id -> { x, y }(カードの中心)
+  var XS = 0.9, LS = 1.2;                              // 横の縮め率 / 文字の倍率(近くから見て読めるように)
+  var CAM = { pos: [0, 7.4, 24], target: [0, 7.4, 0] };
+
+  function card(g, id, layer, x, w, label, o) {
+    o = o || {};
+    var y = Y[layer];
+    x = x * XS; w = w * XS;
+    BX[id] = { x: x, y: y };
+    return g.box({
+      id: id, size: [w, o.h || 2.5, 0.5], pos: [x, y, 0], color: o.color || COL[layer], edges: true,
+      label: label, labelSize: (o.ls || 0.36) * LS, labelOffset: [0, 0, 0.32], labelColor: o.lc || '#ffffff',
+    });
+  }
+  // カードからカードへの依存の矢印(上の層 → 下の層)。手前を通して、カードに隠れないようにする
+  function arr(g, id, a, b, label, color, lift) {
+    var A = BX[a], B = BX[b], from, to, z = 0.9;
+    if (Math.abs(A.y - B.y) < 0.1) { from = [A.x, A.y + 1.35, z]; to = [B.x, B.y + 1.35, z]; }
+    else if (A.y > B.y) { from = [A.x, A.y - 1.3, z]; to = [B.x, B.y + 1.3, z]; }
+    else { from = [A.x, A.y + 1.3, z]; to = [B.x, B.y - 1.3, z]; }
+    g.arrow(from, to, { id: id, color: color || C.gold, lift: lift == null ? 0.5 : lift, label: label, labelSize: 0.32 * LS, head: 0.3 });
+  }
+
+  GameGuide.start({
+    title: 'Cheetos 内部設計',
+    subtitle: '画面・加工ロジック・共通部品・OS/外部・テストの層構成と依存関係(上の層が下の層を呼ぶ)',
+    camera: CAM,
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 70;
+
+      // 層の背景
+      function layer(id, key, name, color, lc) {
+        g.box({ id: id, size: [27.6, 3.5, 0.2], pos: [0, Y[key], -0.5], color: color, opacity: 0.9, edges: false });
+        g.label(name, [-13.6, Y[key] + 1.45, 0.3], { size: 0.32 * LS, color: lc });
+      }
+      layer('L-ui', 'ui', '画面(UI)層', '#222d4a', '#bcd6ff');
+      layer('L-logic', 'logic', '加工ロジック・受け渡し', '#40301f', '#ffd9ae');
+      layer('L-common', 'common', '共通部品(_Common)', '#1f3a33', '#aef0cf');
+      layer('L-ext', 'ext', 'OS・.NET・外部', '#2a2940', '#cfcbe8');
+      layer('L-test', 'test', 'テスト', '#3a2433', '#ffc4e1');
+
+      // ---- 画面(UI)層 ----
+      card(g, 'app', 'ui', -11.6, 5.6, 'App\n(App.xaml / .cs)', { ls: 0.38 });
+      card(g, 'mw', 'ui', -1.6, 13.6, 'MainWindow(partial class・6ファイル)\nMainWindow.xaml(.cs) / CaptureWindow.cs / PictTrim.cs\nRotation.cs / DistOrient.cs / PictMerge.cs', { ls: 0.36 });
+      card(g, 'rp', 'ui', 10.2, 6.8, 'RotationPreview\n(.xaml / .xaml.cs)', { ls: 0.38 });
+      // ---- 加工ロジック・データ受け渡し ----
+      card(g, 'logic', 'logic', -11.6, 4.6, 'Logic\n(static・Logic.cs)', { ls: 0.34 });
+      card(g, 'pic', 'logic', -6.9, 4.4, 'PicEdit\n(PicEdit.cs)', { ls: 0.36 });
+      card(g, 'rot', 'logic', -2.3, 4.4, 'Rotation\n(Rotation.cs)', { ls: 0.36 });
+      card(g, 'mrg', 'logic', 2.3, 4.4, 'PictMerge\n(PictMerge.cs)', { ls: 0.36 });
+      card(g, 'wp', 'logic', 7.0, 4.6, 'WorkerParams.cs\n4つの Param クラス', { color: COL.model, ls: 0.32 });
+      card(g, 'row', 'logic', 11.8, 4.2, 'CaptureGridRow\nWpfUtils', { color: COL.model, ls: 0.34 });
+      // ---- 共通部品 ----
+      card(g, 'cw', 'common', -11.6, 4.6, 'CaptWindow\n(StandardTemplate\nClass.cs)', { ls: 0.3 });
+      card(g, 'stc', 'common', -6.9, 4.4, 'StcUtils\nStcFileInput\nOutput / StcDebug', { ls: 0.3 });
+      card(g, 'sr', 'common', -2.3, 4.4, 'WpfSaveRestore\nWpfProfile\nGenericProfile', { ls: 0.3 });
+      card(g, 'json', 'common', 2.3, 4.4, 'JsonFileStorage\nAtomicFile', { ls: 0.32 });
+      card(g, 'udl', 'common', 7.0, 4.6, 'UserDataLocation\nWpfDataFolderMenu\nDataFolderChooser', { ls: 0.28 });
+      card(g, 'ctl', 'common', 11.8, 4.2, 'TextBoxEx\nComboBoxEx\nWpfControlUtils\n…', { ls: 0.3 });
+      // ---- OS・外部 ----
+      card(g, 'u32', 'ext', -11.6, 4.6, 'user32.dll\nSendInput\nEnumDisplaySettingsA', { ls: 0.28 });
+      card(g, 'wf', 'ext', -6.9, 4.4, 'System.Windows\n.Forms\nSendKeys / Clipboard\nScreen / Cursor', { ls: 0.26 });
+      card(g, 'gdi', 'ext', -2.3, 4.4, 'System.Drawing\n(GDI+)\nBitmap / Graphics', { ls: 0.3 });
+      card(g, 'nj', 'ext', 2.3, 4.4, 'Newtonsoft.Json\n13.0.4(NuGet)', { ls: 0.3 });
+      card(g, 'cp', 'ext', 7.0, 4.6, 'WindowsAPICodePack\n-Shell(NuGet)\nフォルダ選択', { ls: 0.28 });
+      card(g, 'wpf', 'ext', 11.8, 4.2, 'WPF\n.NET Framework\n4.0 Client・x64', { ls: 0.28 });
+      // ---- テスト ----
+      card(g, 'tst', 'test', -4.6, 14.0, 'Cheetos.Tests(MSTest 2.2.10・.NET Framework 4.7.2)\nLogicTests / PicEditTests / PictMergeTests\nRotationTests / SaveRestoreTests(合計69テスト)', { ls: 0.34 });
+      card(g, 'ivt', 'test', 9.6, 8.8, 'InternalsVisibleTo\n("Cheetos.Tests")', { ls: 0.34 });
+
+      ['ui', 'logic', 'common', 'ext'].forEach(function (k, i, a) {
+        if (i === a.length - 1) return;
+        g.label('▼ 呼ぶ', [12.4, (Y[k] + Y[a[i + 1]]) / 2, 0.8], { id: 'dn' + i, size: 0.3 * LS, color: '#ffd166' });
+      });
+      g.label('▼ 呼ぶ', [12.4, (Y.ext + Y.test) / 2, 0.8], { id: 'dn3', size: 0.3 * LS, color: '#ffd166' });
+
+      // ---- 依存の矢印(ステップごとに show で出し入れ) ----
+      arr(g, 'a-app-ctl', 'app', 'stc', 'StcWpfExceptionGuard\n.Install()', C.gold, 1.0);
+      arr(g, 'a-mw-logic', 'mw', 'logic', '', C.gold, 0.5);
+      arr(g, 'a-mw-pic', 'mw', 'pic', 'PicEdit', C.gold, 0.6);
+      arr(g, 'a-mw-rot', 'mw', 'rot', 'Rotation', C.gold, 0.6);
+      arr(g, 'a-mw-mrg', 'mw', 'mrg', 'PictMerge', C.gold, 0.6);
+      arr(g, 'a-mw-wp', 'mw', 'wp', 'Param', C.gold, 0.6);
+      arr(g, 'a-mw-row', 'mw', 'row', 'Rows / Anchor', C.gold, 0.6);
+      arr(g, 'a-rp-rot', 'rp', 'rot', 'DrawRotated', C.gold, 0.6);
+      arr(g, 'a-rp-logic', 'rp', 'logic', 'StepValue…', C.gold, 0.9);
+      arr(g, 'a-mw-cw', 'mw', 'cw', 'CaptWindow', C.good, 0.7);
+      arr(g, 'a-mw-sr', 'mw', 'sr', 'RegisterCtrl\nSave / Load', C.good, 0.7);
+      arr(g, 'a-mw-udl', 'mw', 'udl', 'データ保存先', C.good, 0.9);
+      arr(g, 'a-mw-ctl', 'mw', 'ctl', 'TextBoxEx', C.good, 0.8);
+      arr(g, 'a-mw-stc', 'mw', 'stc', '_util / _fio', C.good, 0.7);
+      arr(g, 'a-cw-u32', 'cw', 'u32', 'SendInput\nEnumDisplay…', C.data, 0.5);
+      arr(g, 'a-cw-wf', 'cw', 'wf', 'SendKeys\nClipboard', C.data, 0.5);
+      arr(g, 'a-cw-gdi', 'cw', 'gdi', 'CopyFromScreen\nSave', C.data, 0.9);
+      arr(g, 'a-pic-gdi', 'pic', 'gdi', 'DrawImage', C.data, 0.5);
+      arr(g, 'a-rot-gdi', 'rot', 'gdi', 'DrawImage', C.data, 0.5);
+      arr(g, 'a-mrg-pic', 'mrg', 'pic', 'MergeExec', C.gold, 0.5);
+      arr(g, 'a-logic-pic', 'logic', 'pic', 'IsPortrait', C.gold, 0.5);
+      arr(g, 'a-sr-json', 'sr', 'json', 'Save / Load', C.data, 0.5);
+      arr(g, 'a-json-nj', 'json', 'nj', 'JSON', C.data, 0.5);
+      arr(g, 'a-udl-cp', 'udl', 'cp', '', C.data, 0.5);
+      arr(g, 'a-ctl-wpf', 'ctl', 'wpf', '', C.data, 0.5);
+      arr(g, 'a-tst-mw', 'tst', 'ivt', '', C.good, 0.5);
+      arr(g, 'a-ivt-logic', 'ivt', 'rot', '', C.good, 0.9);
+    },
+
+    steps: [
+      {
+        title: '全体: 5つの層',
+        camera: CAM,
+        show: ['dn0', 'dn1', 'dn2', 'dn3'],
+        html:
+          '<p>Cheetos(C# / WPF / .NET Framework 4.0 Client・x64)は、5つの層でできています。<b>上の層が下の層を呼ぶ</b>向きで、下は上を知りません。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>画面(UI)</td><td><code>App</code>、<code>MainWindow</code>(6ファイルに分けた partial class)、<code>RotationPreview</code></td></tr>' +
+          '<tr><td>加工ロジック・受け渡し</td><td><code>Logic</code>、<code>PicEdit</code>、<code>Rotation</code>、<code>PictMerge</code>、<code>WorkerParams</code>(4クラス)、<code>CaptureGridRow</code>、<code>WpfUtils</code></td></tr>' +
+          '<tr><td>共通部品 <code>_Common</code></td><td>撮影の本体 <code>CaptWindow</code>、設定の保存、データ保存先、WPF の部品。<b>他のツールとソースを共有</b></td></tr>' +
+          '<tr><td>OS・外部</td><td>Win32(<code>user32</code>)、WinForms(<code>SendKeys</code>・<code>Clipboard</code>)、GDI+、Json.NET、WindowsAPICodePack</td></tr>' +
+          '<tr><td>テスト</td><td><code>Cheetos.Tests</code>(MSTest)</td></tr></table>' +
+          '<p><b>設計の要点</b>: 画像を加工する処理(<code>PicEdit</code> / <code>Rotation</code> / <code>PictMerge</code> / <code>Logic</code>)は<b>画面を知りません</b>(パス・数値・<code>Bitmap</code> を受け取って返すだけ)。だから単体テストでき、プレビュー画面とも同じ部品を使えます。</p>' +
+          '<p class="gg-note">ドラッグで回転・ホイールで拡大。ステップごとに、注目するカードが明るくなります。</p>' +
+          '<p class="gg-files">📄 <code>Cheetos.csproj</code>(<code>_Common</code> のファイルを <code>&lt;Compile Include="..\\..\\_Common\\…"&gt;</code> でリンクして取り込む)</p>',
+      },
+      {
+        title: '画面層: App / MainWindow / RotationPreview',
+        camera: { pos: [0, 12.6, 22], target: [0, 12.6, 0] },
+        focus: ['app', 'mw', 'rp', 'L-ui', 'a-app-ctl', 'stc'],
+        show: ['a-app-ctl'],
+        html:
+          '<p><b>App</b>(<code>App.xaml.cs</code>)は <code>OnStartup</code> で <code>StcWpfExceptionGuard.Install</code> を呼び、予期しない例外をダイアログで知らせます。</p>' +
+          '<p><b>MainWindow</b>は<b>6つのタブをもつ1つの画面</b>で、<code>partial class</code> を機能ごとのファイルに分けています。</p>' +
+          '<table><tr><th>ファイル</th><th>受け持ち</th></tr>' +
+          '<tr><td><code>MainWindow.xaml(.cs)</code></td><td>画面定義、起動時の初期化、設定の保存・復元、処理状況の欄、<code>FileCollect</code> の移動</td></tr>' +
+          '<tr><td><code>CaptureWindow.cs</code></td><td>CaptureWindow タブ(<code>Button_Capture_Click</code> / <code>CaptureForeground</code>)</td></tr>' +
+          '<tr><td><code>PictTrim.cs</code></td><td>PictTrim タブ</td></tr>' +
+          '<tr><td><code>Rotation.cs</code></td><td>Rotation タブ(上の方に <code>Rotation</code> クラス本体もある)</td></tr>' +
+          '<tr><td><code>DistOrient.cs</code></td><td>DistOrient タブ</td></tr>' +
+          '<tr><td><code>PictMerge.cs</code></td><td>PictMerge タブ(上の方に <code>PictMerge</code> クラス本体)</td></tr></table>' +
+          '<p><b>RotationPreview</b>は、回転結果を見る別ウィンドウ。<code>ShowDialog</code> で開き、OK なら <code>OriginX</code> / <code>OriginY</code> / <code>Angle</code> を Rotation タブへ返します。</p>' +
+          '<p class="gg-files">📄 <code>App.xaml.cs</code>、<code>MainWindow.xaml</code>、<code>MainWindow.xaml.cs</code>(コンストラクタ)、<code>RotationPreview.xaml.cs</code></p>',
+      },
+      {
+        title: 'MainWindow のコンストラクタ: 起動時にやること',
+        camera: { pos: [0, 11.2, 22], target: [0, 11.2, 0] },
+        focus: ['mw', 'row', 'sr', 'udl', 'cw', 'L-ui', 'a-mw-row', 'a-mw-sr', 'a-mw-udl', 'a-mw-cw'],
+        show: ['a-mw-row', 'a-mw-sr', 'a-mw-udl', 'a-mw-cw'],
+        html:
+          '<p><code>MainWindow(String dataFolder)</code> は、次の順に準備します(既定のコンストラクタは、保存先を <code>UserDataLocation.GetUserDataFolder("Cheetos")</code> で決めてこれを呼ぶだけ)。</p>' +
+          '<ol><li><code>InitializeComponent</code>、<code>_util.SetCurrentDirectory()</code>、デバッグログに時刻を付ける(<code>_debug.UseTimeInLog</code>)</li>' +
+          '<li><code>InitializeBackgroundWorkers</code>: Trim / Merge / Orient / Rotation の4つの <code>BackgroundWorker</code> を用意し、<b>進捗表示のハンドラは1つ(<code>BkgWorker_ProgressChanged</code>)を共有</b></li>' +
+          '<li><code>InitializeDataGridView</code>: 表の列と、ドロップダウンの選択肢(<code>Move</code> / <code>LeftDown</code>、〇 / ×)</li>' +
+          '<li><code>RegisterSaveRestoreItems</code> → <code>_sr.LoadOrDefault("Cheetos.json")</code> → プロファイル一覧(<code>WpfProfile.UpdateProfileList</code>)</li>' +
+          '<li><code>SourceInitialized</code> で <code>_cw.TargetWindow = WpfUtils.CreateScreenAnchor(this)</code>(CurrentScreen 用の目印)</li>' +
+          '<li><code>WpfDataFolderMenu.Attach</code>: タイトルバーのメニューに「データ保存先を変更」を追加</li></ol>' +
+          '<div class="gg-note">コンストラクタが<b>保存先フォルダを引数でもらえる</b>ので、テストは実際のユーザーデータに触れずに <code>MainWindow</code> を作れます(<code>internal</code>、<code>InternalsVisibleTo</code>)。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>MainWindow(...)</code> / <code>InitializeBackgroundWorkers</code> / <code>InitializeDataGridView</code></p>',
+      },
+      {
+        title: '受け渡しの型: WorkerParams / CaptureGridRow / WpfUtils',
+        camera: { pos: [3, 12.4, 21], target: [3, 12.4, 0] },
+        focus: ['wp', 'row', 'mw', 'L-logic', 'a-mw-wp', 'a-mw-row'],
+        show: ['a-mw-wp', 'a-mw-row'],
+        html:
+          '<p>別スレッドへ値を渡す型と、画面の部品を支える小さな型です。</p>' +
+          '<ul><li><b><code>WorkerParams.cs</code></b>: <code>TrimWorkerParam</code> / <code>MergeWorkerParam</code> / <code>RotationWorkerParam</code> / <code>OrientWorkerParam</code>。<b>名前つきのプロパティ</b>で、<code>BackgroundWorker.RunWorkerAsync</code> に渡す値(パス・数値・選んだファイル名の配列)を運ぶ。<br>以前は <code>List&lt;object&gt;</code> に順番に詰めて <code>genericlist[4]</code> のように取り出していて、並びのずれやキャストの間違いが実行するまで分からなかったため</li>' +
+          '<li><b><code>CaptureGridRow</code></b>: 表の1行(5列の文字列)。<code>INotifyPropertyChanged</code> で、<code>Sleep</code> / <code>MouseX</code> / <code>MouseY</code> / <code>MouseAction</code> / <code>Capture</code> のプロパティと、列番号で読み書きするインデクサ、<code>ToList</code> / <code>FromList</code>(保存ファイル用)を持つ</li>' +
+          '<li><b><code>WpfUtils</code></b>: 一覧の並べ替え(<code>SetSortedItems</code>)、<code>Bitmap</code> → <code>BitmapSource</code>(<code>ToBitmapSource</code>)、数字以外を消す(<code>ClearIfNotInteger</code>)、CurrentScreen 用の目印コントロール(<code>CreateScreenAnchor</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>WorkerParams.cs</code>、<code>CaptureGridRow.cs</code>、<code>WpfUtils.cs</code></p>',
+      },
+      {
+        title: '画像の加工: Logic / PicEdit / Rotation / PictMerge',
+        camera: { pos: [-2, 9.2, 21], target: [-2, 9.2, 0] },
+        focus: ['logic', 'pic', 'rot', 'mrg', 'gdi', 'mw', 'rp', 'L-logic', 'a-mw-pic', 'a-mw-rot', 'a-mw-mrg', 'a-rp-rot', 'a-pic-gdi', 'a-rot-gdi', 'a-mrg-pic', 'a-logic-pic', 'a-mw-logic', 'a-rp-logic'],
+        show: ['a-mw-logic', 'a-mw-pic', 'a-mw-rot', 'a-mw-mrg', 'a-rp-rot', 'a-rp-logic', 'a-pic-gdi', 'a-rot-gdi', 'a-mrg-pic', 'a-logic-pic'],
+        html:
+          '<p>画像の加工は、画面を知らないクラスに分かれています。すべて GDI+(<code>System.Drawing</code>)で描きます。</p>' +
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>PicEdit</code>(<code>IDisposable</code>)</td><td>キャンバス(<code>Bitmap</code>)を持ち、<code>TrimExec</code>(切り取り)・<code>MergeExec</code>(貼り付け)・<code>SaveCanvas</code>・<code>GetCanvasPngByteLength</code> を提供。<b>使い終わったら必ず解放</b>(<code>using</code>)</td></tr>' +
+          '<tr><td><code>Rotation</code></td><td>1枚の回転(<code>SetTargetFileName</code> → <code>BackUpTargetFile</code> → <code>RotateExecute</code>)と、静的な <code>DrawRotated</code>(<b>プレビュー画面と共用</b>)</td></tr>' +
+          '<tr><td><code>PictMerge</code></td><td>2枚の結合の1枚分(<code>IsProcTarget</code> / <code>BackUpSourceFile</code> / <code>ResolveMergeFilePath</code> / <code>MergeExecute</code>)と、範囲指定の書式チェック(<code>BuildInvalidTrimHeightsMessage</code> ほか)。<code>PicEdit</code> を使う</td></tr>' +
+          '<tr><td><code>Logic</code>(static)</td><td>もとは画面のコードに埋もれていた純粋なロジックを、テストできる形に切り出したもの: <code>IsPortrait</code>、<code>BuildFilePathPrefix</code>、<code>CalcExpectEndTime</code>、<code>TryParseInt</code>、<code>GetNonConflictFilePath</code>、<code>StepValueByArrowKey</code></td></tr></table>' +
+          '<p>DistOrient には専用のクラスがなく、判定は <code>Logic.IsPortrait</code>、移動は <code>StcFileInputOutput.FileMove</code> です。</p>' +
+          '<p class="gg-files">📄 <code>PicEdit.cs</code>(名前空間 <code>Picture</code>)、<code>Rotation.cs</code>、<code>PictMerge.cs</code>、<code>Logic.cs</code></p>',
+      },
+      {
+        title: '非同期の作り: 撮影スレッドと BackgroundWorker',
+        camera: { pos: [0, 12.2, 22], target: [0, 12.2, 0] },
+        focus: ['mw', 'wp', 'cw', 'L-ui', 'a-mw-wp', 'a-mw-cw'],
+        show: ['a-mw-wp', 'a-mw-cw'],
+        html:
+          '<p>時間のかかる処理は、画面を固めないよう別スレッドで動かします。2種類あります。</p>' +
+          '<table><tr><th>処理</th><th>しくみ</th></tr>' +
+          '<tr><td>連続キャプチャ</td><td>専用の <code>Thread</code>(<b>STA</b>)。<code>SendKeys</code> と <code>Clipboard</code> が STA を必要とするため。UI への報告だけ <code>Dispatcher.Invoke</code>。中断は <code>CaptWindow.IsStopRequest</code> の旗</td></tr>' +
+          '<tr><td>Trim / Rotation / PictMerge / DistOrient</td><td><code>BackgroundWorker</code> ×4(<code>WorkerReportsProgress</code> / <code>WorkerSupportsCancellation</code>)。<code>DoWork</code> は別スレッド、<code>ProgressChanged</code> と <code>RunWorkerCompleted</code> は UI スレッド。中断は <code>CancelAsync</code> → <code>CancellationPending</code></td></tr></table>' +
+          '<ul><li>各タブのボタンは<b>実行中は「中断」に変わる</b>(<code>IsBusy</code> のとき押すと <code>CancelAsync</code>)。二重起動を防ぎます</li>' +
+          '<li>終了時の「キャンセル/エラー」表示は共通の <code>ShowWorkerCompletion</code> に集約</li>' +
+          '<li>撮影スレッドの <code>_isCaptureRunning</code> は、スレッドの後片付けが終わるまで <code>true</code> のまま(終わる前にもう一度押されても二重に起動しない)</li></ul>' +
+          '<p class="gg-files">📄 <code>CaptureWindow.cs</code>、<code>MainWindow.xaml.cs</code> の <code>ShowWorkerCompletion</code> / <code>BkgWorker_ProgressChanged</code>、<code>PictTrim.cs</code> の <code>Button_Trim_Click</code></p>',
+      },
+      {
+        title: '共通部品(1): 撮影の本体 CaptWindow と道具箱',
+        camera: { pos: [-3, 8.4, 22], target: [-3, 8.4, 0] },
+        focus: ['cw', 'stc', 'u32', 'wf', 'gdi', 'mw', 'L-common', 'a-mw-cw', 'a-mw-stc', 'a-cw-u32', 'a-cw-wf', 'a-cw-gdi'],
+        show: ['a-mw-cw', 'a-mw-stc', 'a-cw-u32', 'a-cw-wf', 'a-cw-gdi'],
+        html:
+          '<p>撮影の本体は <code>_Common/StandardTemplateClass.cs</code> の <b><code>CaptWindow</code></b> です。Cheetos のほか、WinForms 版や他のツールとも共有します。</p>' +
+          '<ul><li><b>状態</b>: <code>IsStopRequest</code> / <code>IsCaptureCase</code> / <code>FileFormat</code> / <code>FileIdx</code> / <code>CaptureTarget</code> / <code>MousePt</code> / <code>SleepTime</code> / <code>TargetWindow</code></li>' +
+          '<li><b>操作</b>: <code>SetXxx</code> で設定 → <code>ExecuteSleep</code>(待つ) → <code>MouseProc</code>(<code>SendInput</code>) → <code>CaptureProc</code>(撮る)。失敗したファイル名は <code>GetErrorLog</code> で取り出す</li>' +
+          '<li><b>外とのやり取り</b>: <code>user32.dll</code>(<code>SendInput</code>、<code>EnumDisplaySettingsA</code>)、WinForms(<code>SendKeys</code>・<code>Clipboard</code>・<code>Screen</code>・<code>Cursor</code>)、GDI+(<code>CopyFromScreen</code>・<code>Save</code>)</li></ul>' +
+          '<p>同じファイルの <code>StcUtils</code>(<code>SetCurrentDirectory</code> / <code>ExecutePath</code>)、<code>StcFileInputOutput</code>(<code>EnsureDirectory</code> / <code>FileMove</code>)、<code>StcDebug</code>(ログ)は、<code>MainWindow</code> が<b>フィールドとして持って</b>使う道具箱です。</p>' +
+          '<p class="gg-files">📄 <code>_Common/StandardTemplateClass.cs</code>(<code>CaptWindow</code> / <code>StcUtils</code> / <code>StcFileInputOutput</code> / <code>StcDebug</code>)</p>',
+      },
+      {
+        title: '共通部品(2): 設定の保存とデータ保存先',
+        camera: { pos: [1.5, 8.0, 21], target: [1.5, 8.0, 0] },
+        focus: ['sr', 'json', 'udl', 'nj', 'cp', 'mw', 'L-common', 'a-mw-sr', 'a-mw-udl', 'a-sr-json', 'a-json-nj', 'a-udl-cp'],
+        show: ['a-mw-sr', 'a-mw-udl', 'a-sr-json', 'a-json-nj', 'a-udl-cp'],
+        html:
+          '<p>設定の保存・復元と、保存先フォルダの決め方は、まるごと共通部品です。</p>' +
+          '<table><tr><th>部品</th><th>責務</th></tr>' +
+          '<tr><td><code>WpfSaveRestore</code></td><td>コントロールを「属性名|項目名」で登録(<code>RegisterCtrl</code> / <code>RegisterGrid</code> / <code>RegisterCtrlList</code>)し、<code>Save</code> / <code>Load</code> / <code>LoadOrDefault</code>。保存形式は <code>GenericProfile</code></td></tr>' +
+          '<tr><td><code>WpfProfile</code></td><td>設定ファイルのプルダウン一覧(<code>UpdateProfileList</code>)と、名前を付けて保存(<code>SaveProfileWithDialog</code>)</td></tr>' +
+          '<tr><td><code>JsonFileStorage</code> / <code>AtomicFile</code></td><td>JSON の読み書き(Json.NET)。書くときは一時ファイル経由なので、途中で止まっても壊れにくい。読めないときは <code>default</code> を返す</td></tr>' +
+          '<tr><td><code>UserDataLocation</code></td><td>保存先は <code>%LOCALAPPDATA%\\Cheetos\\</code>。<b>exe の隣の <code>DataFolder.txt</code></b> の1行目があれば、そちら(消えても次回起動で自己修復)</td></tr>' +
+          '<tr><td><code>WpfDataFolderMenu</code> / <code>DataFolderMenu</code> / <code>DataFolderChooser</code></td><td>タイトルバーの「データ保存先を変更」。フォルダ選びは WindowsAPICodePack の <code>CommonOpenFileDialog</code>、設定ファイルの引っ越しも担当</td></tr></table>' +
+          '<p class="gg-files">📄 <code>_Common/Wpf/WpfSaveRestore.cs</code> / <code>WpfProfile.cs</code> / <code>WpfDataFolderMenu.cs</code>、<code>_Common/JsonFileStorage.cs</code> / <code>AtomicFile.cs</code> / <code>UserDataLocation.cs</code> / <code>DataFolderChooser.cs</code></p>',
+      },
+      {
+        title: '共通部品(3): 入力欄などの WPF 部品',
+        camera: { pos: [4, 8.6, 20], target: [4, 8.6, 0] },
+        focus: ['ctl', 'app', 'stc', 'wpf', 'mw', 'L-common', 'a-mw-ctl', 'a-ctl-wpf', 'a-app-ctl'],
+        show: ['a-mw-ctl', 'a-ctl-wpf', 'a-app-ctl'],
+        html:
+          '<p>画面の入力欄の多くは、共通の <code>TextBoxEx</code> / <code>ComboBoxEx</code>(<code>WpfPathDropControls.cs</code>)です。</p>' +
+          '<ul><li><b>ドラッグ＆ドロップでパスを入れる</b>(<code>FolderPathOnly</code> が既定の true なら、ファイルを落とすと親フォルダのパスになる。DistOrient の「対象ファイル」や Sample の「ファイル名」は <code>FolderPathOnly="False"</code>)</li>' +
+          '<li>空欄のとき薄く出る<b>入力例</b>(<code>WpfPlaceholder</code>。「例: C:\\Capture」など)</li>' +
+          '<li>↑↓キーで数値を増減する(繰り返し数 <code>EnableUpDownIncrement</code>)</li>' +
+          '<li><code>WpfControlUtils</code>: 一覧の選択名の取得(<code>GetSelectedNames</code>)など</li>' +
+          '<li><code>StcWpfExceptionGuard</code>: 予期しない例外を握って、ダイアログで知らせる(<code>App.OnStartup</code> から1回 <code>Install</code>)</li></ul>' +
+          '<p>これらは WPF 版の他ツール(EventRecorder など)と<b>同じソースをリンクして</b>共有しています。Cheetos の <code>.csproj</code> が、必要なファイルだけを <code>_Common</code> から取り込みます。</p>' +
+          '<p class="gg-files">📄 <code>_Common/Wpf/WpfPathDropControls.cs</code> / <code>WpfPlaceholder.cs</code> / <code>WpfControlUtils.cs</code>、<code>_Common/StcWpfExceptionGuard.cs</code></p>',
+      },
+      {
+        title: 'テスト: Cheetos.Tests',
+        camera: { pos: [2, 5.4, 26], target: [2, 5.4, 0] },
+        focus: ['tst', 'ivt', 'rot', 'pic', 'logic', 'mrg', 'sr', 'L-test', 'a-tst-mw', 'a-ivt-logic'],
+        show: ['a-tst-mw', 'a-ivt-logic'],
+        html:
+          '<p>テストは MSTest(2.2.10、.NET Framework 4.7.2)で、<b>合計69件</b>。アプリ本体の <code>internal</code> を <code>InternalsVisibleTo("Cheetos.Tests")</code> で見せています。</p>' +
+          '<table><tr><th>ファイル</th><th>確かめていること</th></tr>' +
+          '<tr><td><code>LogicTests</code>(17)</td><td><code>BuildFilePathPrefix</code>(名前の組み立て)、<code>CalcExpectEndTime</code>、<code>TryParseInt</code>、<code>GetNonConflictFilePath</code>(連番)、<code>StepValueByArrowKey</code>(↑↓キー)、<code>ClearIfNotInteger</code>、<code>IsPortrait</code> / <code>GetTrimmedPngByteLength</code></td></tr>' +
+          '<tr><td><code>PicEditTests</code>(11)</td><td>キャンバスの大きさ、<code>TrimExec</code> / <code>MergeExec</code> のコピー位置、<code>SaveCanvas</code> の結果、<code>Dispose</code>(2回呼んでも安全・ファイルのロックが外れる)</td></tr>' +
+          '<tr><td><code>RotationTests</code>(5)</td><td><code>SetTargetFileName</code> / <code>BackUpTargetFile</code> / <code>RotateExecute</code>(角度0でも指定角度でも保存できる)</td></tr>' +
+          '<tr><td><code>PictMergeTests</code>(19)</td><td>範囲指定の書式チェック・画像ごとの範囲外判定・結合の結果</td></tr>' +
+          '<tr><td><code>SaveRestoreTests</code>(17)</td><td>実物の <code>MainWindow</code> を作り(<b>一時フォルダを保存先に指定</b>)、保存 → 読み直しで各タブの値と表が戻ること。WinForms版で保存した JSON を読めること、起動時の自動読み込み、PictTrim の終点指定の換算</td></tr></table>' +
+          '<p>画像を扱うテストは、一時フォルダに作った小さな画像だけを使い、終わったら消します。WPF のコントロールを触るテストは STA で実行します(<code>StaRunner</code>)。</p>' +
+          '<p class="gg-files">📄 <code>Tests/Cheetos.Tests/*.cs</code>、<code>Properties/AssemblyInfo.cs</code>(<code>InternalsVisibleTo</code>)</p>',
+      },
+      {
+        title: 'まとめ: 依存の向きと、分けた理由',
+        camera: CAM,
+        show: ['a-mw-logic', 'a-mw-cw', 'a-mw-sr', 'a-mw-udl', 'a-cw-u32', 'a-cw-gdi', 'a-pic-gdi', 'a-sr-json', 'a-tst-mw'],
+        html:
+          '<ul><li><b>画面 → ロジック → 外部</b>の一方通行。ロジック(<code>PicEdit</code> など)は画面を知らないので、<b>テストでき、プレビューとも共用</b>できる</li>' +
+          '<li><b>撮影の本体(<code>CaptWindow</code>)と設定の保存は共通部品</b>。WinForms 版 Cheetos や他のツールと同じソースなので、直した結果が全部に効く。保存キーを WinForms 版と同じにして、設定ファイルも互換</li>' +
+          '<li><b>別スレッドへは「名前つきの型」で値を渡す</b>(<code>WorkerParams</code>)。順番に詰めて位置で取り出す方式をやめた</li>' +
+          '<li><b>どの加工タブも「バックアップ → 加工 → 上書き」</b>。間違えても <code>Bk_</code> から戻せる</li>' +
+          '<li><b>MainWindow は大きいので、タブごとのファイルに分けた</b>(partial class)。1ファイルにすると数千行になるのを避ける</li></ul>' +
+          '<p>仕組みの動きは「データの流れ」、実際の操作は「使い方」のページで見られます。</p>' +
+          '<p class="gg-files">📄 <code>Essentials/Cheetos</code>(<code>Cheetos/</code> 本体と <code>Tests/</code>)、<code>Essentials/_Common</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="img/shots-data.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = ML.col;
+  var S = 0.011;                       // 画像1pxあたりのワールド長
+  var MW = 700, MH = 560;              // main-*.png のサイズ
+  var HW = 315, HH = 258;              // help.png のサイズ
+  var MC = [0, 4.0, 0];                // 入力済みの画面パネルの中心
+  var EC = [-9.4, 4.0, 0];             // 起動直後(空)の画面パネルの中心
+  var HC = [8.6, 5.6, 0];              // ヘルプのメッセージボックスの中心
+  function P(x, y, z) { return ML.px(MC, MW, MH, S, x, y, z); }
+
+  GameGuide.start({
+    title: 'Mailer 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面(ダミー設定)で、宛先の入力からメール作成画面を開くまでを順番に見ます',
+    camera: { pos: [-9.4, 5, 12], target: [-9.4, 4, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面パネル(実アプリのスクリーンショット) ----
+      ML.panel(g, 'win-empty', 'main-empty', MW, MH, EC, S, '起動直後の画面(入力例が薄く出ている)');
+      ML.panel(g, 'win-main', 'main-filled', MW, MH, MC, S, 'Mailer(ダミーの入力例)');
+      ML.panel(g, 'win-help', 'help', HW, HH, HC, S, '「ヘルプ」を押すと出る置換記号の一覧');
+
+      // ---- 強調枠(ステップごとに出し分け) ----
+      function box(id, c, r, color, label, off, op) {
+        var w = (r[2] - r[0]) * S, h = (r[3] - r[1]) * S;
+        var p = ML.px(c, MW, MH, S, (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, 0.1);
+        return g.box({
+          id: id, size: [w, h, 0.05], pos: p, color: color || '#ffb020',
+          emissive: color || '#ffb020', emissiveIntensity: 0.6, opacity: op || 0.4, edgeColor: color || '#ffb020',
+          label: label, labelOffset: off || [0, h / 2 + 0.4, 0.1], labelSize: 0.3, labelBg: '#000000cc',
+        });
+      }
+      function F(id, r, color, label, off) { return box(id, MC, r, color, label, off); }
+      function FE(id, r, color, label, off) { return box(id, EC, r, color, label, off, 0.2); }
+
+      // 起動直後の画面(空)
+      FE('e-win', [20, 45, 680, 100], '#4fa3ff', 'Windows設定', [2.0, 0, 0.1]);
+      FE('e-mail', [20, 112, 680, 422], '#5ee6a8', 'メール設定', [0, 0.3, 0.1]);
+      FE('e-try', [20, 438, 550, 514], '#ffb020', 'お試し機能', [1.0, 0.75, 0.1]);
+      FE('e-bottom', [20, 517, 680, 540], '#c77dff', 'プロファイル', [0, -0.5, 0.1]);
+
+      // 入力済みの画面
+      F('f-bpath', [112, 66, 670, 90], '#4fa3ff', 'ブラウザパス');
+      F('f-to', [112, 130, 670, 151], '#5ee6a8', 'To');
+      F('f-cc', [112, 156, 670, 177], '#5ee6a8', 'Cc', [-4.0, 0, 0.1]);
+      F('f-bcc', [112, 182, 670, 203], '#5ee6a8', 'Bcc', [-4.0, 0, 0.1]);
+      F('f-subj', [112, 208, 670, 229], '#ffd166', '件名(置換記号が使える)');
+      F('f-body', [112, 235, 670, 411], '#7ef0ff', '本文(置換されない)', [0, 0, 0.1]);
+      F('f-btn', [590, 465, 680, 489], '#ff5f6d', 'ブラウザで表示', [-0.2, 0.55, 0.1]);
+      F('f-help', [590, 491, 680, 515], '#c77dff', 'ヘルプ', [0.9, 0, 0.1]);
+      F('f-date', [88, 452, 228, 478], '#ffd166', '起点日', [-0.9, 0.55, 0.1]);
+      F('f-num', [340, 456, 388, 475], '#5ee6a8', '生成数', [0, 0.45, 0.1]);
+      F('f-rev', [88, 482, 152, 500], '#c77dff', 'Reverse', [-0.6, -0.4, 0.1]);
+      F('f-int', [340, 482, 388, 501], '#7ef0ff', 'インターバル', [0, -0.45, 0.1]);
+      F('f-batch', [396, 454, 540, 515], '#ff5f6d', '一括表示', [0, 0.95, 0.1]);
+      F('f-combo', [20, 517, 586, 539], '#7ef0ff', '保存済みプロファイル', [-1.2, -0.45, 0.1]);
+      F('f-save', [590, 517, 680, 539], '#ffb020', '設定保存', [0.5, -0.45, 0.1]);
+
+      // ---- 件名の置換記号 → ヘルプ ----
+      g.arrow(P(640, 219, 0.15), [HC[0] - 2.0, HC[1] - 0.4, 0.2], { id: 'a-subj-help', color: '#ffd166', lift: 1.4, radius: 0.05 });
+
+      // ---- ブラウザで表示 → Gmail ----
+      g.box({ id: 'x-gmail', size: [4.6, 1.3, 0.5], pos: [8.6, 1.0, 0], color: C.os, radius: 0.2,
+              label: 'ブラウザ\nGmail の作成画面\n(宛先・件名・本文が入った状態)', labelSize: 0.28, labelBg: '#00000099', labelOffset: [0, 0, 0.4] });
+      g.arrow(P(635, 477, 0.15), [6.2, 1.2, 0.2], { id: 'a-open', color: '#ff5f6d', lift: 0.8, radius: 0.05 });
+      g.sphere({ id: 'p-open', radius: 0.16, pos: [0, -50, 0], color: '#ffe38a', emissive: '#ffd166' });
+
+      // ---- 一括表示: 日付をずらした作成画面が並ぶ ----
+      var days = ['2026/10/30 (金曜日)', '2026/10/29 (木曜日)', '2026/10/28 (水曜日)', '2026/10/27 (火曜日)', '2026/10/26 (月曜日)'];
+      days.forEach(function (d, i) {
+        g.box({ id: 'card' + i, size: [5.0, 0.72, 0.3], pos: [8.6, 5.3 - i * 1.0, 0], color: i === 0 ? '#ff9f43' : C.os, radius: 0.15,
+                label: (i + 1) + '通目: 日報 ' + d, labelSize: 0.27, labelBg: '#00000099', labelOffset: [0, 0, 0.3] });
+      });
+      g.arrow(P(468, 484, 0.15), [5.8, 3.3, 0.2], { id: 'a-batch', color: '#ff5f6d', lift: 1.2, radius: 0.05 });
+      g.sphere({ id: 'p-batch', radius: 0.16, pos: [0, -50, 0], color: '#ffe38a', emissive: '#ffd166' });
+
+      // ---- 保存: プロファイル(JSON) ----
+      g.box({ id: 'x-json', size: [4.4, 1.1, 0.5], pos: [-0.2, -1.4, 0], color: C.file, radius: 0.2,
+              label: 'Mailer.json\n(保存先フォルダ内のプロファイル)', labelSize: 0.28, labelBg: '#00000099', labelOffset: [0, 0, 0.4] });
+      g.arrow(P(635, 528, 0.15), [1.9, -1.1, 0.2], { id: 'a-save', color: '#ffd166', lift: 0.9, radius: 0.05 });
+      g.sphere({ id: 'p-save', radius: 0.16, pos: [0, -50, 0], color: '#ffe38a', emissive: '#ffd166' });
+    },
+
+    steps: [
+      {
+        title: '1. 起動した画面',
+        camera: { pos: [-9.4, 5, 12], target: [-9.4, 4, 0] },
+        show: ['win-empty', 'e-win', 'e-mail', 'e-try', 'e-bottom'],
+        html:
+          '<p><code>Mailer.exe</code> を起動した直後の画面です(初めてのときは空で、各欄には薄い灰色の<b>入力例</b>が出ます)。大きく4つの区画に分かれます。</p>' +
+          '<ul><li><b>Windows設定</b>: メール作成画面を開く<b>ブラウザのexe</b>のパス</li>' +
+          '<li><b>メール設定</b>: To / Cc / Bcc / 件名 / 本文</li>' +
+          '<li><b>お試し機能</b>: 日付をずらしてまとめて開く「一括表示」の設定</li>' +
+          '<li>最下段: 保存済みのプロファイル(設定)の選択と「設定保存」</li></ul>' +
+          '<div class="gg-note">以降の図は、図解用に作った<b>ダミー設定</b>(example.com の架空アドレス・架空の件名)です。</div>' +
+          '<p class="gg-files">ドラッグで回転・ホイールで拡大縮小もできます。</p>',
+        update: function (g, t) { ['e-win', 'e-mail', 'e-try', 'e-bottom'].forEach(function (id) { g.pulse(g.get(id), t, 0.006); }); },
+      },
+      {
+        title: '2. ブラウザのパスを入れる',
+        camera: { pos: [0, 6, 11], target: [0, 5.2, 0] },
+        show: ['f-bpath'],
+        html:
+          '<p><b>ブラウザパス</b>に、メール作成画面を開きたいブラウザのexeを書きます(例: <code>chrome.exe</code>)。</p>' +
+          '<ul><li>PATHが通っていれば、<b>ファイル名だけ</b>でも動きます</li>' +
+          '<li>ここに書いたブラウザに、GmailのURLを引数として渡して起動します</li>' +
+          '<li>欄の上で<b>Enterキー</b>を押すと、そのブラウザをそのまま起動できます(パスの確認用)</li>' +
+          '<li>存在しないパスだと「ファイルが存在しません」と出て、何も開きません</li></ul>',
+        update: function (g, t) { g.pulse(g.get('f-bpath'), t, 0.05); },
+      },
+      {
+        title: '3. 宛先(To / Cc / Bcc)',
+        camera: { pos: [0, 5.2, 10], target: [0, 5.0, 0] },
+        show: ['f-to', 'f-cc', 'f-bcc'],
+        html:
+          '<p>宛先を入れます。空欄の項目は、URLに付けないので<b>作成画面でも空のまま</b>です。</p>' +
+          '<ul><li>複数の宛先は、Gmailの作成画面と同じく<b>カンマ区切り</b>で書けます</li>' +
+          '<li><code>user+tag@example.com</code> のような「+」入りのアドレスも、そのまま正しく渡ります(URLエスケープ済み)</li></ul>' +
+          '<div class="gg-note">この図のアドレスはすべて example.com の架空のものです。</div>',
+        update: function (g, t) { ['f-to', 'f-cc', 'f-bcc'].forEach(function (id) { g.pulse(g.get(id), t, 0.04); }); },
+      },
+      {
+        title: '4. 件名と置換記号',
+        camera: { pos: [4, 5.8, 12], target: [4, 5.0, 0] },
+        show: ['f-subj', 'f-help', 'win-help', 'a-subj-help'],
+        html:
+          '<p>件名には、開く時点の日付に置き換わる<b>置換記号</b>(<code>%%…%%</code>)を書けます。<b>ヘルプ</b>ボタンで一覧が出ます。</p>' +
+          '<table><tr><th>記号</th><th>置換結果の例</th></tr>' +
+          '<tr><td><code>%%today%%</code> / <code>%%TODAY%%</code></td><td>10/26 / 2026/10/26(実行日)</td></tr>' +
+          '<tr><td><code>%%tomorrow%%</code> / <code>%%TOMORROW%%</code></td><td>10/27 / 2026/10/27</td></tr>' +
+          '<tr><td><code>%%weekend%%</code> / <code>%%WEEKEND%%</code></td><td>次の金曜日(金曜は当日)</td></tr>' +
+          '<tr><td><code>%%usersday%%</code> / <code>%%USERSDAY%%</code></td><td>起点日の日付</td></tr>' +
+          '<tr><td><code>%%dayofweek%%</code> / <code>%%DAYOFWEEK%%</code></td><td>月 / 月曜日(起点日の曜日)</td></tr></table>' +
+          '<div class="gg-note">小文字は年なし(<code>10/26</code>)、<b>大文字は年あり</b>(<code>2026/10/26</code>)・曜日は正式名。置換は<b>件名だけ</b>で、本文には効きません。</div>',
+        update: function (g, t) { g.pulse(g.get('f-subj'), t, 0.05); g.pulse(g.get('f-help'), t, 0.1); },
+      },
+      {
+        title: '5. 本文',
+        camera: { pos: [0, 4.2, 10.5], target: [0, 4.0, 0] },
+        show: ['f-body'],
+        html:
+          '<p>本文は複数行を書けます(<code>AcceptsReturn</code>)。改行も含めて、そのまま作成画面の本文欄に入ります。</p>' +
+          '<ul><li>置換記号は<b>本文では置き換わりません</b>(そのままの文字で入る)</li>' +
+          '<li>「&amp;」「#」「%」を含む文章でも、途中で切れたり化けたりしないようエスケープして渡します</li>' +
+          '<li>あまりに長い本文は、URLが長すぎてブラウザに渡せないため、メッセージを出して止めます(約32,000文字まで)</li></ul>',
+        update: function (g, t) { g.pulse(g.get('f-body'), t, 0.012); },
+      },
+      {
+        title: '6. 「ブラウザで表示」',
+        camera: { pos: [3.8, 3.4, 14], target: [3.8, 3.1, 0] },
+        show: ['f-btn', 'a-open', 'x-gmail', 'p-open'],
+        html:
+          '<p><b>ブラウザで表示</b>を押すと、入力内容を埋めた<b>Gmailの新規作成画面</b>がブラウザで開きます。</p>' +
+          '<ul><li>開くだけで<b>送信はしません</b>。内容を確認して、自分で送信ボタンを押します</li>' +
+          '<li>件名の置換記号は、このとき<b>起点日</b>(と今日の日付)で置き換わります</li>' +
+          '<li>起点日が空欄なら今日、未入力の項目はURLに付けません</li></ul>' +
+          '<div class="gg-note">このページの撮影では、ブラウザを開くボタンは押していません(図は動きのイメージです)。</div>',
+        update: function (g, t) { ML.fly(g, 'p-open', 'open', t, 0.2, 1.4, 3); g.pulse(g.get('f-btn'), t, 0.08); },
+      },
+      {
+        title: '7. 一括表示(日付をずらして開く)',
+        camera: { pos: [3.6, 4.0, 15.5], target: [3.6, 3.4, 0] },
+        show: ['f-date', 'f-num', 'f-rev', 'f-int', 'f-batch', 'a-batch', 'p-batch', 'card0', 'card1', 'card2', 'card3', 'card4'],
+        html:
+          '<p><b>一括表示</b>は、<b>起点日から生成数の日数分</b>、日付をずらした作成画面を順に開きます(<code>%%usersday%%</code>が1日ずつ進む)。</p>' +
+          '<table><tr><th>設定</th><th>意味</th></tr>' +
+          '<tr><td>起点日</td><td>1通目の日付(<code>%%usersday%%</code>・<code>%%dayofweek%%</code>の基準)。空欄なら今日</td></tr>' +
+          '<tr><td>生成数</td><td>開く通数(=日数)。図は5</td></tr>' +
+          '<tr><td>Reverse</td><td>オンなら<b>日付の遅い順</b>に開く(図は金曜から月曜へ)</td></tr>' +
+          '<tr><td>インターバル</td><td>1通開くごとに待つ時間(msec)。待っている間は画面を操作できない</td></tr></table>' +
+          '<p>例: 件名 <code>日報 %%USERSDAY%% (%%DAYOFWEEK%%)</code>・起点日 2026/10/26・生成数 5 なら、図の右のように5通ぶんの作成画面が開きます。</p>',
+        update: function (g, t) {
+          ML.fly(g, 'p-batch', 'batch', t, 0.2, 1.4, 3);
+          for (var i = 0; i < 5; i++) { g.pulse(g.get('card' + i), t - i * 0.7, 0.04); }
+        },
+      },
+      {
+        title: '8. 設定を保存する',
+        camera: { pos: [0, 3.4, 14.5], target: [0, 2.6, 0] },
+        show: ['f-combo', 'f-save', 'a-save', 'x-json', 'p-save'],
+        html:
+          '<p>入力した内容は、<b>設定保存</b>で名前を付けて保存でき、下の一覧から選ぶと読み込まれます(複数の宛先パターンを使い分けられる)。</p>' +
+          '<ul><li>保存するのは、ブラウザパス・To・Cc・Bcc・件名・本文の6項目(JSON)</li>' +
+          '<li>既定の名前は <code>Mailer.json</code>。これは<b>次回起動時に自動で読み込まれる</b>設定です</li>' +
+          '<li>保存先は <code>%LOCALAPPDATA%\\Mailer\\</code>(タイトルバーのメニュー「データ保存先を変更」で変えられる)</li>' +
+          '<li>起点日・生成数・Reverse・インターバルは保存対象ではありません</li></ul>' +
+          '<p class="gg-files">データが実際にどう流れるかは「データの流れ」、作りは「内部設計」のページへ。</p>',
+        update: function (g, t) { ML.fly(g, 'p-save', 'save', t, 0.2, 1.4, 3); g.pulse(g.get('f-save'), t, 0.08); },
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>
