@@ -116,7 +116,9 @@
   function texture(canvas) {
     var tx = new T.CanvasTexture(canvas);
     tx.anisotropy = 4;
-    tx.minFilter = T.LinearFilter;
+    // ミップマップ有りで縮小する（無しだと遠くのラベルで `_` などの細い線が消える）
+    tx.minFilter = T.LinearMipmapLinearFilter;
+    tx.generateMipmaps = true;
     return tx;
   }
 
