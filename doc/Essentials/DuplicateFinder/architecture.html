@@ -195,7 +195,8 @@
         html:
           '<p><b>FileDeleter</b>(static): <code>Delete(path, toRecycleBin, ownerWindow)</code> が1件を消し、<b>成功なら null、失敗なら理由の文字列</b>を返します。ごみ箱へは <code>SHFileOperation</code>(<code>FOF_ALLOWUNDO</code> ほか)、OFFなら <code>File.Delete</code>。シェルの確認ダイアログが出ることがあるので、UIスレッドから呼びます。</p>' +
           '<p>「消す前の確認」(変更されていないか・残す側が残っているか)は画面側 <code>MainWindow.CheckBeforeDelete</code> が担当し、<code>FileDeleter</code> は「消す」だけに絞っています。</p>' +
-          '<p><b>AppSettings</b>: 前回の入力(<code>RootFolders</code>・<code>CrossRootOnly</code>・<code>MinSizeMb</code>・<code>Extensions</code>・<code>SkipHiddenAndSystem</code>・<code>MaxParallelism</code>・<code>UseRecycleBin</code>・<code>KeepRule</code>)。<code>%LOCALAPPDATA%\\DuplicateFinder\\settings.json</code> に Newtonsoft.Json で保存し、壊れていたら既定値で起動。起動時に <code>Load</code>、<code>Window_Closing</code> で <code>Save</code>。</p>' +
+          '<p><b>AppSettings</b>: 前回の入力(<code>RootFolders</code>・<code>CrossRootOnly</code>・<code>MinSizeMb</code>・<code>Extensions</code>・<code>SkipHiddenAndSystem</code>・<code>MaxParallelism</code>・<code>UseRecycleBin</code>・<code>KeepRule</code>)。<code>settings.json</code> に Newtonsoft.Json で保存し、壊れていたら既定値で起動。起動時に <code>Load</code>、<code>Window_Closing</code> で <code>Save</code>。置き場は <code>UserDataLocation.GetUserDataFolder("DuplicateFinder")</code> が決め(exe横の <code>DataFolder.txt</code> の1行目、無ければ既定の <code>%LOCALAPPDATA%\\DuplicateFinder\\</code>)、<code>MainWindow</code> は <code>_userDataFolder</code> を持つ。</p>' +
+          '<p><b>データ保存先の変更</b>: <code>WpfDataFolderMenu.Attach</code> がシステムメニューに「データ保存先を変更」を追加し、<code>MainWindow.ChangeDataFolder</code> → <code>DataFolderMenu.ChangeDataFolder</code> を呼ぶ。設定ファイルは1つだけなので <code>MoveSettingFile</code> でそれだけ引っ越し、完了後の <code>onFolderChanged</code> で <code>_userDataFolder</code> を差し替えて <code>ApplySettings(AppSettings.Load(…))</code> を呼び直す(再起動不要)。検索中・削除中は断る。</p>' +
           '<p class="gg-files">📄 <code>FileDeleter.cs</code>、<code>AppSettings.cs</code></p>',
       },
       {
@@ -209,9 +210,11 @@
           '<tr><td><code>kernel32.dll</code></td><td><code>GetFileInformationByHandleEx</code> / <code>GetFileInformationByHandle</code> で「ボリューム＋ファイルID」を取得。ハードリンクや別名のパスで見つかった<b>同じ実体</b>を1件にまとめる(ReFSの128bit IDにも対応)</td></tr>' +
           '<tr><td><code>shell32.dll</code> の <code>SHFileOperation</code></td><td>ごみ箱への移動</td></tr>' +
           '<tr><td>Newtonsoft.Json 13.0.3</td><td>設定の保存・読み込み</td></tr>' +
-          '<tr><td><code>System.Windows.Forms</code></td><td>フォルダ選択ダイアログ(<code>FolderBrowserDialog</code>)</td></tr>' +
-          '<tr><td><code>_Common/StcWpfExceptionGuard.cs</code></td><td>共通の例外ガード。csproj の <code>Compile Include … Link</code> で<b>ファイルとして取り込む</b>(別DLLにしない)</td></tr></table>' +
-          '<p class="gg-files">📄 <code>DuplicateFinder.csproj</code>、<code>Essentials\\_Common\\StcWpfExceptionGuard.cs</code></p>',
+          '<tr><td><code>System.Windows.Forms</code></td><td>フォルダ選択ダイアログ(<code>FolderBrowserDialog</code>)と、共通の <code>DataFolderMenu</code> の参照</td></tr>' +
+          '<tr><td>WindowsAPICodePack-Shell 1.1.1</td><td>データ保存先を選ぶフォルダ選択ダイアログ(<code>DataFolderChooser</code>)</td></tr>' +
+          '<tr><td><code>_Common/StcWpfExceptionGuard.cs</code></td><td>共通の例外ガード。csproj の <code>Compile Include … Link</code> で<b>ファイルとして取り込む</b>(別DLLにしない)</td></tr>' +
+          '<tr><td><code>_Common/UserDataLocation.cs</code> / <code>DataFolderMenu.cs</code> / <code>DataFolderChooser.cs</code> / <code>Wpf/WpfDataFolderMenu.cs</code></td><td>設定の置き場の決定(<code>DataFolder.txt</code>方式)と、システムメニューからの変更。同じく<b>ファイルとして取り込む</b></td></tr></table>' +
+          '<p class="gg-files">📄 <code>DuplicateFinder.csproj</code>、<code>Essentials\\_Common\\StcWpfExceptionGuard.cs</code> ほか</p>',
       },
       {
         title: '検索ボタンを押したときの呼び出しの流れ',

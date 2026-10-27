@@ -237,8 +237,9 @@
           '<p>タイトルバーを右クリックしたシステムメニューの「データ保存先を変更(&amp;D)...」の流れです(<code>WpfDataFolderMenu.Attach</code> → <code>DataFolderMenu.ChangeDataFolder</code>)。</p>' +
           '<ol><li><code>DataFolderChooser</code>でフォルダを選ぶ(キャンセル・今と同じ場所なら何もしない)</li>' +
           '<li><code>DataFolderMenu.MoveProfiles</code>: 今のプロファイル(<code>*.json</code>)を新しい場所へ移すか確認。同名があればスキップ</li>' +
-          '<li><code>UserDataLocation.SetUserDataFolder</code>で<code>DataFolder.txt</code>を書き換える</li></ol>' +
-          '<div class="gg-note">変更が反映されるのは<b>次回起動時</b>から(実行中の保存先は<code>readonly</code>で確定済み)。</div>',
+          '<li><code>UserDataLocation.SetUserDataFolder</code>で<code>DataFolder.txt</code>を書き換える</li>' +
+          '<li>完了ダイアログを閉じると、<code>onFolderChanged</code>が呼ばれる。<code>_userDataFolder</code>を新しい場所に差し替え、起動時と同じ読み込み(<code>LoadOrDefault</code> → プロファイル一覧の更新)をやり直す</li></ol>' +
+          '<div class="gg-note"><b>再起動は不要</b>。新しい保存先に設定ファイルが無ければ、画面は空っぽの初期状態になり、プロファイル一覧にも旧保存先のものは出ない。</div>',
         update: function (g, t) {
           ML.chain(g, 'pk1', ['sysm-chooser', 'chooser-ptr'], t, 1.4, 4);
         },

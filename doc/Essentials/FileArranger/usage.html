@@ -195,7 +195,7 @@
         '<p>例: <code>作品A_05.jpg</code>・<code>作品A_06.jpg</code> の2件は、<code>作品A_01</code> を <code>作品A_03</code> に改名して入ります。</p>' +
         '<p class="gg-note">移動後名称は、下のコンボボックスに入力して手で直すこともできます。</p>'),
       mk(0, 'save', '設定の保存と読込', '<p>画面右下の「<b>設定値保存</b>」(Ctrl+S)で、入力値をJSONファイルに保存します。左のプルダウンで保存済みの設定を選ぶと、すぐ読み込まれます。</p><ul>' +
-        '<li>起動時は <code>FileArranger.json</code> を自動で読みます。</li><li>保存先は既定で <code>%LOCALAPPDATA%\\FileArranger\\</code>。タイトルバーを右クリックして「データ保存先を変更」で変えられます。</li>' +
+        '<li>起動時は <code>FileArranger.json</code> を自動で読みます。</li><li>保存先は既定で <code>%LOCALAPPDATA%\\FileArranger\\</code>。タイトルバーを右クリックして「データ保存先を変更」で変えられます。変更後は再起動せず、その場で新しい場所のプロファイルを読み込みます(無ければ空っぽ)。</li>' +
         '<li>読込むとタブの一覧はいったん空になります(リストアップし直し)。</li></ul>' +
         '<p>画面の仕組みは「<a href="dataflow.html">データの流れ</a>」と「<a href="architecture.html">内部設計</a>」で詳しく。</p>'),
   ];

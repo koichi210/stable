@@ -177,7 +177,7 @@
           '<tr><td><code>TextBoxEx</code> / <code>Placeholder</code></td><td>入力欄と、薄い入力例の表示(XAMLの<code>stc:Placeholder.Text</code>)</td></tr>' +
           '<tr><td><code>JsonFileStorage</code> / <code>AtomicFile</code></td><td>JSONの読み書き。書き込みは一時ファイル経由で、途中で落ちても壊れにくい</td></tr>' +
           '<tr><td><code>UserDataLocation</code></td><td>保存先の決定(<code>DataFolder.txt</code>方式、既定は<code>%LOCALAPPDATA%\\Mailer</code>)</td></tr>' +
-          '<tr><td><code>WpfDataFolderMenu</code> / <code>DataFolderMenu</code></td><td>システムメニューの「データ保存先を変更」と引っ越し</td></tr>' +
+          '<tr><td><code>WpfDataFolderMenu</code> / <code>DataFolderMenu</code></td><td>システムメニューの「データ保存先を変更」と引っ越し。完了後は <code>onFolderChanged</code> で新しい場所を再読み込み(再起動不要)</td></tr>' +
           '<tr><td><code>StcUtils</code> / <code>StcFileInputOutput</code></td><td>ブラウザの起動(<code>ExecuteProcess</code>)・パス確認・保存ダイアログ</td></tr>' +
           '<tr><td><code>StcWpfExceptionGuard</code></td><td>予期しない例外の通知(<code>App</code>から)</td></tr></table>' +
           '<div class="gg-note">保存先や保存形式の仕組みは、他のEssentialsツールと同じ部品です。直すと全ツールに効きます。</div>',

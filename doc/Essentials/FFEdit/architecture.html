@@ -203,7 +203,7 @@
           '<li>保存: <code>SaveSetting</code> が履歴を足してから <code>WpfSaveRestore.Save</code> → <code>GenericProfile</code> を <code>JsonFileStorage.Save</code>(<b>Newtonsoft.Json</b>・UTF-8・整形つき)。書くときは <code>AtomicFile</code> 経由で、一時ファイルに書き切ってから置き換えるので、書き込み途中で落ちても元のファイルは壊れない</li>' +
           '<li>読み込み: <code>JsonFileStorage.Load&lt;GenericProfile&gt;</code>。ファイルが無い・壊れているときは <code>default</code> が返り、既定値のまま起動</li>' +
           '<li>保存先: <code>UserDataLocation.GetUserDataFolder("FFEdit")</code> が、exe横の <code>DataFolder.txt</code> の1行目を読む。無ければ <code>%LOCALAPPDATA%\\FFEdit\\</code> を使い、<code>DataFolder.txt</code> を作り直す</li>' +
-          '<li>変更: タイトルバーのシステムメニューに <code>WpfDataFolderMenu.Attach</code> が「データ保存先を変更」を追加。選んだあと、<code>MoveSettingFile</code>(FFEdit は設定ファイル1つだけなのでこれだけ引っ越す)が呼ばれる。フォルダ選択は <code>DataFolderChooser</code>(WindowsAPICodePack-Shell の <code>CommonOpenFileDialog</code>)</li></ul>' +
+          '<li>変更: タイトルバーのシステムメニューに <code>WpfDataFolderMenu.Attach</code> が「データ保存先を変更」を追加。選んだあと、<code>MoveSettingFile</code>(FFEdit は設定ファイル1つだけなのでこれだけ引っ越す)が呼ばれ、完了後の <code>onFolderChanged</code> で保存先を差し替えて <code>LoadProc</code> を呼び直す(再起動不要)。フォルダ選択は <code>DataFolderChooser</code>(WindowsAPICodePack-Shell の <code>CommonOpenFileDialog</code>)</li></ul>' +
           '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RegisterSettingItems</code> / <code>SaveSetting</code> / <code>LoadProc</code> / <code>MoveSettingFile</code></p>',
       },
       {

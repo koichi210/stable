@@ -267,7 +267,7 @@
           '<p>いちばん下は<b>設定の保存</b>です。</p>' +
           '<ul><li><b>設定値保存</b>(または <code>Ctrl+S</code>)で、全タブの入力値と表の中身を <code>JSON</code> ファイルに保存。プルダウンで選ぶと読み込みます。複数の設定を名前を付けて使い分けられます</li>' +
           '<li>起動時は <code>Cheetos.json</code> を自動で読み込みます(無ければ既定値)</li>' +
-          '<li>保存先は <code>%LOCALAPPDATA%\\Cheetos\\</code>。<b>exe と同じフォルダの <code>DataFolder.txt</code></b> の1行目のパスで別の場所に変えられます(タイトルバーを右クリックしても変更できる)</li>' +
+          '<li>保存先は <code>%LOCALAPPDATA%\\Cheetos\\</code>。<b>exe と同じフォルダの <code>DataFolder.txt</code></b> の1行目のパスで別の場所に変えられます(タイトルバーを右クリックしても変更できる。変更後は再起動せず、その場で新しい場所のプロファイルを読み込む)</li>' +
           '<li>以前の WinForms 版 Cheetos で保存した設定ファイルも、そのまま読めます</li></ul>' +
           '<p class="gg-note">ラベル(「フォルダパス：」など)を<b>ダブルクリック</b>するとパス欄の読み取り専用を切り替えられます。パス欄は、フォルダのドラッグ＆ドロップで入れるのが基本です。</p>' +
           '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>RegisterSaveRestoreItems</code> / <code>ProfileSave_Click</code>、<code>_Common/Wpf/WpfSaveRestore.cs</code> / <code>WpfProfile.cs</code> / <code>UserDataLocation.cs</code></p>',

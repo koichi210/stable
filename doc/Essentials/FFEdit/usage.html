@@ -185,7 +185,7 @@
         html:
           '<p><b>設定保存</b>ボタン(または <code>Ctrl+S</code>)で、対象フォルダの履歴・下の2つの入力欄の履歴・フィルターを <code>FFEdit.json</code> に保存し、次回起動で復元します(押したときだけ保存。選んだモードやチェックは保存しません)。</p>' +
           '<ul><li>既定の保存先は <code>%LOCALAPPDATA%\\FFEdit\\</code>。exeと同じ場所の <code>DataFolder.txt</code>(1行目が保存先のパス)で場所を変えられます</li>' +
-          '<li>タイトルバーを右クリック → <b>データ保存先を変更</b> でフォルダを選ぶと、設定ファイルを新しい場所へ引っ越せます</li>' +
+          '<li>タイトルバーを右クリック → <b>データ保存先を変更</b> でフォルダを選ぶと、設定ファイルを新しい場所へ引っ越せます。完了後は再起動せず、その場で新しい場所の設定を読み込みます(無ければ空っぽの初期状態)</li>' +
           '<li>ファイルが無い・壊れていても既定値で起動します</li></ul>' +
           '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>SaveSetting</code> / <code>LoadProc</code> / <code>MoveSettingFile</code>、<code>_Common\\UserDataLocation.cs</code></p>',
       },

@@ -217,7 +217,7 @@
           '<tr><td><code>JsonFileStorage</code></td><td>JSONの <code>Save&lt;T&gt;</code> / <code>Load&lt;T&gt;</code>(壊れていれば default)</td></tr>' +
           '<tr><td><code>AtomicFile</code></td><td>一時ファイル経由の安全な書き込み</td></tr>' +
           '<tr><td><code>UserDataLocation</code></td><td>DataFolder.txt と %LOCALAPPDATA% によるデータ置き場の決定</td></tr>' +
-          '<tr><td><code>DataFolderMenu</code>/<code>Chooser</code>、<code>WpfDataFolderMenu</code></td><td>システムメニュー「データ保存先を変更」と、プロファイルの引っ越し</td></tr>' +
+          '<tr><td><code>DataFolderMenu</code>/<code>Chooser</code>、<code>WpfDataFolderMenu</code></td><td>システムメニュー「データ保存先を変更」と、プロファイルの引っ越し。完了後は <code>onFolderChanged</code> で新しい場所を再読み込み(再起動不要)</td></tr>' +
           '<tr><td><code>GridRowCollection</code>/<code>GridUndoRedo</code>/<code>WpfGridHelper</code></td><td>行番号つきコレクション・Undo/Redo・スクロール補助(<code>_Common/Wpf</code>)</td></tr>' +
           '<tr><td><code>TextBoxEx</code>/<code>ComboBoxEx</code>/<code>Placeholder</code></td><td>入力欄の部品(<code>Wpf/WpfPathDropControls.cs</code>・<code>Wpf/WpfPlaceholder.cs</code>)</td></tr>' +
           '<tr><td><code>StcWpfExceptionGuard</code></td><td>未処理例外を共通形式で通知</td></tr></table>'
