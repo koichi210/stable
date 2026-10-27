@@ -58,7 +58,7 @@
       if (has(RES, p)) return { q: p.q, r: p.r, kind: 'resource' };
       var land;
       if (id === 'asia') land = !(p.q >= -1 && p.q <= 1);
-      else if (id === 'europe') land = p.r < 3;
+      else if (id === 'europe') land = p.r < 3 && !(p.q === -4 && p.r === 2); // 自軍の王都の南に海の水路を1マス
       else land = has(PAC_LAND, p);
       return { q: p.q, r: p.r, kind: land ? 'land' : 'ocean' };
     });
@@ -71,12 +71,13 @@
   WCAP.europe = rot120(WCAP.asia, 1); WCAP.americas = rot120(WCAP.asia, 2);
   var WRES = [];
   WF.forEach(function (f, i) { [{ q: -4, r: 2 }, { q: -2, r: 4 }].forEach(function (s) { WRES.push(i ? rot120(s, i) : s); }); });
+  var WCH = WF.map(function (f, i) { var c = { q: -4, r: 0 }; return i ? rot120(c, i) : c; }); // 各王都のそばの海の水路（1マス）
   function buildWorld() {
     return inRadius(7).map(function (p) {
       for (var i = 0; i < 3; i++) if (eq(p, WCAP[WF[i]])) return { q: p.q, r: p.r, kind: 'capital', owner: WF[i] };
       for (var j = 0; j < 3; j++) if (has(nbs(WCAP[WF[j]]), p)) return { q: p.q, r: p.r, kind: 'base', owner: WF[j] };
       if (has(WRES, p)) return { q: p.q, r: p.r, kind: 'resource' };
-      return { q: p.q, r: p.r, kind: dist(p, { q: 0, r: 0 }) <= 3 ? 'ocean' : 'land' };
+      return { q: p.q, r: p.r, kind: dist(p, { q: 0, r: 0 }) <= 3 || has(WCH, p) ? 'ocean' : 'land' };
     });
   }
 
@@ -292,11 +293,12 @@
       g.label('HP60', MP(4, 0, 1.55), { id: 'hpcap', parent: 'hp12', size: 0.34, color: '#ffe066', bg: '#000000cc' });
       g.label('🔒', MP(4, 0, 2.15), { id: 'lock', size: 0.5, bg: '#000000aa' });
       g.label('となり合う2つの基地を\nHP0にすると…', MP(1, 3, 1.4), { id: 'b-lbl1', size: 0.36, bg: '#000000bb' });
-      g.label('王都を攻撃できる！\n（届くのは2マス先まで撃てる空母）', MP(3, -3, 1.4), { id: 'b-lbl2', size: 0.36, color: C.gold, bg: '#000000bb' });
+      g.label('王都を攻撃できる！\n（あいた隙間に入る／空母は2マス先から）', MP(3, -3, 1.4), { id: 'b-lbl2', size: 0.36, color: C.gold, bg: '#000000bb' });
       g.label('勝利！', MP(4, 0, 2.9), { id: 'b-win', size: 0.7, color: C.good, bg: '#000000bb' });
       g.arrow(MP(2, 0, AIR - 0.1), MP(3, 0, 0.35), { id: 'a-b1', color: C.gold, lift: 0.4, radius: 0.05 });
       g.arrow(MP(2, 1, 0.3), MP(3, 1, 0.35), { id: 'a-b2', color: C.gold, lift: 0.7, radius: 0.05 });
       g.arrow(MP(2, 1, 0.3), MP(4, 0, 0.5), { id: 'a-cap', color: '#ff7043', lift: 1.4, radius: 0.07 });
+      g.arrow(MP(3, 0, AIR - 0.1), MP(4, 0, 0.5), { id: 'a-cap2', color: '#ff7043', lift: 0.5, radius: 0.07 });
 
       // ======================= 起動のしかた =======================
       g.group('boot', {});
@@ -543,9 +545,9 @@
           '<tr><td>前線基地</td><td>自分の艦艇・航空機</td><td>HP30。海軍・空軍が生まれる場所</td></tr>' +
           '<tr><td>王都</td><td>自分の艦艇・航空機</td><td>HP60。0になったら負け</td></tr></table>' +
           '<ul><li><b>艦艇</b> は陸地に入れない</li>' +
-          '<li><b>陸軍</b> は陸地から出られない（海・資源マス・基地には入れない）</li>' +
+          '<li><b>陸軍</b> は陸地から出られない（海・資源マス・基地には入れない。こわれた敵基地の跡だけは通れる）</li>' +
           '<li><b>航空機</b> はどのマスの上でも飛べる</li>' +
-          '<li><b>敵</b> の前線基地・王都のマスには、だれも入れないよ</li></ul>',
+          '<li><b>HPが残っている敵</b> の前線基地・王都のマスには、だれも入れないよ（こわれた基地の跡は空き地になって通れる）</li></ul>',
         camera: { pos: [GX, 9, GZ + 15], target: [GX, 0.6, GZ + 0.3] },
         focus: ['kinds'],
         update: function (g, t) {
@@ -640,7 +642,7 @@
           '<tr><td>歩兵</td><td>20</td><td>2</td><td>1</td><td>10</td><td>20</td></tr>' +
           '<tr><td>戦車</td><td>28</td><td>2</td><td>1</td><td>15</td><td>35</td></tr></table>' +
           '<ul><li>陸軍は王都では生まれず、<b>空いている陸地マスに直接配備</b> する。置けるのは <b>自分の王都から5マス以内</b>（ボタンを押すと緑に光る）</li>' +
-          '<li>陸地マスの上しか動けない（海・資源マス・基地には入れない）</li>' +
+          '<li>陸地マスの上しか動けない（海・資源マス・基地には入れない。こわれた敵基地の跡だけは通れる）</li>' +
           '<li>配備したり入ったりした陸地マスは <b>自分の領土</b>（収入＋8）</li>' +
           '<li>太平洋編は真ん中の3つの島だけ。アジア編は海峡を渡れない。ヨーロッパ編は陸がつながっていて、敵の基地まで歩いていけるよ</li></ul>' +
           '<div class="gg-note">陸軍も、射程に入った敵ユニットや敵の基地を攻撃できるよ。</div>',
@@ -709,10 +711,10 @@
           '<li>王都（HP60）を0にしたら <b>勝ち！</b> 負けた側の領土と資源は、ぜんぶ勝った側のものになる</li>' +
           '<li>こわれた基地からは、もうユニットを出せない。基地のHPは回復しない</li>' +
           '<li>自分のユニットが1体もいなくなっても負けだよ</li></ul>' +
-          '<div class="gg-note">⚠️ 自分のユニットは <b>敵の基地のマスに入れない</b>。王都のとなりは全部基地だから、<b>王都に攻撃が届くのは2マス先まで撃てる空母だけ</b>。王都を落とすときは空母を用意しよう！（CPUのユニットはこの制限なしで、こっちの基地の上にも乗ってくるよ）</div>',
+          '<div class="gg-note">💡 HPが残っている敵の基地・王都のマスには入れない（クリックすると攻撃になる）。でも <b>こわした基地の跡は空き地になる</b>ので、となり合う2つをこわしたら、その隙間に入れば射程1のユニット（戦艦・潜水艦・爆撃機・陸軍など）でも王都を攻撃できるよ。空母なら2マス先から撃てる。CPUも同じルールだよ。</div>',
         camera: { pos: [3.8, 12, 14], target: [4.2, 0.4, 2.6] },
-        focus: ['map', 'u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap'],
-        show: ['u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap'],
+        focus: ['map', 'u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap', 'a-cap2'],
+        show: ['u-pcar', 'u-pbomb', 'hp12', 'lock', 'b-lbl1', 'b-lbl2', 'b-win', 'a-b1', 'a-b2', 'a-cap', 'a-cap2'],
         update: function (g, t) {
           var tt = t % 8;
           var k = g.linear(tt, 0.3, 1.4);
@@ -729,6 +731,9 @@
           g.get('lock').visible = tt < 1.9;
           g.get('b-lbl2').visible = tt > 1.9;
           g.get('a-cap').visible = tt > 2.1 && tt < 4.6;
+          g.get('a-cap2').visible = tt > 2.6 && tt < 4.6;
+          // 爆撃機はこわれた基地の跡（空き地）に入って、王都を撃つ
+          g.lerpPos('u-pbomb', MP(2, 0, AIR), MP(3, 0, AIR), g.linear(tt, 1.9, 0.6));
           var kc = g.linear(tt, 2.3, 2.2);
           var hpC = Math.ceil(60 * (1 - kc));
           g.setLabel('hpcap', 'HP' + hpC, { size: 0.34, color: hpC === 0 ? '#ff8a80' : '#ffe066', bg: '#000000cc' });
@@ -744,9 +749,9 @@
           '<ul><li>自分の陣営を1つ選ぶ。残りの2つはCPU</li>' +
           '<li>番は <b>アジア軍 → ヨーロッパ軍 → 南北アメリカ連合軍</b> の順。3つとも終わると次のターン</li>' +
           '<li>みんな歩兵＋戦車・資源40でスタート。ユニット・収入・基地と王都のルールは同じ</li>' +
-          '<li>王都が落ちたか、ユニットが全滅した陣営は <b>脱落</b>（ターンの終わりにチェック）。その陣営の領土は <b>だれのものでもなくなって</b>、早い者勝ちになる</li>' +
+          '<li>王都が落ちたか、ユニットが全滅した陣営は <b>脱落</b>（その場で決まる）。その陣営の領土は <b>だれのものでもなくなって</b>、早い者勝ちになる</li>' +
           '<li>最後に残った1勢力の勝ち！</li></ul>' +
-          '<div class="gg-note">世界編とヨーロッパ編では、王都のまわりが陸地で囲まれていて、作った艦艇が海まで出られないよ。空軍と陸軍で戦おう。空母が使えないので王都を落とすのはむずかしいけど、相手のユニットを全滅させても脱落させられるよ。</div>',
+          '<div class="gg-note">世界編とヨーロッパ編では、王都のまわりが陸地で囲まれているので、陸軍で攻めるのが基本。王都のそばには海の水路が <b>1マスだけ</b> 通してあって、作った艦艇はそこから海へ出られるよ（ヨーロッパ編は自軍の王都の南側）。相手のユニットを全滅させても脱落させられるよ。</div>',
         camera: { pos: [WX, 17, WZ + 13.5], target: [WX, 0, WZ + 0.8] },
         focus: ['world'],
         update: function (g, t) {
@@ -766,7 +771,7 @@
           '<ul><li>ルームを作った人が <b>西側・先攻</b>、参加した人が東側。参加した人の国はランダムに決まる</li>' +
           '<li>世界編を選ぶと、作った人＝アジア軍、参加した人＝ヨーロッパ軍、南北アメリカ連合軍はCPU</li>' +
           '<li>相手の番のあいだは見ているだけ。とちゅうで接続が切れたら、最初からやり直しだよ</li></ul>' +
-          '<div class="gg-note">つながらないときは、Windows のファイアウォールで node.exe を <b>許可</b> してね。LAN対戦はできたばかりの機能なので、うまく動かないときは、ひとり用で遊んでね。</div>',
+          '<div class="gg-note">つながらないときは、Windows のファイアウォールで node.exe を <b>許可</b> してね。</div>',
         camera: { pos: [LX, 9.5, LZ + 11.5], target: [LX, 0.8, LZ] },
         focus: ['lan'],
       },
@@ -777,7 +782,7 @@
           '<li>ユニットを <b>左クリック</b> → 白いマスへ移動、赤い範囲の敵を攻撃（どちらも1ターン1回）</li>' +
           '<li><b>資源マス</b>（艦艇・航空機）と <b>陸地</b>（陸軍）に止まって領土にし、収入アップ</li>' +
           '<li>資源でユニットを作る。海軍・空軍は王都か基地から、陸軍は陸地へ配備</li>' +
-          '<li>敵の <b>となり合う基地2つ</b> をこわして、<b>空母</b> で王都を攻撃</li>' +
+          '<li>敵の <b>となり合う基地2つ</b> をこわして、その隙間から王都を攻撃（空母なら2マス先から）</li>' +
           '<li>王都のHP60を0にしたら勝ち！ 自分のユニットの全滅には気をつけてね</li></ol>' +
           '<p>それじゃあ、艦隊をひきいて出撃だよ！⚓</p>',
         camera: { pos: [0, 17, 13.5], target: [0, 0, 0.6] },
