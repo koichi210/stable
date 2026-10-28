@@ -314,13 +314,13 @@
 
       // ======================= LAN対戦 =======================
       g.plate({ id: 'l-floor', size: [15, 8], pos: [LX, 0.02, LZ], color: '#1b2c4a', opacity: 0.95 });
-      g.box({ id: 'l-host', size: [3, 1.5, 1.8], pos: [LX, 0.75, LZ - 2.2], color: C.server, label: 'ホスト役のPC\nLANサーバー＋ゲーム画面', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 1.5, 0] });
+      g.box({ id: 'l-host', size: [3, 1.5, 1.8], pos: [LX, 0.75, LZ - 2.2], color: C.server, label: 'ホスト役のPC\n黒い画面1つ（画面＋LAN通信）', labelSize: 0.32, labelBg: '#000000cc', labelOffset: [0, 1.5, 0] });
       [['プレイヤー1\n部屋をつくる（先攻）', -5], ['プレイヤー2\n部屋に参加', 0], ['プレイヤー3・4\nも参加できる', 5]].forEach(function (p, k) {
         g.box({ id: 'l-p' + k, size: [2.2, 1.0, 1.4], pos: [LX + p[1], 0.5, LZ + 1.8], color: PCOL[k], label: p[0], labelSize: 0.3, labelBg: '#000000cc', labelOffset: [0, 1.1, 0] });
         g.flow([LX + p[1] * 0.25, 1.0, LZ - 1.3], [LX + p[1], 1.0, LZ + 1.1], { id: 'l-f' + k, color: C.data, lift: 0.7, count: 5 });
       });
       g.label('部屋番号 例：K7Q2M', [LX + 4.8, 1.5, LZ - 2.4], { id: 'l-room', size: 0.38, color: '#00ffcc', bg: '#000000cc' });
-      g.label('同じ Wi-Fi のブラウザで http://192.168.x.x:5173/', [LX, 0.4, LZ + 3.5], { id: 'l-url', size: 0.36, color: C.data, bg: '#000000aa' });
+      g.label('同じ Wi-Fi のブラウザで http://192.168.x.x/', [LX, 0.4, LZ + 3.5], { id: 'l-url', size: 0.36, color: C.data, bg: '#000000aa' });
     },
 
     steps: [
@@ -340,15 +340,14 @@
       {
         title: 'ゲームの起動とタイトル画面',
         html:
-          '<p>今のところ、ダブルクリックで起動する <code>.bat</code> ファイルはないよ。<code>名産鉄道</code> フォルダでコマンドを打って起動してね。</p>' +
-          '<ol><li><b>ゲーム画面</b>：<code>tools\\node\\node.exe node_modules\\vite\\bin\\vite.js</code></li>' +
-          '<li>表示された <code>http://localhost:5173/</code> をブラウザで開く</li></ol>' +
+          '<p><code>名産鉄道</code> フォルダの <b>ひとりで遊ぶ.bat</b> をダブルクリックすると、黒い画面が1つ開いて、ブラウザで <code>http://localhost:5300/</code> が自動で開くよ。</p>' +
+          '<ul><li>黒い画面は、遊んでいるあいだ <b>閉じないでね</b>。閉じるとゲームも止まっちゃう</li></ul>' +
           '<p>タイトル画面には3つのボタンがあるよ。</p>' +
           '<table><tr><th>ボタン</th><th>なにができる？</th></tr>' +
           '<tr><td>CPU対戦（1人プレイ）</td><td>CPUの人数（<b>1〜3人</b>）を入力して、すぐ始まる</td></tr>' +
           '<tr><td>LANで部屋をつくる</td><td>みんなで遊ぶとき、部屋を作る人が押す</td></tr>' +
           '<tr><td>LANの部屋に参加する</td><td>部屋番号を入力して参加する</td></tr></table>' +
-          '<div class="gg-note">CPU対戦なら、LANサーバーは起動しなくてOK。LAN対戦のやり方は STEP 14 で説明するね。</div>',
+          '<div class="gg-note">ひとりで遊ぶのも、みんなで遊ぶ（LAN対戦）のも、起動するのは黒い画面1つだけでOK。LAN対戦のやり方は STEP 14 で説明するね。</div>',
         camera: { pos: [TX, 9.5, TZ + 7.5], target: [TX, 0, TZ + 0.2] },
         focus: ['t-scr', 't-title', 't-sub', 't-b0', 't-b1', 't-b2', 't-bl0', 't-bl1', 't-bl2', 't-prompt', 't-cursor', 't-cap'],
         show: ['t-prompt', 't-cursor'],
@@ -665,15 +664,15 @@
         html:
           '<p>同じ Wi-Fi なら、<b>2〜4人</b> で対戦できるよ。</p>' +
           '<ol><li><b>ホスト役のPC（1台だけ）</b> で、<code>名産鉄道</code> フォルダの <b>みんなで遊ぶ（LAN対戦）</b> をダブルクリック<br>' +
-          '→ <b>黒い画面が2つ</b> 開く（LANサーバーと、ゲーム画面）</li>' +
-          '<li>ゲーム画面の黒い画面に出る <b>Network</b> のアドレス <code>http://192.168.x.x:5173/</code> を、みんなのブラウザで開く</li>' +
+          '→ 黒い画面が <b>1つ</b> 開く（ゲーム画面もLAN通信も、これ1つで担当）</li>' +
+          '<li>ほかの端末のブラウザで、黒い画面に出るアドレス <code>http://192.168.x.x/</code> を開く（黒い画面に「ポート80は別のソフトが使っている」と出たときは <code>http://192.168.x.x:5300/</code>）</li>' +
           '<li>1人が <b>LANで部屋をつくる</b> → 画面に出る <b>部屋番号（英数字5文字）</b> をみんなに教える</li>' +
           '<li>ほかの人は <b>LANの部屋に参加する</b> を押して、番号を入力</li>' +
           '<li>そろったら、部屋を作った人が <b>ゲーム開始</b></li></ol>' +
           '<ul><li>部屋を作った人がプレイヤー1（先攻）。入った順に2・3・4</li>' +
           '<li>LAN対戦にCPUは入らない。途中でぬけた人は、CPUが代わりに遊ぶ</li>' +
           '<li>部屋を作った人がぬけると、全員タイトルにもどる</li></ul>' +
-          '<div class="gg-note">つながらないときは、Windows の「アクセスを許可しますか？」で <b>許可</b> を押したか確認してね。起動した2つの黒い画面は、遊んでいるあいだ閉じないこと。</div>',
+          '<div class="gg-note">つながらないときは、Windows の「アクセスを許可しますか？」で <b>許可</b> を押したか確認してね。起動した黒い画面は、遊んでいるあいだ閉じないこと。</div>',
         camera: { pos: [LX, 10, LZ + 14], target: [LX, 0.8, LZ] },
         focus: ['l-floor', 'l-host', 'l-p0', 'l-p1', 'l-p2', 'l-f0', 'l-f1', 'l-f2', 'l-room', 'l-url'],
         update: function (g, t) { g.pulse('l-room', t, 0.06); },
