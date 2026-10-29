@@ -6,10 +6,42 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
+     "label": "活動予定",
+     "color": "#C8E6C9",
+     "kind": "switch",
+     "target": "schedule"
+    },
+    {
      "label": "その他",
      "color": "#EDE7F6",
      "kind": "switch",
      "target": "other-main"
+    }
+   ]
+  ]
+ },
+ "schedule": {
+  "name": "s8-cub 活動予定サブメニュー(一般用)",
+  "rowHeight": null,
+  "layout": [
+   [
+    {
+     "label": "予定一覧",
+     "color": "#C8E6C9",
+     "kind": "message",
+     "text": "予定一覧"
+    },
+    {
+     "label": "予定表",
+     "color": "#A5D6A7",
+     "kind": "liff",
+     "view": "events-table"
+    },
+    {
+     "label": "◀ 戻る",
+     "color": "#CFD8DC",
+     "kind": "switch",
+     "target": "main"
     }
    ]
   ]
@@ -50,12 +82,46 @@ window.CUB_MENUS = {
      "color": "#B0BEC5",
      "kind": "switch",
      "target": "admin"
+    }
+   ],
+   [
+    {
+     "label": "活動予定",
+     "color": "#C8E6C9",
+     "kind": "switch",
+     "target": "schedule-admin"
     },
     {
      "label": "その他",
      "color": "#EDE7F6",
      "kind": "switch",
      "target": "other"
+    }
+   ]
+  ]
+ },
+ "schedule-admin": {
+  "name": "s8-cub 活動予定サブメニュー(管理者用)",
+  "rowHeight": null,
+  "layout": [
+   [
+    {
+     "label": "予定一覧",
+     "color": "#C8E6C9",
+     "kind": "message",
+     "text": "予定一覧"
+    },
+    {
+     "label": "予定表",
+     "color": "#A5D6A7",
+     "kind": "liff",
+     "view": "events-table"
+    },
+    {
+     "label": "◀ 戻る",
+     "color": "#CFD8DC",
+     "kind": "switch",
+     "target": "main-admin"
     }
    ]
   ]
