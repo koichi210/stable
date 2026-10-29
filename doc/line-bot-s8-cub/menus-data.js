@@ -66,13 +66,33 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
-     "label": "📢 アナウンス",
+     "label": "アナウンス追加",
      "color": "#F48FB1",
-     "kind": "switch",
-     "target": "announcement"
+     "kind": "liff",
+     "view": ""
     },
     {
-     "label": "✏️ 案内文設定",
+     "label": "アナウンス削除",
+     "color": "#F06292",
+     "kind": "liff",
+     "view": "delete"
+    },
+    {
+     "label": "アナウンス一覧",
+     "color": "#FCE4EC",
+     "kind": "message",
+     "text": "アナウンス一覧"
+    }
+   ],
+   [
+    {
+     "label": "案内文プレビュー",
+     "color": "#DCEDC8",
+     "kind": "liff",
+     "view": "preview"
+    },
+    {
+     "label": "案内文設定",
      "color": "#FFF9C4",
      "kind": "switch",
      "target": "notice"
@@ -152,40 +172,6 @@ window.CUB_MENUS = {
    ]
   ]
  },
- "announcement": {
-  "name": "s8-cub アナウンスサブメニュー",
-  "rowHeight": null,
-  "layout": [
-   [
-    {
-     "label": "アナウンス追加",
-     "color": "#F48FB1",
-     "kind": "liff",
-     "view": ""
-    },
-    {
-     "label": "アナウンス削除",
-     "color": "#F06292",
-     "kind": "liff",
-     "view": "delete"
-    }
-   ],
-   [
-    {
-     "label": "アナウンス一覧",
-     "color": "#FCE4EC",
-     "kind": "message",
-     "text": "アナウンス一覧"
-    },
-    {
-     "label": "◀ 戻る",
-     "color": "#CFD8DC",
-     "kind": "switch",
-     "target": "parents"
-    }
-   ]
-  ]
- },
  "events": {
   "name": "s8-cub 活動予定サブメニュー",
   "rowHeight": null,
@@ -236,20 +222,14 @@ window.CUB_MENUS = {
      "color": "#FFF59D",
      "kind": "liff",
      "view": "footer"
-    },
+    }
+   ],
+   [
     {
      "label": "テンプレ設定",
      "color": "#FFE082",
      "kind": "liff",
      "view": "template"
-    }
-   ],
-   [
-    {
-     "label": "プレビュー表示",
-     "color": "#DCEDC8",
-     "kind": "liff",
-     "view": "preview"
     },
     {
      "label": "◀ 戻る",

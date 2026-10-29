@@ -62,7 +62,7 @@
       link('read', 'pdf', 'events', '読み取って保存', C.good, 0.8);
       link('ev-pv', 'events', 'preview', '予定', C.good, 0.8);
       link('nt-pv', 'notice', 'preview', 'ヘッダ・フッタ\n・テンプレ', C.gold, 0.8);
-      link('pv-ad', 'preview', 'admin', 'プレビュー表示で確認', C.data, 5.2);
+      link('pv-ad', 'preview', 'admin', '案内文プレビューで確認', C.data, 5.2);
       link('send', 'preview', 'line', '「次回を送信」(今すぐ)', C.data, 3.2);
       link('gr-pv', 'groups', 'preview', '送信先', C.third, 0.8);
       link('reg', 'line', 'groups', 'グループ追加\n(グループ内で@メンション)', '#06c755', 1.6);
