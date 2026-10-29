@@ -198,6 +198,12 @@ window.CUB_MENUS = {
      "text": "予定一覧"
     },
     {
+     "label": "予定表",
+     "color": "#A5D6A7",
+     "kind": "liff",
+     "view": "events-table"
+    },
+    {
      "label": "◀ 戻る",
      "color": "#CFD8DC",
      "kind": "switch",
