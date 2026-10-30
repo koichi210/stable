@@ -210,7 +210,7 @@ window.CUB_MENUS = {
      "target": "parents"
     },
     {
-     "label": "👑 管理者編集",
+     "label": "👤 メンバ編集",
      "color": "#FFE0B2",
      "kind": "switch",
      "target": "admins"
@@ -313,29 +313,29 @@ window.CUB_MENUS = {
   ]
  },
  "admins": {
-  "name": "s8-cub 管理者管理サブメニュー",
+  "name": "s8-cub メンバ管理サブメニュー",
   "rowHeight": null,
   "layout": [
    [
     {
-     "label": "管理者追加",
+     "label": "メンバ追加",
      "color": "#FFCC80",
      "kind": "liff",
-     "view": "admin-add"
+     "view": "member-add"
     },
     {
-     "label": "管理者削除",
+     "label": "メンバ削除",
      "color": "#FFB74D",
      "kind": "liff",
-     "view": "admin-delete"
+     "view": "member-delete"
     }
    ],
    [
     {
-     "label": "管理者一覧",
+     "label": "メンバ一覧",
      "color": "#FFE0B2",
      "kind": "message",
-     "text": "管理者一覧"
+     "text": "メンバ一覧"
     },
     {
      "label": "◀ 戻る",
