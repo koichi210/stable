@@ -58,6 +58,14 @@ window.CUB_MENUS = {
      "text": "マイID"
     },
     {
+     "label": "📖 仕組み",
+     "color": "#E1BEE7",
+     "kind": "url",
+     "url": "https://koichi210.github.io/stable/doc/line-bot-s8-cub/index.html"
+    }
+   ],
+   [
+    {
      "label": "ヘルプ",
      "color": "#D1C4E9",
      "kind": "message",
@@ -183,6 +191,14 @@ window.CUB_MENUS = {
      "kind": "message",
      "text": "マイID"
     },
+    {
+     "label": "📖 仕組み",
+     "color": "#E1BEE7",
+     "kind": "url",
+     "url": "https://koichi210.github.io/stable/doc/line-bot-s8-cub/index.html"
+    }
+   ],
+   [
     {
      "label": "ヘルプ",
      "color": "#D1C4E9",
