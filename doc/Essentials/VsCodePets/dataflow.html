@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VsCodePets データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 色の意味: 拡張側(青)・webview(水色)・ペットの動き(緑)・保存(橙)・操作/改造(紫)・状態機械(金)
+  var COL = { ext: C.me, web: C.data, move: C.good, save: C.server, op: C.third, st: C.gold };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    // 奥の列: 起動
+    cmd: [-15, -8], act: [-9, -8], prov: [-3, -8], html: [3, -8], boot: [9, -8], add: [16, -4],
+    // 中央の列: tick で動く
+    timer: [-15, 0], msg: [-9, 0], tick: [-3, 0], next: [3, 0], dom: [9, 0],
+    // 手前の列: 周辺の仕組み
+    spawn: [-15, 8], ws: [-9, 8], side: [-3, 8], save: [3, 8], mouse: [9, 8],
+    // 状態遷移の図(手順6だけ)
+    idle: [-14, 15], walk: [-7, 15], fly: [0, 15], hover: [7, 15], down: [14, 15],
+    swipe: [-10.5, 20.5], drag: [-1, 20.5], lay: [7, 20.5]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  var SNODES = ['idle', 'walk', 'fly', 'hover', 'down', 'swipe', 'drag', 'lay'];
+  var SARROWS = [
+    ['idle', 'walk', '地上の抽選', 0.8], ['walk', 'idle', '', 1.6], ['idle', 'fly', '80%\n離陸', 2.8], ['walk', 'fly', '80%', 1.2],
+    ['fly', 'hover', '着いた', 0.8], ['hover', 'fly', '70%', 2.6], ['hover', 'down', '30%', 0.9], ['down', 'idle', '床に着いた', 3.4],
+    ['swipe', 'idle', '元の状態へ', 0.9], ['drag', 'down', '空中で離す', 0.9], ['lay', 'hover', '上端に着いたら卵', 0.9]
+  ];
+  var SSHOW = [];
+  SNODES.forEach(function (k) { SSHOW.push('n-' + k); });
+  SARROWS.forEach(function (a) { SSHOW.push('a-' + a[0] + '-' + a[1]); });
+
+  GameGuide.start({
+    title: 'VsCodePets データの流れ',
+    back: 'index.html',
+    subtitle: '拡張の起動 → webview → 100ms ごとの tick → 状態遷移 → GIF と位置の更新',
+    camera: { pos: [3, 27, 27], target: [3, 0, 2] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: 'n-' + id, size: [4.4, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.36, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 起動の列(奥) ----
+      node('cmd', 'VS Code\n(起動完了 / コマンド / 設定)', COL.ext);
+      node('act', 'activate()\n(extension.ts)', COL.ext);
+      node('prov', 'PetWebviewViewProvider\n/ PetPanel', COL.ext);
+      node('html', '_getHtmlForWebview\n(CSP・nonce・URI)', COL.ext);
+      node('boot', 'petApp.petPanelApp\n(main.ts)', COL.web);
+      node('add', 'addPetToPanel\n→ createPet(pets.ts)', COL.web);
+      // ---- tick の列(中央) ----
+      node('timer', 'setInterval 100ms\n(PetWebviewContainer)', COL.ext);
+      node('msg', 'postMessage\n{ command: ... }', COL.ext);
+      node('tick', 'onTick\n(main.ts)', COL.web);
+      node('next', 'BasePetType.nextFrame\n(状態機械)', COL.move);
+      node('dom', '<img> の src / left / bottom\n(GIF を差し替え)', COL.move);
+      // ---- 周辺の列(手前) ----
+      node('spawn', '「Spawn Additional Pet」\n(QuickPick)', COL.ext);
+      node('ws', 'workspaceState\n(ペット一覧・テーマ)', COL.save);
+      node('side', 'keepApart / eggs\n/ maybeChat', COL.op);
+      node('save', 'saveState\n(webview の setState)', COL.save);
+      node('mouse', 'mouseover → swipe\nmousedown → ドラッグ', COL.op);
+      // ---- 状態遷移の図(手順6) ----
+      var SL = { idle: 'sit-idle\n(座る)', walk: 'walk / run\n(右→左を往復)', fly: 'fly\n(ランダムな点へ)', hover: 'hover\n(4秒止まる)', down: 'fly-down\n(真下へ降りる)',
+        swipe: 'swipe\n(マウスが乗った)', drag: 'dragged\n(掴まれ中)', lay: 'fly-to-lay\n(上端へ → 産卵)' };
+      SNODES.forEach(function (k) {
+        g.box({ id: 'n-' + k, size: [4.2, 1.2, 2.0], pos: [N[k][0], 0.6, N[k][1]], color: '#2d2944', emissive: COL.st, emissiveIntensity: 0.3, radius: 0.12, edgeColor: COL.st,
+          label: SL[k], labelSize: 0.34, labelOffset: [0, 1.5, 0.2], labelBg: '#000000aa' });
+      });
+      SARROWS.forEach(function (a) {
+        g.arrow(P(a[0]), P(a[1]), { id: 'a-' + a[0] + '-' + a[1], color: COL.st, lift: a[3], label: a[2] || undefined, labelSize: 0.26 });
+      });
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      arrow('cmd', 'act', COL.ext, 'activationEvents');
+      arrow('act', 'prov', COL.ext, 'new + register');
+      arrow('prov', 'html', COL.ext, 'resolveWebviewView');
+      arrow('html', 'boot', COL.web, '<script> が実行');
+      arrow('boot', 'add', COL.web, '1匹目 / 復元', 0.9);
+      arrow('timer', 'msg', COL.ext, '100msごと');
+      arrow('msg', 'tick', COL.web, 'message\nイベント');
+      arrow('tick', 'next', COL.move, '全ペットへ');
+      arrow('next', 'dom', COL.move, '画像・位置', 0.9);
+      arrow('add', 'tick', COL.web, 'allPets に登録', 3.4);
+      arrow('spawn', 'msg', COL.ext, 'spawn-pet', 1.2);
+      arrow('spawn', 'ws', COL.save, 'storeCollection\nAsMemento', 0.9);
+      arrow('tick', 'side', COL.op, '毎 tick', 0.9);
+      arrow('tick', 'save', COL.save, '毎 tick', 1.4);
+      arrow('mouse', 'next', COL.op, 'swipe() /\nstartDrag()', 1.1);
+      arrow('save', 'boot', COL.save, 'getState で復元', 3.2);
+
+      // ---- 常時流れる粒(各矢印の上) ----
+      var FL = [['cmd', 'act', COL.ext], ['act', 'prov', COL.ext], ['prov', 'html', COL.ext], ['html', 'boot', COL.web], ['boot', 'add', COL.web],
+        ['timer', 'msg', COL.ext], ['msg', 'tick', COL.web], ['tick', 'next', COL.move], ['next', 'dom', COL.move]];
+      FL.forEach(function (f) {
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + f[0] + '-' + f[1], color: f[2], count: 5, lift: 0.9, speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('cmd'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順2用: webview へ渡す引数 ----
+      g.label('petPanelApp(basePetUri, theme, themeKind,\n  petColor, petSize, petType,\n  throwBallWithMouse, disableEffects)', [N.html[0] + 3, 3.9, N.html[1]], { id: 'arg-l', size: 0.28, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      // ---- 手順7用: 動作ごとの GIF ----
+      var tex = new T.TextureLoader().load(window.VP_IMGS.states);
+      var pw = 9.5, phh = pw * 260 / 1200;
+      g.group('p-states', { pos: [21.5, 1.9, 1] });
+      g.box({ id: 'f-states', parent: 'p-states', size: [pw + 0.3, phh + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+      g.add('s-states', new T.Mesh(new T.PlaneGeometry(pw, phh), new T.MeshBasicMaterial({ map: tex, transparent: true })), 'p-states');
+      g.label('media/secretary/enji_〇〇_8fps.gif', [0, phh / 2 + 0.55, 0], { id: 't-states', parent: 'p-states', size: 0.3, bg: '#000000aa' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [3, 27, 27], target: [3, 0, 2] },
+        update: function (g, t) { travel(g, t, pts(['cmd', 'act', 'prov', 'html', 'boot', 'add', 'tick', 'next', 'dom']), 1.0, null); },
+        html:
+          '<p>VsCodePets は、<b>拡張側(VS Code の拡張ホスト)</b>と<b>webview 側(ブラウザ相当の画面)</b>の2つの世界で動きます。両者は <code>postMessage</code> でだけ会話します。</p>' +
+          '<ul><li><b>奥の列</b>: 起動。拡張が HTML を作り、webview がペットを作る(青 → 水色)</li>' +
+          '<li><b>中央の列</b>: 動き。拡張が 100ms ごとに「tick」を送り、webview が全ペットを1コマ進める(緑)</li>' +
+          '<li><b>手前の列</b>: ペット追加・保存・操作・卵やおしゃべり(橙・紫)</li></ul>' +
+          '<p>金色の玉が、起動から1コマ目の描画までを旅する様子です(各ステップで寄って見ます)。</p>' +
+          '<div class="gg-note">「次へ」で順番に。3Dはドラッグで回せます。</div>'
+      },
+      {
+        title: '1. 拡張が起動する(activate)',
+        camera: { pos: [-8, 14, 6], target: [-8, 0, -8] },
+        focus: ['n-cmd', 'n-act', 'n-prov', 'a-cmd-act', 'a-act-prov', 'fl-cmd-act', 'fl-act-prov', 'pkt', 'n-timer'],
+        update: function (g, t) { travel(g, t, pts(['cmd', 'act', 'prov']), 1.6, ['起動完了 / コマンド', 'activate(context)', '']); },
+        html:
+          '<p><code>package.json</code> の <code>activationEvents</code>(<code>onStartupFinished</code>・<code>onView:petsView</code>・各コマンドなど)で、<code>extension.ts</code> の <code>activate()</code> が呼ばれます。</p>' +
+          '<ol><li>コマンド(<code>vscode-pets.start</code> ほか)を登録、ステータスバーに「Spawn」アイコンを出す</li>' +
+          '<li><code>PetSpecification.fromConfiguration()</code> で設定(petColor・petType・petSize)を読む。一覧に無い値は既定(brown・dog)へ</li>' +
+          '<li>テーマは<b>ワークスペースに保存された値</b>があればそれを、なければ設定 <code>theme</code> を使う</li>' +
+          '<li><code>PetWebviewViewProvider</code> を作って、エクスプローラーの <code>petsView</code> として登録</li></ol>' +
+          '<div class="gg-note">コンストラクタ(<code>PetWebviewContainer</code>)の中で <code>setInterval(tick, 100)</code> が始まります。これが全ペットの「心臓」です。</div>'
+      },
+      {
+        title: '2. webview の HTML を作る',
+        camera: { pos: [3, 12, 5], target: [3, 1, -8] },
+        focus: ['n-prov', 'n-html', 'n-boot', 'a-prov-html', 'a-html-boot', 'fl-prov-html', 'fl-html-boot', 'pkt', 'arg-l'],
+        show: ['arg-l'],
+        update: function (g, t) { travel(g, t, pts(['prov', 'html', 'boot']), 1.6, ['webview が表示される', 'HTML 文字列', '']); },
+        html:
+          '<p><code>_getHtmlForWebview</code> が、webview に表示する HTML を<b>文字列で組み立てます</b>。</p>' +
+          '<ul><li><code>media/main-bundle.js</code>(webpack で <code>src/panel/main.ts</code> をまとめたもの)・<code>reset.css</code>・<code>pets.css</code> を <code>asWebviewUri</code> で webview 用の URL にする</li>' +
+          '<li><code>basePetUri</code> = <code>media</code> フォルダの URL。画像はすべてここからの相対で読む</li>' +
+          '<li><b>CSP</b>(コンテンツ セキュリティ ポリシー): <code>default-src \'none\'</code>、画像は拡張の場所と https だけ、スクリプトは<b>毎回変わる nonce</b> つきだけ許可</li>' +
+          '<li>webview が読めるのは <code>media</code> フォルダだけ(<code>localResourceRoots</code>)</li>' +
+          '<li>body は、canvas 3枚(ボール・前景/背景エフェクト)・<code>#petsContainer</code>(ペットを入れる場所)・<code>#foreground</code>/<code>#background</code></li></ul>' +
+          '<p>最後のインライン script が <code>petApp.petPanelApp(...)</code> を呼びます(設定値が引数に埋め込まれる)。</p>'
+      },
+      {
+        title: '3. webview が動き出す(petPanelApp)',
+        camera: { pos: [9, 12, 5], target: [9, 1, -6] },
+        focus: ['n-html', 'n-boot', 'n-add', 'a-html-boot', 'a-boot-add', 'fl-html-boot', 'fl-boot-add', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['html', 'boot', 'add']), 1.6, ['script 実行', '背景・床・状態の確認', '']); },
+        html:
+          '<p><code>petPanelApp</code>(<code>main.ts</code>)が最初にすること:</p>' +
+          '<ol><li><b>テーマ</b>: <code>#background</code> に <code>media/backgrounds/&lt;theme&gt;/background.jpg</code> を敷く。床の高さは季節テーマなら nano 25 / small 35 / medium 45 / large 70 px(none は 0)</li>' +
+          '<li><code>getState()</code> を見る:<br>・<b>無い</b>(新規)→ 設定の種類・色で<b>1匹目</b>を、横位置ランダムで生成<br>・<b>ある</b> → 保存されたペットを全員復元(手順10)</li>' +
+          '<li>ボール用 canvas と、autumn(落ち葉)・winter(雪)のエフェクトを準備</li>' +
+          '<li><code>message</code> と <code>resize</code> のイベントを待ち受ける</li></ol>' +
+          '<div class="gg-note">ページの <code>load</code> が終わるまで、tick は無視されます(<code>windowLoaded</code>)。</div>'
+      },
+      {
+        title: '4. ペット1匹ができるまで',
+        camera: { pos: [15, 11, 4], target: [14, 1, -5] },
+        focus: ['n-boot', 'n-add', 'a-boot-add', 'fl-boot-add', 'pkt'],
+        update: function (g, t) { g.pulse('n-add', t, 0.05); },
+        html:
+          '<p><code>addPetToPanel</code> → <code>createPet</code> の流れです。</p>' +
+          '<ol><li><code>#petsContainer</code> に3つの要素を作る: <b><code>&lt;img class="pet"&gt;</code></b>(絵)・<b><code>&lt;div class="collision"&gt;</code></b>(マウス判定)・<b><code>&lt;div class="bubble"&gt;</code></b>(吹き出し)</li>' +
+          '<li>画像の置き場 <code>root = basePetUri + "/" + 種類 + "/" + 色</code>(例: <code>…/media/secretary/enji</code>)。その種類に無い色ならエラーで要素を捨てる</li>' +
+          '<li><code>createPet</code> が種類で <code>switch</code> して、<code>new Secretary(...)</code> など<b>ペットのクラス</b>を作る(速度は PetSpeed.normal の ±30% でバラつく)</li>' +
+          '<li>最初の状態は <code>sit-idle</code>。サイズは nano 30 / small 40 / medium 55 / large 110 px</li>' +
+          '<li>マウス判定に <code>mouseover</code>(手を振る)と <code>mousedown</code>(掴む)を付ける</li>' +
+          '<li><code>PetElement</code> に包んで <code>allPets</code>(<code>PetCollection</code>)へ登録</li></ol>'
+      },
+      {
+        title: '5. 100ms ごとの tick',
+        camera: { pos: [-5, 14, 8], target: [-5, 0, 0] },
+        focus: ['n-timer', 'n-msg', 'n-tick', 'a-timer-msg', 'a-msg-tick', 'fl-timer-msg', 'fl-msg-tick', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['timer', 'msg', 'tick']), 1.4, ['100ms経過', "{ command: 'tick' }", '']); },
+        html:
+          '<p>ペットを動かす「時計」は<b>拡張側</b>にあります。</p>' +
+          '<ol><li><code>setInterval</code> が 100ms ごとに <code>tick()</code> を呼ぶ</li>' +
+          '<li><code>webview.postMessage({ command: \'tick\' })</code> を送る</li>' +
+          '<li>webview の <code>message</code> イベントが <code>onTick()</code> を呼ぶ</li></ol>' +
+          '<p><code>onTick</code> は、読み込みが終わっていれば次の順に処理します。</p>' +
+          '<pre><code>seekNewFriends()      // 友だち探し\nペット全員の nextFrame()   // 1コマ進める\nkeepApart(pets)       // ペット同士の回避\neggs.nextFrame()      // 卵・💩\nmaybeChat(pets)       // おしゃべり\nsaveState()           // 状態の保存</code></pre>' +
+          '<div class="gg-note">つまり<b>毎秒10コマ</b>。パネル表示モードでは、パネルが見えている間だけ tick を送ります。</div>'
+      },
+      {
+        title: '6. 状態が切り替わる(nextFrame)',
+        camera: { pos: [0, 21, 42], target: [0, 0, 17] },
+        focus: SSHOW.concat(['pkt']),
+        show: SSHOW,
+        update: function (g, t) { travel(g, t, pts(['idle', 'fly', 'hover', 'fly', 'hover', 'down', 'idle']), 1.5, ['地上', '離陸(80%)', 'ホバリング', '70%で再び飛ぶ', 'ホバリング', '30%で降りる', '']); },
+        html:
+          '<p>1コマの中身(<code>BasePetType.nextFrame</code>)。ペットは<b>いま何の状態か</b>を持ち、1コマごとに状態の <code>nextFrame()</code> を呼びます。</p>' +
+          '<ol><li>向き(左右反転)と、状態が指定する<b>画像の種類</b>を反映</li>' +
+          '<li>状態の <code>nextFrame()</code> が <b>続く / 完了 / 中断</b> を返す</li>' +
+          '<li><b>完了</b>したら <code>chooseNextState</code> で次の状態を決める</li></ol>' +
+          '<table><tr><th>いまの状態</th><th>次(抽選)</th></tr>' +
+          '<tr><td>地上の状態</td><td><b>80% で fly</b>、残りはそのペットの遷移表(秘書さんは sit-idle → walk/run → …)</td></tr>' +
+          '<tr><td>fly</td><td>hover(4秒 = 40コマ静止)</td></tr>' +
+          '<tr><td>hover</td><td><b>70% で fly</b>、30% で fly-down</td></tr>' +
+          '<tr><td>fly-down</td><td>1コマ 速度ぶん真下へ。床に着いたら最初の状態(sit-idle)</td></tr></table>' +
+          '<ul><li><b>swipe</b>: マウスが乗ると、いまの状態を預けて手を振り、終わったら元へ戻る</li>' +
+          '<li><b>dragged</b>: 掴まれている間は自分では完了しない</li>' +
+          '<li><b>fly-to-lay</b>: 目的地がパネルの上端になった fly。着いたら卵を産む</li></ul>'
+      },
+      {
+        title: '7. 描画: GIF の差し替えと位置',
+        camera: { pos: [18, 10, 21], target: [18, 1, 0] },
+        focus: ['n-next', 'n-dom', 'a-next-dom', 'fl-next-dom', 'p-states', 'pkt'],
+        show: [],
+        update: function (g, t) { travel(g, t, pts(['tick', 'next', 'dom']), 1.5, ['', '状態 → 画像名と位置', '<img>.src = …gif']); },
+        html:
+          '<p>画面の更新は、<b>DOM の <code>&lt;img&gt;</code> の属性を書き換えるだけ</b>です(canvas で描いていません)。</p>' +
+          '<ul><li><b>絵</b>: <code>img.src = petRoot + "_" + 動作名 + "_8fps.gif"</code>。同じ GIF なら張り替えない。GIF 自体がコマ送りのアニメーション(8コマ・8fps)</li>' +
+          '<li><b>位置</b>: <code>style.left</code> / <code>style.bottom</code>(px)。マウス判定と吹き出しも同じ位置へ付いてくる</li>' +
+          '<li><b>向き</b>: 左向きの状態は <code>transform: scaleX(-1)</code> で反転(絵は右向きの1種類だけ)</li>' +
+          '<li>毎コマ最後に、パネルのサイズから<b>はみ出していないか</b>を確認して戻す(リサイズ対策)</li></ul>' +
+          '<table><tr><th>状態</th><th>GIF の動作名</th></tr>' +
+          '<tr><td>sit-idle / hover</td><td><code>idle</code></td></tr>' +
+          '<tr><td>walk-right・left / fly-down</td><td><code>walk</code></td></tr>' +
+          '<tr><td>run-right・left</td><td><code>walk_fast</code></td></tr>' +
+          '<tr><td>fly / dragged / chase</td><td><code>run</code></td></tr>' +
+          '<tr><td>swipe / idle-with-ball</td><td><code>swipe</code> / <code>with_ball</code></td></tr></table>' +
+          '<p>右の写真は、秘書さん(園児)の6動作ぶんの GIF の1コマ目です。</p>'
+      },
+      {
+        title: '8. 拡張 ⇄ webview のメッセージ',
+        camera: { pos: [-8, 17, 22], target: [-8, 0, 1] },
+        focus: ['n-spawn', 'n-ws', 'n-msg', 'n-add', 'a-spawn-msg', 'a-spawn-ws'],
+        update: function (g, t) { travel(g, t, pts(['spawn', 'msg', 'add']), 1.8, ['ペットの指定(種類・色・名前)', "{ command: 'spawn-pet', ... }", '']); },
+        html:
+          '<p>操作は、拡張が <code>postMessage</code> で webview に頼む形です。</p>' +
+          '<table><tr><th>拡張 → webview</th><th>起きること</th></tr>' +
+          '<tr><td><code>spawn-pet</code></td><td><code>addPetToPanel</code> でペットを追加(type・color・name)</td></tr>' +
+          '<tr><td><code>delete-pet</code> / <code>reset-pet</code></td><td>1匹削除 / 全員削除</td></tr>' +
+          '<tr><td><code>list-pets</code></td><td>全員の「種類,名前,色」を、webview → 拡張の <code>list-pets</code> で返す(削除の選択肢用)</td></tr>' +
+          '<tr><td><code>roll-call</code></td><td>全員のあいさつを <code>info</code> で返す</td></tr>' +
+          '<tr><td><code>throw-ball</code> / <code>throw-with-mouse</code></td><td>ボールを投げる / マウス投げの切替</td></tr>' +
+          '<tr><td><code>disable-effects</code></td><td>雪・落ち葉の切替</td></tr>' +
+          '<tr><td><code>tick</code></td><td>1コマ進める(手順5)</td></tr></table>' +
+          '<ul><li>webview → 拡張の <code>info</code> / <code>alert</code> は、そのまま VS Code の通知(情報 / エラー)になる</li>' +
+          '<li>追加したペットの一覧(種類・色・名前)は、拡張が <code>workspaceState</code> に保存する</li></ul>' +
+          '<div class="gg-note">ソース上、<code>main.ts</code> の <code>roll-call</code> の case には <code>break</code> が無く、続く <code>delete-pet</code> の処理も走ります(名前が空なので「見つからない」と返るだけ)。</div>'
+      },
+      {
+        title: '9. 掴む・卵・おしゃべり(Flying の動き)',
+        camera: { pos: [3, 14, 16], target: [3, 0, 3] },
+        focus: ['n-tick', 'n-side', 'n-mouse', 'n-next', 'a-tick-side', 'a-mouse-next', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['mouse', 'next']), 1.8, ['mousedown', 'startDrag()']); },
+        html:
+          '<p>今回の改造で増えた動きは、tick の中の<b>3つの部品</b>と<b>マウス処理</b>です。</p>' +
+          '<table><tr><th>部品</th><th>やること</th></tr>' +
+          '<tr><td><code>startDragging</code>(main.ts)</td><td>左ボタンで掴むと状態が <code>dragged</code> に。mousemove で位置を追従(パネル内に制限)、mouseup / blur / mouseleave で <code>endDrag()</code> → 空中なら fly-down、床ならそのまま</td></tr>' +
+          '<tr><td><code>EggCollection</code>(eggs.ts)</td><td>tick ごとに確率で <code>startLayingEgg()</code>。上端まで飛んで <code>takeLaidEgg()</code> が true になったら、真下に 🥚 か 💩 を生む。落ちて、20秒(200 tick)で孵化 → 🐣 を30 tick 見せて消える。最大5個</td></tr>' +
+          '<tr><td><code>keepApart</code>(avoidance.ts)</td><td>全ペットの組で、近ければ進路を変え、重なれば押し離す</td></tr>' +
+          '<tr><td><code>maybeChat</code>(chatter.ts)</td><td>1 tick あたり 1%(約10秒に1回)で、時間帯に合ったフレーズを吹き出しに</td></tr></table>'
+      },
+      {
+        title: '10. 保存と復元',
+        camera: { pos: [-3, 15, 17], target: [-3, 0, 1] },
+        focus: ['n-tick', 'n-save', 'n-boot', 'n-ws', 'n-spawn', 'a-tick-save', 'a-save-boot', 'a-spawn-ws'],
+        update: function (g, t) { travel(g, t, pts(['tick', 'save', 'boot']), 1.8, ['毎 tick', 'setState({ petStates, petCounter })', '再読み込みで getState']); },
+        html:
+          '<p>状態の保存は<b>2か所</b>にあります。</p>' +
+          '<table><tr><th>場所</th><th>中身</th></tr>' +
+          '<tr><td>webview の <code>setState</code>(毎 tick)</td><td>全ペットの <code>petName / petColor / petType / petState(いまの状態名) / petFriend / elLeft / elBottom</code> と <code>petCounter</code></td></tr>' +
+          '<tr><td>拡張の <code>workspaceState</code></td><td>ペット一覧(種類・色・名前)、Change Theme で選んだテーマ(ワークスペースごと)</td></tr></table>' +
+          '<p>webview が作り直されると、<code>getState()</code> から全員を復元します。</p>' +
+          '<ul><li>描いていない種類(<code>ALL_PETS</code> に無いもの)は読み込まない</li>' +
+          '<li>掴まれたまま保存された子は fly-down から、産卵途中の子は普通の fly から再開(卵は保存しない)</li>' +
+          '<li>地上の状態だった子は床の高さへ戻す(テーマで床が変わるため)</li>' +
+          '<li>友だち関係は<b>名前</b>で結び直す</li></ul>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

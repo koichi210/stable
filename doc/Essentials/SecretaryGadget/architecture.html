@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecretaryGadget 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:    { y: 12,  color: C.third,  name: 'UI層\n(画面・トレイ・ダイアログ)' },
+    note:  { y: 8,   color: C.good,   name: 'お知らせ・タイマー層\n(画面に依存しない判定・文面・保存)' },
+    watch: { y: 4,   color: C.data,   name: '見張り役\n(Outlook・Teams を見る)' },
+    res:   { y: 0,   color: C.server, name: '設定・スキン・補助\n(Settings / SkinCatalog ほか)' },
+    os:    { y: -4,  color: C.neutral, name: 'OS・外部アプリ・ファイル' }
+  };
+  // クラスの配置。[id, 表示名, 層, x]
+  var CLS = [
+    // UI
+    ['App', 'App\n(App.xaml.cs)', 'ui', -13.5],
+    ['Tray', 'App.Tray\n(App.Tray.cs)', 'ui', -8],
+    ['AppTimer', 'App.Timer\n(App.Timer.cs)', 'ui', -2.5],
+    ['Win', 'SecretaryWindow\n(.xaml / .xaml.cs)', 'ui', 3],
+    ['Dialog', 'TimerDialog', 'ui', 8.5],
+    ['Wheel', 'WheelColumn', 'ui', 14],
+    // お知らせ・タイマー
+    ['Notice', 'Notice /\nNoticeKind', 'note', -13.5],
+    ['Texts', 'NoticeTexts\n(文面)', 'note', -8],
+    ['Keeper', 'TimerKeeper', 'note', -2.5],
+    ['Input', 'TimerInput /\nTimerEntry', 'note', 3],
+    ['Mention', 'MentionFilter', 'note', 8.5],
+    ['Layout', 'BubbleLayout\n(配置計算)', 'note', 14],
+    // 見張り役
+    ['OW', 'OutlookWatcher', 'watch', -13.5],
+    ['TPW', 'TeamsPopup\nWatcher', 'watch', -8],
+    ['TMC', 'TeamsMention\nCounter', 'watch', -2.5],
+    ['TW', 'TeamsWatcher\n(予備・既定オフ)', 'watch', 3],
+    ['PopupText', 'PopupText', 'watch', 8.5],
+    ['Focus', 'WindowFocus', 'watch', 14],
+    // 設定・スキン・補助
+    ['Settings', 'Settings', 'res', -13.5],
+    ['Log', 'Log', 'res', -8],
+    ['Skin', 'SkinCatalog', 'res', -2.5],
+    ['SkinImg', 'SkinInfo /\nSkinImage', 'res', 3],
+    ['Hako', 'Hakoniwa\nLauncher', 'res', 8.5],
+    ['Opts', 'StartupOptions', 'res', 14],
+    // OS
+    ['Native', 'NativeMethods\n(user32 / shell32)', 'os', -13.5],
+    ['Com', 'Outlook\n(COM)', 'os', -8],
+    ['Uia', 'UI Automation\n(Teams の小窓)', 'os', -2.5],
+    ['Fx', 'WPF + WinForms\n(NotifyIcon)', 'os', 3],
+    ['Reg', 'レジストリ\n(自動起動 Run)', 'os', 8.5],
+    ['Files', 'ファイル\nsettings / timers / log / skins', 'os', 14]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, 0]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色]
+  var DEPS = [
+    ['App', 'Notice', '#ffd166'], ['App', 'Texts', '#ffd166'], ['App', 'Win', '#ffd166'],
+    ['App', 'OW', '#7ef0ff'], ['App', 'TPW', '#7ef0ff'], ['App', 'TMC', '#7ef0ff'],
+    ['App', 'Settings', '#ff9f43'], ['Tray', 'Skin', '#ff9f43'], ['Tray', 'Reg', '#b8b2d6'], ['Tray', 'Fx', '#b8b2d6'],
+    ['AppTimer', 'Keeper', '#ff9f43'], ['AppTimer', 'Dialog', '#ff9f43'],
+    ['Dialog', 'Wheel', '#c77dff'], ['Dialog', 'Input', '#ff9f43'], ['Keeper', 'Files', '#b8b2d6'],
+    ['Win', 'Layout', '#5ee6a8'], ['Win', 'Skin', '#ff9f43'],
+    ['OW', 'Com', '#b8b2d6'], ['TPW', 'Uia', '#b8b2d6'], ['TPW', 'Mention', '#5ee6a8'], ['TPW', 'PopupText', '#7ef0ff'],
+    ['Settings', 'Files', '#b8b2d6'], ['Win', 'Native', '#b8b2d6']
+  ];
+
+  GameGuide.start({
+    title: 'SecretaryGadget 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・主要クラスの責務・依存の向き(実際のクラス名・ファイル名)',
+    camera: { pos: [2, 20, 38], target: [2, 3, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [36, 5], pos: [0.5, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-19.5, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.32, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- クラスの箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.6, 0.9, 1.9], pos: [c[3], L.y + 0.45, 0], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.34, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- App の分割ファイル(手順2でだけ見せる) ----
+      var PARTS = [
+        ['App.xaml.cs', '起動・終了・二重起動の防止\n見張りの開始・Notice キュー\nEnqueue / ShowNext / Call / 休憩', -15.5, 'App'],
+        ['App.Tray.cs', 'NotifyIcon とメニュー\nスキン・大きさ・設定の変更\n自動起動の登録', -7.5, 'Tray'],
+        ['App.Timer.cs', '_timers(TimerKeeper)\nAskTimer / CancelTimer\nCheckTimers', 0.5, 'AppTimer']
+      ];
+      PARTS.forEach(function (p, i) {
+        g.box({ id: 'part-' + i, size: [6.4, 0.9, 1.7], pos: [p[2], 16.2, 3.2], color: '#2d2944', emissive: C.third, emissiveIntensity: 0.4, radius: 0.1, edgeColor: C.third,
+          label: p[0] + '\n' + p[1], labelSize: 0.26, labelOffset: [0, 1.7, 0], labelBg: '#000000cc' });
+        var tx = POS[p[3]][0];
+        g.arrow([p[2], 16.7, 3.2], [tx, 12.95, 0.3], { id: 'part-a-' + i, color: C.third, lift: 0.3, head: 0.2 });
+      });
+      // ---- テスト(右端) ----
+      g.box({ id: 'tests', size: [4.6, 1.2, 2.6], pos: [22, 8.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'SecretaryGadget.Tests\n(MSTest)\nNoticeTextsTests / TimerTests\nSettingsTests / WatcherLogicTests', labelSize: 0.26, labelOffset: [0, 1.8, 0], labelBg: '#000000cc' });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+      g.arrow([19.7, 8.8, 0], [16.4, 8.9, 0], { id: 'dep-tests', color: C.gold, lift: 1.2, head: 0.25, label: '実クラスを直接テスト\n(InternalsVisibleTo)', labelSize: 0.25 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 20, 38], target: [2, 3, 0] },
+        update: function (g, t) { g.pulse('App', t, 0.04); },
+        html:
+          '<p>SecretaryGadget は <b>WPF + WinForms(.NET 9)</b> の常駐アプリです。画面の窓は秘書さん1つだけで、トレイ(<code>NotifyIcon</code>)とタイマーのダイアログは WinForms で作っています。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>UI層</td><td><code>App</code>(3ファイルに分割)・<code>SecretaryWindow</code>・<code>TimerDialog</code>・<code>WheelColumn</code></td></tr>' +
+          '<tr><td>お知らせ・タイマー層</td><td>画面に依存しない文面・配置計算・タイマーの入力と保存(<code>Notice</code>・<code>NoticeTexts</code>・<code>TimerKeeper</code> ほか)</td></tr>' +
+          '<tr><td>見張り役</td><td>Outlook・Teams を見て <code>Notice</code> を作る</td></tr>' +
+          '<tr><td>設定・スキン・補助</td><td><code>Settings</code>・<code>Log</code>・<code>SkinCatalog</code>・<code>HakoniwaLauncher</code> など</td></tr>' +
+          '<tr><td>OS・外部アプリ・ファイル</td><td>Win32 API、Outlook の COM、UI Automation、レジストリ、JSONファイル</td></tr></table>' +
+          '<p>右端の黄色い箱は単体テスト(<code>Tests/SecretaryGadget.Tests</code>)です。</p>'
+      },
+      {
+        title: '1. UI層',
+        camera: { pos: [2, 20, 34], target: [2, 11.5, 0] },
+        focus: ['L-ui', 'Ln-ui'].concat(ids('ui')),
+        html:
+          '<table><tr><th>クラス / ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>App</code>(App.xaml.cs ほか2つ)</td><td>常駐の本体。見張り役を作って動かし、届いた <code>Notice</code> をキューで順番に秘書さんへ渡す</td></tr>' +
+          '<tr><td><code>SecretaryWindow</code></td><td>秘書さん(絵 + 吹き出し)。せり上がり・引っ込み・自動で隠れる・クリックの処理・画面キャプチャ除外</td></tr>' +
+          '<tr><td><code>TimerDialog</code></td><td>タイマー入力のダイアログ(WinForms)。<code>Ask()</code> が <code>TimerEntry</code> か null を返す</td></tr>' +
+          '<tr><td><code>WheelColumn</code></td><td>ドラムロール風の数値選択1列。自前描画(<code>OnPaint</code>)で、ホイール・クリック・ドラッグ・↑↓キーに対応</td></tr></table>' +
+          '<div class="gg-note">画面(xaml)は <code>App.xaml</code>(ほぼ空)と <code>SecretaryWindow.xaml</code> の2つだけです。</div>'
+      },
+      {
+        title: '2. App の3分割(partial class)',
+        camera: { pos: [-5, 22, 33], target: [-5, 13, 1] },
+        focus: ['App', 'Tray', 'AppTimer', 'part-0', 'part-1', 'part-2', 'part-a-0', 'part-a-1', 'part-a-2', 'L-ui'],
+        show: ['part-0', 'part-1', 'part-2', 'part-a-0', 'part-a-1', 'part-a-2'],
+        html:
+          '<p><code>App</code> は約1,300行になるため、関心ごとに3ファイルへ分けた <code>partial class</code> です。</p>' +
+          '<table><tr><th>ファイル</th><th>主な中身</th></tr>' +
+          '<tr><td>App.xaml.cs</td><td><code>OnStartup</code>・二重起動の防止(<code>Mutex</code>)・<code>--exit</code> 用の名前付きイベント・見張りの開始・3つのタイマー(0.3秒 / 3秒 / 1秒)・<code>Enqueue</code> / <code>ShowNext</code> / <code>Call</code>・休憩・メモリ監視・起動引数(<code>StartupOptions</code>)</td></tr>' +
+          '<tr><td>App.Tray.cs</td><td><code>CreateTray</code>・<code>BuildMenu</code>(開くたびに作り直す)・スキン / 大きさ / 隠れる時間の変更・設定フォルダの変更・自動起動(レジストリ)</td></tr>' +
+          '<tr><td>App.Timer.cs</td><td><code>_timers</code>・<code>LoadTimers</code>・<code>AskTimer</code>・<code>CancelTimer</code>・<code>CheckTimers</code>(<b>50行</b>の小さな追加)</td></tr></table>' +
+          '<div class="gg-note">メニューの項目は <code>Item()</code> が作り、クリックのたびに動作のあと <b>設定の全項目を書き戻し</b>(<code>_settings.Save()</code>)ます。例外は握ってログに書くだけで、アプリは止まりません。</div>'
+      },
+      {
+        title: '3. お知らせ・タイマー層',
+        camera: { pos: [2, 15, 34], target: [2, 7.5, 0] },
+        focus: ['L-note', 'Ln-note'].concat(ids('note')),
+        html:
+          '<p>画面部品(WPFのコントロール)を直接触らない、<b>テストしやすい</b>部分です。時刻は引数で受け取る純粋な関数にしてあります。</p>' +
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>Notice</code> / <code>NoticeKind</code></td><td>吹き出し1回分。種類・見出し・本文3行・クリック動作(<code>Open</code>)・直前の作り直し(<code>Refresh</code>)。<code>IsCalled</code>(おやすみ中も出す)と <code>IsSticky</code>(消えない)を持つ</td></tr>' +
+          '<tr><td><code>NoticeTexts</code></td><td>文面の組み立て(あいさつ・呼んだとき・本日の予定・会議・集約・タイマーの各文面)</td></tr>' +
+          '<tr><td><code>TimerKeeper</code></td><td>セット中のタイマーの一覧(<code>Add</code> / <code>Remove</code> / <code>TakeDue</code> / <code>Load</code>)。JSONで保存</td></tr>' +
+          '<tr><td><code>TimerInput</code> / <code>TimerEntry</code></td><td>入力を時刻にする(<code>FromClock</code> / <code>FromRelative</code> / <code>TryParse</code>)。<code>TimerEntry</code> は <code>Due</code> と <code>Label</code> だけの record</td></tr>' +
+          '<tr><td><code>MentionFilter</code></td><td>メンションの判定(アドレスを除いてキーワードを部分一致)</td></tr>' +
+          '<tr><td><code>BubbleLayout</code></td><td>絵と吹き出しの配置計算(<code>Compute</code>)。画面なしで呼べる</td></tr></table>'
+      },
+      {
+        title: '4. タイマー: TimerDialog・WheelColumn・TimerKeeper',
+        camera: { pos: [3, 17, 34], target: [3, 9, 0] },
+        focus: ['AppTimer', 'Dialog', 'Wheel', 'Keeper', 'Input', 'Files', 'dep-AppTimer-Keeper', 'dep-AppTimer-Dialog', 'dep-Dialog-Wheel', 'dep-Dialog-Input', 'dep-Keeper-Files'],
+        show: ['dep-AppTimer-Keeper', 'dep-AppTimer-Dialog', 'dep-Dialog-Wheel', 'dep-Dialog-Input', 'dep-Keeper-Files'],
+        update: function (g, t) { g.pulse('Wheel', t, 0.07); g.pulse('Keeper', t + 1, 0.05); },
+        html:
+          '<table><tr><th>クラス</th><th>設計のポイント</th></tr>' +
+          '<tr><td><code>WheelColumn</code></td><td><code>Control</code> を継承して自前で描く(24 や 60 の件数を受け取る)。<code>Value</code> は代入のたびに回り込み(<code>Wrap</code>)、5行分を中央を濃く・端を薄く描く。ホイールは1ノッチ1つ、ドラッグは行の高さ(30px)ごとに1つ、ほぼ動かさず離すとクリック扱いで押した行が中央へ</td></tr>' +
+          '<tr><td><code>TimerDialog</code></td><td>ラジオで有効な側の列だけ <code>Enabled</code>。TabIndex は左上→右上→左下→右下の順。「セット」で <code>TimerInput</code> を呼び、null なら赤字でエラー</td></tr>' +
+          '<tr><td><code>TimerKeeper</code></td><td>一覧を <b>期限の早い順</b>に保ち、変更のたびに保存。ファイルの場所をコンストラクタで受け取る(テストでは一時ファイル)</td></tr></table>' +
+          '<ul><li>ダイアログ(UI)と入力の解釈(<code>TimerInput</code>)と保存(<code>TimerKeeper</code>)を分けたので、解釈と保存は画面なしで単体テストできる(<code>TimerTests</code>)</li>' +
+          '<li>保存ファイル <code>timers.json</code> は設定フォルダ(共有されうる場所)ではなく <b><code>Settings.LocalDir</code>(PCごと)</b>。別のPCの予定が混ざらない</li></ul>'
+      },
+      {
+        title: '5. 見張り役',
+        camera: { pos: [2, 11, 34], target: [2, 3.5, 0] },
+        focus: ['L-watch', 'Ln-watch'].concat(ids('watch')),
+        html:
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>OutlookWatcher</code></td><td>STA専用スレッド1本で COM を触る。要求キュー(<code>BlockingCollection</code>)で、定期確認と他スレッドからの読み出しを直列化。Outlook が無ければ何もしない</td></tr>' +
+          '<tr><td><code>TeamsPopupWatcher</code></td><td>Teams の小窓(<code>TeamsWebView</code>)を <code>EnumWindows</code> で探し、UI Automation で文字を読む(主経路)。窓が出た合図で起き、出ている間だけ読む</td></tr>' +
+          '<tr><td><code>PopupText</code></td><td>集めた文字を通知カードに分ける(UIA に依存しない部分。単体テスト用に分離)</td></tr>' +
+          '<tr><td><code>TeamsMentionCounter</code></td><td>「メンション N 未読」を60秒ごとに数える。呼んだときは即時に数え直す</td></tr>' +
+          '<tr><td><code>TeamsWatcher</code></td><td>通知センターを見る予備。既定オフ(メモリが残るため)</td></tr>' +
+          '<tr><td><code>WindowFocus</code></td><td>他アプリを前へ出す・Teams の窓探し・URI を開く</td></tr></table>' +
+          '<ul><li>どの見張り役も <code>Func&lt;Settings&gt;</code> を受け取り、設定の変更を次の確認から反映する</li>' +
+          '<li>結果は <code>Action&lt;Notice&gt;</code> のコールバックで <code>App</code> へ。<code>App</code> が <code>Post()</code> でUIスレッドへ移す</li>' +
+          '<li><code>IDisposable</code>。終了時に <code>App.ExitApp</code> がまとめて <code>Dispose</code>(隠した本家の小窓を元へ戻す)</li></ul>'
+      },
+      {
+        title: '6. 設定・スキン・補助',
+        camera: { pos: [2, 8, 34], target: [2, 0.5, 0] },
+        focus: ['L-res', 'Ln-res'].concat(ids('res')),
+        html:
+          '<table><tr><th>クラス</th><th>責務</th></tr>' +
+          '<tr><td><code>Settings</code></td><td>settings.json の項目(呼び名・スキン・大きさ・通知のON/OFF など)。場所は <code>settings_location.json</code> の <code>SettingsDir</code>、無ければ <code>%LOCALAPPDATA%\\SecGad\\</code>。<code>Normalize</code> が手書きの範囲外の値を直す。<code>ChangeDir</code> で場所を変更</td></tr>' +
+          '<tr><td><code>Log</code></td><td>log.txt への記録。<b>件名・差出人・本文・人名は書かない</b>(件数・種類・固定見出しだけ)。1MBで1世代だけ残して切り替え</td></tr>' +
+          '<tr><td><code>SkinCatalog</code>(ほか SkinInfo・SkinImage)</td><td>同梱 <code>Skins\\</code> と追加 <code>%LOCALAPPDATA%\\SecGad\\skins\\</code> を名前順に走査(<code>secretary.png</code> があるものだけ・同じIDは同梱優先)。画像は <code>OnLoad</code> で読み込んでファイルを掴まない。行ごとの「最も左の不透明画素」を前計算して吹き出しの重なり率に使う。読めなければ exe 埋め込みの既定絵</td></tr>' +
+          '<tr><td><code>HakoniwaLauncher</code></td><td>箱庭(Claude Office、127.0.0.1:8765)を開く。待ち受けが無ければ <code>ClaudeOffice\\autostart.ps1</code> を窓なしで起動して最大30秒待つ</td></tr>' +
+          '<tr><td><code>StartupOptions</code></td><td><code>--exit</code> / <code>--wait-instance</code> / <code>--skin</code> / <code>--scale</code> / <code>--render-preview</code> / <code>--diag-*</code></td></tr></table>' +
+          '<div class="gg-note">個人情報に当たるもの(呼び名・見張りフォルダ・自分の姓のキーワード)は settings.json にだけ置き、ソースの既定値は「&lt;名&gt;さん」などの<b>伏せ字</b>です。</div>'
+      },
+      {
+        title: '7. 依存の向きと設計上の工夫',
+        camera: { pos: [2, 24, 40], target: [2, 4, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-tests']),
+        update: function (g, t) { g.pulse('App', t, 0.05); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li><code>App</code> が司令塔。見張り役を作って動かし、<code>Notice</code> を受け取って <code>SecretaryWindow</code> へ渡す</li>' +
+          '<li>文面(<code>NoticeTexts</code>)・配置計算(<code>BubbleLayout</code>)・タイマーの解釈(<code>TimerInput</code>)は、<b>時刻や画面を引数で受け取る純粋な処理</b> → 単体テストで直接呼べる</li>' +
+          '<li>OS依存(Win32 API・COM・UI Automation・レジストリ)は、見張り役・<code>NativeMethods</code>・<code>App.Tray</code> に閉じ込めてある</li>' +
+          '<li>ビルド出力(bin/obj)は <code>Directory.Build.props</code> で <code>%LOCALAPPDATA%\\SecGad\\build</code> へ逃がし、ソースを共有フォルダに置いても同期させない</li></ul>' +
+          '<table><tr><th>スレッド</th><th>やること</th></tr>' +
+          '<tr><td>UIスレッド</td><td>窓・トレイ・3つの <code>DispatcherTimer</code>(0.3秒の表示 / 3秒の <code>Flush</code> / 1秒の抑止確認)</td></tr>' +
+          '<tr><td>Outlook の STA スレッド</td><td>COM の読み書きだけ。結果はコールバックで返す</td></tr>' +
+          '<tr><td>Teams の見張りスレッド</td><td>小窓の確認と UIA の読み取り</td></tr></table>' +
+          '<p>テストは <code>NoticeTextsTests</code> / <code>TimerTests</code> / <code>SettingsTests</code> / <code>WatcherLogicTests</code>。<code>Settings.LocalDirOverride</code> で保存先を一時フォルダに差し替え、本物の設定・ログを汚しません。</p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlurPaint 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 画面写真(1320x746)を3D空間のパネルとして並べる。パネルの中心座標と幅
+  var PW = 8, PH = PW * 746 / 1320, PY = 3.2;
+  var PANELS = {
+    main:      { key: 'main',      x: -14.25, title: '① 起動直後(画像なし)' },
+    annotated: { key: 'annotated', x: -4.75,  title: '② 注釈を入れた状態(ぼかしツール)' },
+    selected:  { key: 'selected',  x: 4.75,   title: '③ 選択ツール(モザイクを選択中)' },
+    crop:      { key: 'crop',      x: 14.25,  title: '④ トリミング範囲を選択中' }
+  };
+  // 写真上の位置(0〜1)をパネルのローカル座標へ
+  function L(fx, fy, z) { return [(fx - 0.5) * PW, (0.5 - fy) * PH, z == null ? 0.2 : z]; }
+
+  // 手順のカメラ。パネル中心 cx を正面から見る
+  function cam(cx, dist) { return { pos: [cx, PY + 0.1, dist || 9.6], target: [cx, PY - 0.2, 0] }; }
+  var WIDE = { pos: [0, 4.2, 30.5], target: [0, 2.8, 0] };
+
+  GameGuide.start({
+    title: 'BlurPaint 使い方',
+    back: 'index.html',
+    subtitle: 'スクリーンショットに注釈・ぼかしを入れる(実際の画面の写真つき)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面写真のパネル ----
+      Object.keys(PANELS).forEach(function (name) {
+        var p = PANELS[name];
+        g.group('p-' + name, { pos: [p.x, PY, 0] });
+        g.box({ id: 'f-' + name, parent: 'p-' + name, size: [PW + 0.3, PH + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.BP_IMGS[p.key]);
+        var plane = new T.Mesh(new T.PlaneGeometry(PW, PH), new T.MeshBasicMaterial({ map: tex, transparent: true }));
+        g.add('s-' + name, plane, 'p-' + name);
+        g.label(p.title, [0, PH / 2 + 0.55, 0], { id: 't-' + name, parent: 'p-' + name, size: 0.36, bg: '#000000aa' });
+      });
+
+      // ---- 写真の上に重ねる吹き出し(ステップごとに出す) ----
+      function co(id, panel, text, fx, fy, color) {
+        g.label(text, L(fx, fy), { id: id, parent: 'p-' + panel, size: 0.21, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      // 画面の見かた
+      co('c-top',   'main', '① 上段バー\n開く / 貼り付け / 元に戻す・やり直し\nズーム / コピー / 保存形式 / 保存', 0.42, 0.22);
+      co('c-tools', 'main', '② ツールバー(左)\n選択 / 矢印 / 矩形 / 楕円 / 直線\nペン / 文字 / 番号 / 蛍光ペン\nぼかし / トリミング', 0.20, 0.55);
+      co('c-props', 'main', '③ プロパティバー\n今のツールに関係する設定だけ出る\n(色・太さ・縁取り・影 など)', 0.66, 0.36);
+      co('c-empty', 'main', '④ 画像が無い間の案内\nCtrl+V / ドラッグ&ドロップ / 開く', 0.55, 0.72);
+      co('c-paste', 'main', '⑤ 貼り付け・ドロップ時の動き\n新しい画像として開く / 今の画像に重ねる', 0.78, 0.56, '#7ef0ff');
+
+      // 描く
+      co('c-hl',   'annotated', '蛍光ペン(H)\n塗った下の文字が読める(乗算)', 0.26, 0.50);
+      co('c-rect', 'annotated', '矩形(R)・楕円(E)\nShiftで正方形/正円', 0.56, 0.97, '#ff5f6d');
+      co('c-arr',  'annotated', '矢印(A)・直線(L)\nShiftで45°単位', 0.40, 0.32, '#7ef0ff');
+      co('c-step', 'annotated', '番号(N)\nクリックで 1→2→… の順', 0.71, 0.14, '#5ee6a8');
+      co('c-text', 'annotated', 'テキスト(T)\nクリックして入力', 0.80, 0.94);
+      // ぼかし
+      co('c-mos',  'annotated', 'モザイク\n(方式=モザイク・強さ12)', 0.40, 0.60, '#ff5f6d');
+      co('c-blr',  'annotated', 'ぼかし\n(方式=ぼかし・強さ10)', 0.40, 0.76, '#7ef0ff');
+      co('c-bbar', 'annotated', '方式 と 強さ(2〜40)は\nぼかしツールのときだけ出る', 0.40, 0.0);
+      // 選択
+      co('c-hnd',  'selected', '選択すると 8個のハンドル\n角・辺をドラッグで拡大縮小', 0.60, 0.46, '#ffd166');
+      co('c-hint', 'selected', '選択中は設定を変えると\nその図形に反映される', 0.50, 0.0, '#7ef0ff');
+      // トリミング
+      co('c-crop', 'crop', '残す範囲を囲む\n暗い部分は切り落とされる', 0.84, 0.50, '#ffd166');
+      co('c-cbar', 'crop', '残るサイズ 620×450 px\nEnter で実行 / Esc で解除', 0.42, 0.10, '#5ee6a8');
+      // 保存
+      co('c-top2', 'annotated', 'コピー(Ctrl+C)= PNG\n保存形式 PNG/JPEG/WebP → 保存(Ctrl+S)', 0.70, -0.09, '#5ee6a8');
+
+      // ---- 動くカーソル(ドラッグの再現)。描く手順用 ----
+      var cur = new T.Mesh(new T.SphereGeometry(0.13, 16, 12), new T.MeshBasicMaterial({ color: '#ffe066', depthTest: false }));
+      cur.renderOrder = 20;
+      g.add('cursor', cur, 'p-annotated');
+      // ---- 動く範囲(ぼかしをドラッグで作る様子) ----
+      var scan = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ color: '#4aa3ff', transparent: true, opacity: 0.35, depthTest: false }));
+      scan.renderOrder = 10;
+      g.add('scan', scan, 'p-annotated');
+      // ---- トリミング範囲の明滅 ----
+      var cropGlow = new T.Mesh(new T.PlaneGeometry(0.62 * PW, 0.60 * PH), new T.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.12, depthTest: false }));
+      cropGlow.position.set((0.37 - 0.5) * PW, (0.5 - 0.46) * PH, 0.04);
+      cropGlow.renderOrder = 10;
+      g.add('cropglow', cropGlow, 'p-crop');
+
+      // ---- キーキャップ(手前に浮かせる) ----
+      function keycap(id, x, text, color) {
+        g.box({ id: id, size: [1.9, 0.4, 1.1], pos: [x, 0.25, 2.6], color: '#2d2944', emissive: color, emissiveIntensity: 0.35, radius: 0.12, edgeColor: color });
+        g.label(text, [x, 1.25, 2.6], { id: id + '-l', size: 0.25, bg: '#000000bb', color: color, border: color });
+      }
+      keycap('key-snip',  -17.2, 'Win+Shift+S\n画面を切り取る', C.me);
+      keycap('key-paste', -14.25, 'Ctrl+V\n貼り付け', C.good);
+      keycap('key-open',  -11.3, 'Ctrl+O / ドロップ\nファイルを開く', C.third);
+      g.flow([-17.2, 0.6, 2.6], [-14.6, 0.6, 2.6], { id: 'fl-snip', color: C.me, count: 5, lift: 0.6 });
+      g.flow([-14.25, 0.6, 2.6], [-14.25, 2.0, 0.5], { id: 'fl-paste', color: C.good, count: 6, lift: 0.8 });
+      g.flow([-11.3, 0.6, 2.6], [-12.5, 2.0, 0.5], { id: 'fl-open', color: C.third, count: 6, lift: 0.8 });
+      keycap('key-copy', -7.4, 'Ctrl+C\nクリップボード(PNG)', C.good);
+      keycap('key-save', -2.1, 'Ctrl+S\nファイル(PNG/JPEG/WebP)', C.gold);
+      g.flow([-5.5, 1.2, 0.5], [-7.4, 0.6, 2.6], { id: 'fl-copy', color: C.good, count: 7, lift: 1.2 });
+      g.flow([-4.0, 1.2, 0.5], [-2.1, 0.6, 2.6], { id: 'fl-save', color: C.gold, count: 7, lift: 1.2 });
+    },
+
+    steps: [
+      {
+        title: '0. BlurPaint とは',
+        camera: WIDE,
+        focus: ['p-main', 'p-annotated', 'p-selected', 'p-crop'],
+        html:
+          '<p>スクリーンショットに<b>矢印・枠・文字・番号・蛍光ペン・ぼかし/モザイク</b>を入れるための、軽量なペイントエディタです。ブラウザで動き、インストール・ビルド・外部通信はありません。</p>' +
+          '<p>基本の流れはこの3つだけ。</p>' +
+          '<ol><li><code>Win + Shift + S</code> で画面を撮る</li><li>BlurPaint で <code>Ctrl + V</code> → 注釈を入れる</li><li><code>Ctrl + C</code>(コピー)か <code>Ctrl + S</code>(保存)で出す</li></ol>' +
+          '<p>画面写真は実際の BlurPaint の画面(画像も文字も自作のダミー)です。左から、</p>' +
+          '<ol><li>起動直後</li><li>注釈を入れた状態</li><li>選択ツールで変形</li><li>トリミング</li></ol>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。上の「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. 起動と画面の見かた',
+        camera: cam(-14.25),
+        focus: ['p-main'],
+        show: ['c-top', 'c-tools', 'c-props', 'c-empty', 'c-paste'],
+        html:
+          '<p><code>BlurPaint.bat</code> をダブルクリックすると、Edge のアプリ窓(タブ・アドレスバー無し)で開きます。<code>index.html</code> を Edge / Chrome で直接開いてもOKです。</p>' +
+          '<table><tr><th>場所</th><th>役割</th></tr>' +
+          '<tr><td>① 上段バー</td><td>開く・貼り付け・元に戻す/やり直し・ズーム・画像サイズ表示・コピー・保存形式・保存</td></tr>' +
+          '<tr><td>② ツールバー</td><td>11個のツール(<code>V A R E L P T N H B C</code> のキーでも切替)</td></tr>' +
+          '<tr><td>③ プロパティバー</td><td>選んだツール(または選択中の図形)に関係する設定だけが出る</td></tr>' +
+          '<tr><td>④ 空の状態</td><td>画像を入れるまでは案内を表示。コピー/保存/ズームは押せない</td></tr>' +
+          '<tr><td>⑤ 貼り付け・ドロップ時</td><td>画像を貼ったとき「新しい画像として開く」か「今の画像に重ねる」か</td></tr></table>'
+      },
+      {
+        title: '2. 画像を入れる',
+        camera: { pos: [-14.25, 2.8, 11.5], target: [-14.25, 2.0, 0.5] },
+        focus: ['p-main', 'key-snip', 'key-snip-l', 'key-paste', 'key-paste-l', 'key-open', 'key-open-l', 'fl-snip', 'fl-paste', 'fl-open'],
+        show: ['c-empty', 'c-paste', 'key-snip', 'key-snip-l', 'key-paste', 'key-paste-l', 'key-open', 'key-open-l', 'fl-snip', 'fl-paste', 'fl-open'],
+        update: function (g, t) { g.pulse('key-paste', t, 0.06); },
+        html:
+          '<table><tr><th>方法</th><th>内容</th></tr>' +
+          '<tr><td><code>Ctrl+V</code> / 「貼り付け」ボタン</td><td>クリップボードの画像を入れる。画像が無ければ「クリップボードに画像がありません」と出る</td></tr>' +
+          '<tr><td>ドラッグ&amp;ドロップ</td><td>画像ファイルを窓に落とす</td></tr>' +
+          '<tr><td><code>Ctrl+O</code> / 「開く」</td><td>ファイルを選ぶ(これは<b>常に新しい画像</b>として開く)</td></tr></table>' +
+          '<ul><li>対応形式: PNG / JPEG / WebP / BMP / GIF / ICO / SVG / AVIF</li>' +
+          '<li>貼り付け・ドロップ時の動きは右上の選択で決める。<b>重ねる</b>にすると、画像は図形の1つとして中央に(元画像の90%以内に縮小して)置かれ、ハンドルで拡大縮小できる</li>' +
+          '<li>未保存のまま閉じようとすると、ブラウザが確認を出す</li></ul>'
+      },
+      {
+        title: '3. 描く(矢印・図形・文字・番号・蛍光ペン)',
+        camera: cam(-4.75, 9.4),
+        focus: ['p-annotated'],
+        show: ['c-hl', 'c-rect', 'c-arr', 'c-step', 'c-text', 'cursor'],
+        update: function (g, t) {
+          // [始点, 終点](写真上の位置)をドラッグするカーソル
+          var segs = [[[0.18, 0.41], [0.38, 0.41]], [[0.49, 0.54], [0.63, 0.86]], [[0.66, 0.47], [0.49, 0.45]]];
+          var s = Math.floor(t / 1.4) % segs.length, k = g.phase(t % 1.4, 0, 1.1);
+          var a = segs[s][0], b = segs[s][1];
+          var p = L(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, 0.12);
+          g.get('cursor').position.set(p[0], p[1], p[2]);
+        },
+        html:
+          '<p>ツールを選んで、画像の上を<b>ドラッグ</b>するだけです(番号・文字は<b>クリック</b>)。</p>' +
+          '<table><tr><th>キー</th><th>ツール</th><th>操作</th></tr>' +
+          '<tr><td>A</td><td>矢印</td><td>ドラッグ。Shift で45°単位。根元が細く先端が太い塗り矢印</td></tr>' +
+          '<tr><td>R / E</td><td>矩形 / 楕円</td><td>ドラッグ。Shift で正方形 / 正円</td></tr>' +
+          '<tr><td>L</td><td>直線</td><td>ドラッグ。Shift で45°単位</td></tr>' +
+          '<tr><td>P</td><td>フリーハンド</td><td>ドラッグ(なめらかな曲線に補間)</td></tr>' +
+          '<tr><td>T</td><td>テキスト</td><td>クリックして入力。<code>Enter</code> 確定 / <code>Shift+Enter</code> 改行 / <code>Esc</code> 取消</td></tr>' +
+          '<tr><td>N</td><td>番号</td><td>クリックで ①②③… を順に配置(置いた直後はドラッグで位置調整できる)</td></tr>' +
+          '<tr><td>H</td><td>蛍光ペン</td><td>ドラッグした範囲を塗る(乗算なので下の文字が読める)</td></tr></table>' +
+          '<ul><li>色は8色のスウォッチか任意色。太さ(1〜30)・縁取り(なし/白/黒)・影・文字サイズ(10〜120)・文字スタイル(縁取り/背景ボックス/なし)</li>' +
+          '<li>3px未満のドラッグでは図形を作らない(クリックだけで点や空の枠ができない)</li></ul>'
+      },
+      {
+        title: '4. ぼかし・モザイクで隠す',
+        camera: cam(-4.75, 9.4),
+        focus: ['p-annotated'],
+        show: ['c-mos', 'c-blr', 'c-bbar', 'scan'],
+        update: function (g, t) {
+          // モザイク範囲をドラッグで作る様子(青い範囲が横に伸びる)
+          var k = g.phase(t % 2.2, 0, 1.4);
+          var x0 = 0.653, x1 = 0.862, y0 = 0.568, y1 = 0.614;
+          var w = (x1 - x0) * k * PW, h = (y1 - y0) * PH;
+          var s = g.get('scan');
+          s.scale.set(Math.max(w, 0.001), h, 1);
+          var c = L(x0, (y0 + y1) / 2, 0.08);
+          s.position.set(c[0] + w / 2, c[1], c[2]);
+        },
+        html:
+          '<p><b>B</b> キーでぼかしツール。隠したい範囲をドラッグするだけです。</p>' +
+          '<table><tr><th>設定</th><th>内容</th></tr>' +
+          '<tr><td>方式</td><td><b>ぼかし</b>(ガウスぼかし)/ <b>モザイク</b>(ブロック化)</td></tr>' +
+          '<tr><td>強さ</td><td>2〜40。大きいほど強く隠れる</td></tr></table>' +
+          '<ul><li>方式と強さは<b>描いたあとからも変えられる</b>(範囲を選択 → プロパティバーで変更)</li>' +
+          '<li>ぼかし範囲は点線の青枠で見える(書き出しには出ない)</li>' +
+          '<li>ぼかしは「それより<b>前に</b>描いたもの」を隠す。あとから描いた矢印・文字は隠れない</li></ul>' +
+          '<div class="gg-note">⚠ ぼかしは強さが弱いと文字が読めてしまうことがあります。パスワードや個人情報など確実に隠したいものは、<b>モザイク(強さ大きめ)</b>を使ってください。この写真のカード番号も、実はダミーです。</div>'
+      },
+      {
+        title: '5. 選択・移動・変形・削除',
+        camera: cam(4.75, 9.4),
+        focus: ['p-selected'],
+        show: ['c-hnd', 'c-hint'],
+        html:
+          '<p><b>V</b> キーで選択ツール。図形をクリックして選びます。</p>' +
+          '<table><tr><th>操作</th><th>できること</th></tr>' +
+          '<tr><td>クリック</td><td>最前面の図形を選ぶ(矩形・楕円は<b>枠線の近く</b>だけが当たり。内側の別の図形も選べる)</td></tr>' +
+          '<tr><td>ドラッグ</td><td>移動</td></tr>' +
+          '<tr><td>ハンドル</td><td>矩形系は8個で拡大縮小(Shift+角で正方形、重ねた画像は縦横比を保つ)。直線・矢印は両端の2個</td></tr>' +
+          '<tr><td>ダブルクリック / <code>Enter</code></td><td>テキストを再編集</td></tr>' +
+          '<tr><td><code>Delete</code></td><td>削除</td></tr>' +
+          '<tr><td><code>Ctrl+D</code></td><td>複製(右下に16pxずらす。番号は次の数字)</td></tr>' +
+          '<tr><td>矢印キー</td><td>1px移動(Shiftで10px)</td></tr>' +
+          '<tr><td><code>Esc</code></td><td>選択解除 → もう一度で選択ツールへ</td></tr></table>' +
+          '<p>選択中にプロパティバーの色・太さ・方式などを変えると、その図形に反映されます(次に描く図形の既定値にもなる)。</p>' +
+          '<p><code>Ctrl+Z</code> / <code>Ctrl+Y</code>(または <code>Ctrl+Shift+Z</code>)で元に戻す/やり直し。履歴は最大100件です。</p>'
+      },
+      {
+        title: '6. トリミング',
+        camera: cam(14.25, 9.4),
+        focus: ['p-crop'],
+        show: ['c-crop', 'c-cbar', 'cropglow'],
+        update: function (g, t) { g.get('cropglow').material.opacity = 0.1 + 0.1 * Math.sin(t * 3); },
+        html:
+          '<ol><li><b>C</b> キーでトリミングツール</li>' +
+          '<li>残したい範囲をドラッグで囲む(プロパティバーに <code>620 × 450 px</code> のようにサイズが出る)</li>' +
+          '<li><code>Enter</code>(または「トリミング実行」)で確定 / <code>Esc</code>(または「キャンセル」)で解除</li></ol>' +
+          '<ul><li>確定すると、描いた図形も一緒に切り抜かれ、選択ツールに戻る</li>' +
+          '<li>元の画像は履歴に残るので <code>Ctrl+Z</code> で戻せる</li>' +
+          '<li>範囲の外は暗く表示される(書き出しには出ない)</li></ul>'
+      },
+      {
+        title: '7. コピー・保存する',
+        camera: { pos: [-4.75, 2.8, 11.5], target: [-4.75, 2.0, 0.5] },
+        focus: ['p-annotated', 'key-copy', 'key-copy-l', 'key-save', 'key-save-l', 'fl-copy', 'fl-save'],
+        show: ['c-top2', 'key-copy', 'key-copy-l', 'key-save', 'key-save-l', 'fl-copy', 'fl-save'],
+        update: function (g, t) { g.pulse('key-copy', t, 0.05); g.pulse('key-save', t + 1, 0.05); },
+        html:
+          '<table><tr><th>操作</th><th>結果</th></tr>' +
+          '<tr><td><code>Ctrl+C</code> / 「コピー」</td><td><b>PNG</b>でクリップボードへ(「クリップボードにコピーしました」)。文字を選択中なら通常のコピーに譲る</td></tr>' +
+          '<tr><td><code>Ctrl+S</code> / 「保存」</td><td>選んだ形式(<b>PNG / JPEG / WebP</b>)でファイルへ</td></tr></table>' +
+          '<ul><li>保存は、使える環境では「名前を付けて保存」ダイアログ。使えない環境では<b>ダウンロードフォルダ</b>へ</li>' +
+          '<li>既定のファイル名は、開いたファイルなら <code>元の名前_edit.png</code>、貼り付けなら <code>image_日付_時刻.png</code></li>' +
+          '<li>JPEG は透明部分が<b>白</b>で塗られる</li>' +
+          '<li>書き出しには、点線の枠・ハンドル・トリミングの暗がり(画面だけの表示)は<b>入らない</b></li></ul>'
+      },
+      {
+        title: '8. ショートカット・注意点',
+        camera: WIDE,
+        focus: ['p-main', 'p-annotated', 'p-selected', 'p-crop'],
+        html:
+          '<table><tr><th>キー</th><th>動作</th></tr>' +
+          '<tr><td><code>Ctrl+0</code> / <code>Ctrl+1</code></td><td>全体表示 / 等倍</td></tr>' +
+          '<tr><td><code>Ctrl++</code> / <code>Ctrl+-</code></td><td>拡大 / 縮小(×1.25)</td></tr>' +
+          '<tr><td><code>Ctrl+ホイール</code></td><td>カーソル位置を中心に拡大縮小(5%〜800%)</td></tr>' +
+          '<tr><td><code>V A R E L P T N H B C</code></td><td>ツール切替(テキスト入力中は無効)</td></tr></table>' +
+          '<ul><li>画像データはブラウザの外へ出ません。<code>localStorage</code> に保存するのは<b>設定値だけ</b>(ツール・色・太さ・保存形式など)</li>' +
+          '<li>編集中の内容(図形)は保存されません。閉じる前にコピー/保存を</li>' +
+          '<li>「貼り付け」ボタンはブラウザの許可が要る場合があり、うまくいかなければ <code>Ctrl+V</code> を使う</li></ul>' +
+          '<div class="gg-note">仕組みの詳細は「データの流れ」「内部設計」のページへ。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

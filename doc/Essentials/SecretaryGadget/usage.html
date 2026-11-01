@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecretaryGadget 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 画面写真(ピクセル数)。パネルの高さは幅から計算する
+  var DIM = {
+    'bubble-greeting': [625, 420], 'bubble-call': [573, 420], 'bubble-mail': [626, 420],
+    'menu-timer': [412, 294], 'timer-clock': [440, 310], 'timer-rel': [440, 310],
+    'bubble-timerset': [543, 420], 'bubble-timerdue': [600, 420], 'menu-skin': [416, 312],
+    'skin-enji': [625, 420], 'skin-blue': [543, 420], 'skin-red': [600, 420], 'skin-brown': [571, 420], 'skin-green': [626, 420]
+  };
+  var PW = 8;
+  // 並べ方。key, 中心x, 中心y, 幅, タイトル
+  var PANELS = [
+    ['bubble-greeting', -9, 11.5, PW, '① 起動のあいさつ(園児スキン)'],
+    ['bubble-call', 0, 11.5, PW, '② 秘書さんを呼ぶ(茶髪スキン)'],
+    ['bubble-mail', 9, 11.5, PW, '③ 新着メールのお知らせ'],
+    ['menu-timer', -9, 4.2, PW, '④ トレイメニュー → タイマー'],
+    ['timer-clock', 0, 4.2, PW, '⑤ タイマー: 時刻を指定'],
+    ['timer-rel', 9, 4.2, PW, '⑥ タイマー: 指定時間後'],
+    ['bubble-timerset', -9, -3.2, PW, '⑦ セットしたときの確認'],
+    ['bubble-timerdue', 0, -3.2, PW, '⑧ 時間になったとき(赤髪スキン)'],
+    ['menu-skin', 9, -3.2, PW, '⑨ スキンのメニュー'],
+    ['skin-enji', -12.8, -10.2, 5.8, '園児 (enji)'],
+    ['skin-blue', -6.4, -10.2, 5.8, '青髪 (blue)'],
+    ['skin-red', 0, -10.2, 5.8, '赤髪 (red)'],
+    ['skin-brown', 6.4, -10.2, 5.8, '茶髪 (brown)'],
+    ['skin-green', 12.8, -10.2, 5.8, '黄緑髪 (green)']
+  ];
+  var P = {};
+  PANELS.forEach(function (p) {
+    var d = DIM[p[0]];
+    P[p[0]] = { key: p[0], x: p[1], y: p[2], w: p[3], h: p[3] * d[1] / d[0], title: p[4] };
+  });
+  // 写真上の位置(0〜1)をパネルのローカル座標へ
+  function L(k, fx, fy, z) { var p = P[k]; return [(fx - 0.5) * p.w, (0.5 - fy) * p.h, z == null ? 0.2 : z]; }
+  function cam(k, dist) { var p = P[k]; return { pos: [p.x, p.y, dist || 10.5], target: [p.x, p.y - 0.2, 0] }; }
+  var WIDE = { pos: [0, 0.6, 39], target: [0, 0.6, 0] };
+  function pid(k) { return 'p-' + k; }
+  var ALL = PANELS.map(function (p) { return pid(p[0]); });
+
+  GameGuide.start({
+    title: 'SecretaryGadget 使い方',
+    back: 'index.html',
+    subtitle: 'お知らせを吹き出しで知らせる常駐ガジェット(実際の画面の写真つき)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面写真のパネル ----
+      PANELS.forEach(function (row) {
+        var p = P[row[0]];
+        g.group(pid(p.key), { pos: [p.x, p.y, 0] });
+        g.box({ id: 'f-' + p.key, parent: pid(p.key), size: [p.w + 0.3, p.h + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.SG_IMGS[p.key]);
+        g.add('s-' + p.key, new T.Mesh(new T.PlaneGeometry(p.w, p.h), new T.MeshBasicMaterial({ map: tex, transparent: true })), pid(p.key));
+        g.label(p.title, [0, p.h / 2 + 0.5, 0], { id: 't-' + p.key, parent: pid(p.key), size: p.w > 7 ? 0.36 : 0.3, bg: '#000000aa' });
+      });
+
+      // ---- 写真に重ねる吹き出し ----
+      function co(id, k, text, fx, fy, color) {
+        g.label(text, L(k, fx, fy), { id: id, parent: pid(k), size: 0.22, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      co('c-g1', 'bubble-greeting', '吹き出し\nクリックで閉じる', 0.15, 1.1);
+      co('c-g2', 'bubble-greeting', '×は吹き出し\nだけ消す', 0.5, 1.1, '#7ef0ff');
+      co('c-g3', 'bubble-greeting', '絵クリックで\n引っ込む', 0.85, 1.1, '#5ee6a8');
+      co('c-c1', 'bubble-call', 'メールの未読件数\n(差出人のまとめ)', 0.1, 1.1);
+      co('c-c2', 'bubble-call', 'Teams の\nメンション未読', 0.9, 1.1, '#7ef0ff');
+      co('c-c3', 'bubble-call', '◀ このあとの会議', 0.7, 0.64, '#5ee6a8');
+      co('c-c4', 'bubble-call', '「ほか N 件」\n「クリックで開きます」', 0.5, 1.1, '#ff9f43');
+      co('c-m1', 'bubble-mail', 'クリックでメールを開く\n(開く先がある通知)', 0.25, 1.1);
+      co('c-t1', 'menu-timer', '「タイマーをセット…」と\n取り消し項目', 0.72, 1.1);
+      co('c-w1', 'timer-clock', '時と分のドラムロール\n(真ん中が選択中)', 0.2, 1.12);
+      co('c-w2', 'timer-clock', '「時刻を指定」の間は\n左の2列だけ動く', 0.72, 1.12, '#7ef0ff');
+      co('c-r1', 'timer-rel', '指定時間後を選ぶと\n右の2列が有効になる', 0.75, 1.12, '#7ef0ff');
+      co('c-r2', 'timer-rel', '初期値は\n0時間 5分後', 0.2, 1.12, '#5ee6a8');
+      co('c-s1', 'bubble-timerset', 'セット直後の確認\n「あと N 分」', 0.25, 1.1);
+      co('c-d1', 'bubble-timerdue', '時間になったら\nクリックするまで消えない', 0.25, 1.1, '#ff5f6d');
+      co('c-k1', 'menu-skin', '✓ が今のスキン', 0.45, 0.5, '#5ee6a8');
+      co('c-k2', 'menu-skin', '追加スキンの置き場も\nここから開ける', 0.62, 1.1);
+
+      // ---- ホイール操作の目印(タイマー手順でだけ見せる) ----
+      g.sphere({ id: 'wheel-ball', radius: 0.28, pos: [P['timer-clock'].x + 1.9, P['timer-clock'].y - 0.2, 1.2], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.6 });
+      g.label('マウスホイール / ドラッグ / ↑↓キー', [P['timer-clock'].x + 1.9, P['timer-clock'].y + 2.0, 1.2], { id: 'wheel-l', size: 0.26, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.arrow([P['timer-clock'].x + 1.9, P['timer-clock'].y + 1.4, 1.2], [P['timer-clock'].x + 1.9, P['timer-clock'].y - 1.6, 1.2], { id: 'wheel-a', color: '#ffd166', lift: 0, head: 0.25 });
+    },
+
+    steps: [
+      {
+        title: '0. 秘書さんガジェットとは',
+        camera: WIDE,
+        focus: ALL,
+        html:
+          '<p><b>従来版 Outlook の新着メール・会議の開始前・Teams のメンション</b>を、画面右下からせり上がるキャラクター(秘書さん)の吹き出しで知らせる、Windows 用の常駐ガジェットです。</p>' +
+          '<ul><li>ふだんは<b>タスクトレイにだけ</b>いて、お知らせがあるときだけ表示し、一定時間(既定 20 秒)で引っ込む</li>' +
+          '<li>秘書さんは<b>画面キャプチャから除外</b>され、Teams の画面共有やスクショには映らない</li>' +
+          '<li>Outlook は勝手に起動しない。Teams の通知データベースは読まない</li></ul>' +
+          '<p>画面写真は実際の見た目です(中身はダミー)。上から順に「お知らせ」「タイマー」「スキン」の写真が並んでいます。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. 起動とお知らせの出かた',
+        camera: cam('bubble-greeting'),
+        focus: [pid('bubble-greeting')],
+        show: ['c-g1', 'c-g2', 'c-g3'],
+        update: function (g, t) { g.pulse('f-bubble-greeting', t, 0.02); },
+        html:
+          '<p><code>Release\\SecretaryGadget.exe</code> を起動すると、タスクトレイに常駐して「おはようございます、〇〇さん」のあいさつを出します(おやすみ中は出さない)。</p>' +
+          '<table><tr><th>操作</th><th>動き</th></tr>' +
+          '<tr><td>吹き出しをクリック</td><td>引っ込めてから開く(メールを開く / Teams を前へ / 会議に参加)。開く先が無いお知らせ(あいさつ等)は引っ込むだけ</td></tr>' +
+          '<tr><td>× をクリック</td><td>吹き出しだけ消す(秘書さんは残る)</td></tr>' +
+          '<tr><td>絵をクリック</td><td>引っ込む</td></tr></table>' +
+          '<ul><li>あいさつは 10:30 前「おはようございます」、18:00 前「お疲れさまです」、以降「遅くまでお疲れさまです」</li>' +
+          '<li>マウスが吹き出しの上にある間は、隠れるまでの時間を数えない</li>' +
+          '<li>二重起動はできない(2つ目は黙って終了)</li></ul>'
+      },
+      {
+        title: '2. 秘書さんを呼ぶ(いまの状況を聞く)',
+        camera: cam('bubble-call'),
+        focus: [pid('bubble-call')],
+        show: ['c-c1', 'c-c2', 'c-c3', 'c-c4'],
+        update: function (g, t) { g.pulse('f-bubble-call', t, 0.02); },
+        html:
+          '<p><b>トレイアイコンを左クリック</b>(またはメニューの「秘書さんを呼ぶ」)で、いまの状況をまとめて教えてくれます。表示中に左クリックすると引っ込みます。</p>' +
+          '<ul><li><b>メールの未読</b>: 件数と差出人のまとめ(「A・B ほか N 件」)</li>' +
+          '<li><b>Teams のメンション未読</b>: 件数と、わかる範囲の送り主</li>' +
+          '<li><b>本日のこのあとの会議</b>: 時刻と件名(開催中も出る)</li></ul>' +
+          '<p>呼ぶと、まず絵だけが先にせり上がり、中身がそろったら吹き出しが出ます。Outlook が起動していなければ「Outlook が起動していないようです」と伝えます(勝手には起動しません)。</p>' +
+          '<div class="gg-note">メニューの「本日の予定」は、今日の会議を(終了済みも含めて)8件まで一覧します。</div>'
+      },
+      {
+        title: '3. 新着・会議のお知らせ',
+        camera: cam('bubble-mail'),
+        focus: [pid('bubble-mail'), pid('bubble-call')],
+        show: ['c-m1'],
+        html:
+          '<p>見張りをしているので、呼ばなくても次のときに自動で出ます。</p>' +
+          '<table><tr><th>種類</th><th>いつ</th><th>クリックすると</th></tr>' +
+          '<tr><td>メール</td><td>見張りフォルダ(既定は受信トレイ)に新着が来たとき</td><td>そのメールを開く</td></tr>' +
+          '<tr><td>会議</td><td>開始の5分前(既定)</td><td>Teams 会議なら参加、そうでなければ予定を開く</td></tr>' +
+          '<tr><td>Teams</td><td>自分へのメンションのポップアップが出たとき</td><td>Teams を前へ出す</td></tr></table>' +
+          '<ul><li>プレゼン中・全画面・画面ロック中は出さず、解除後にまとめて出す(<b>4件以上は1件に集約</b>)</li>' +
+          '<li>おやすみ中は捨てる。休憩中は件数だけ数えて、終わったら「休憩中に N 件のお知らせがありました」</li>' +
+          '<li>種類ごとの ON/OFF はメニュー「設定」から</li></ul>'
+      },
+      {
+        title: '4. トレイメニュー',
+        camera: cam('menu-timer', 10),
+        focus: [pid('menu-timer')],
+        show: ['c-t1'],
+        html:
+          '<p>トレイアイコンを<b>右クリック</b>するとメニューが開きます。</p>' +
+          '<table><tr><th>項目</th><th>内容</th></tr>' +
+          '<tr><td>秘書さんを呼ぶ / 本日の予定</td><td>いまの状況 / 今日の会議一覧</td></tr>' +
+          '<tr><td>箱庭</td><td>Claude Office(ローカルのダッシュボード)をブラウザで開く。未起動なら起動してから開く</td></tr>' +
+          '<tr><td>タイマー</td><td>セット・取り消し(次の手順)。件数が見出しに出る</td></tr>' +
+          '<tr><td>休憩</td><td>30分 / 1時間 / 2時間 / おやすみ / 休憩終わり</td></tr>' +
+          '<tr><td>大きさ</td><td>等倍 / 1/2 / 1/4</td></tr>' +
+          '<tr><td>スキン</td><td>絵の差し替え(次の次の手順)</td></tr>' +
+          '<tr><td>隠れるまでの時間</td><td>1 / 5 / 10 / 20 秒</td></tr>' +
+          '<tr><td>自動的に隠さない</td><td>5分だけ隠れなくなる(この間は画面キャプチャにも映る)</td></tr>' +
+          '<tr><td>設定</td><td>通知の種類ごとの ON/OFF・テスト通知・ログフォルダ・設定ファイルのフォルダ変更</td></tr>' +
+          '<tr><td>PC起動時に自動で起動 / 終了</td><td>ログオン時の自動起動 / 後片付けして終了</td></tr></table>'
+      },
+      {
+        title: '5. タイマーをセットする(時刻を指定)',
+        camera: cam('timer-clock', 10),
+        focus: [pid('timer-clock'), 'wheel-ball', 'wheel-l', 'wheel-a'],
+        show: ['c-w1', 'c-w2', 'wheel-ball', 'wheel-l', 'wheel-a'],
+        update: function (g, t) {
+          var y = P['timer-clock'].y - 0.2 + Math.sin(t * 2.2) * 1.2;
+          g.get('wheel-ball').position.y = y;
+        },
+        html:
+          '<p>メニュー「タイマー」→「<b>タイマーをセット…</b>」で、入力ダイアログが開きます。入力は<b>ドラムロール</b>(<code>WheelColumn</code>)で選びます。</p>' +
+          '<ul><li>上下2つずつ前後の値が見え、<b>真ん中が選択中</b>。端まで行くとぐるっと回り込む(23 の次は 00)</li>' +
+          '<li>回し方: <b>マウスホイール</b>・<b>上下をクリック</b>・<b>ドラッグ</b>・<b>↑↓キー</b>(Tab で列を移動)</li>' +
+          '<li>ラジオボタン「<b>時刻を指定</b>」(最初に選ばれている)では、<b>時</b>と<b>分</b>の列を回す。初期値は開いた時刻</li>' +
+          '<li>すでに過ぎた時刻を選ぶと、<b>翌日のその時刻</b>になる</li></ul>' +
+          '<div class="gg-note">「セット」で確定、「キャンセル」で何もしない。Enter でセット、Esc でキャンセルです。</div>'
+      },
+      {
+        title: '6. 〇時間〇分後で指定する',
+        camera: cam('timer-rel', 10),
+        focus: [pid('timer-rel')],
+        show: ['c-r1', 'c-r2'],
+        update: function (g, t) { g.pulse('f-timer-rel', t, 0.02); },
+        html:
+          '<p>ラジオボタン「<b>指定時間後を指定</b>」を選ぶと、右側の「時間」「分後」の2列が有効になり、左の2列は灰色になります。</p>' +
+          '<ul><li>初期値は <b>0 時間 5 分後</b>(「5分したら教えて」がすぐ設定できる)</li>' +
+          '<li>時間は 0〜23、分は 0〜59 まで選べる。<b>0 時間 0 分後は不可</b>(「0 時間 0 分後にはセットできません。」と赤字で出る)</li>' +
+          '<li>後の時刻は<b>秒を切り捨てた分単位</b>。例: 9:20:40 に「15分後」なら 9:35 になる</li></ul>' +
+          '<p>セットすると、吹き出しで「タイマーをセットしました / 9:35 にお知らせします。/ (あと 15分)」と確認が出ます。</p>'
+      },
+      {
+        title: '7. 時間になったら',
+        camera: cam('bubble-timerdue'),
+        focus: [pid('bubble-timerdue'), pid('bubble-timerset')],
+        show: ['c-d1', 'c-s1'],
+        update: function (g, t) { g.pulse('f-bubble-timerdue', t, 0.03); },
+        html:
+          '<p>時間になると「<b>タイマーの時間です</b>」の吹き出しが出ます。他のお知らせと違い、<b>クリックされるまで消えません</b>。</p>' +
+          '<ul><li>おやすみ中・休憩中でも出る。ほかの新着より<b>先に</b>出て、出ている間は新着で差し替えられない(閉じたあとで順番に出る)</li>' +
+          '<li>期限の確認は3秒ごとなので、最大で数秒の遅れがある。期限から1分以上たってから出るときは「9:35 の予定でした。」と出る</li>' +
+          '<li>メニュー「タイマー」を開くと、セット中の一覧(「9:35(15分後)を取り消す」)が出て、取り消せる</li>' +
+          '<li>セット中のタイマーは<b>再起動しても残る</b>(<code>timers.json</code> に保存)</li></ul>'
+      },
+      {
+        title: '8. スキン(絵)を変える・追加する',
+        camera: { pos: [0, -6.6, 29], target: [0, -6.6, 0] },
+        focus: [pid('menu-skin'), pid('skin-enji'), pid('skin-blue'), pid('skin-red'), pid('skin-brown'), pid('skin-green')],
+        show: ['c-k1', 'c-k2'],
+        html:
+          '<p>メニュー「スキン」から絵を選ぶと、すぐ差し替わり「担当を交代しました」と出ます。同梱は5つです。</p>' +
+          '<table><tr><th>ID</th><th>メニューの表示名</th></tr>' +
+          '<tr><td><code>enji</code></td><td>園児の秘書さん</td></tr><tr><td><code>blue</code></td><td>青髪の秘書さん</td></tr>' +
+          '<tr><td><code>red</code></td><td>赤髪の秘書さん</td></tr><tr><td><code>brown</code></td><td>茶髪の秘書さん(既定)</td></tr>' +
+          '<tr><td><code>green</code></td><td>黄緑髪の秘書さん</td></tr></table>' +
+          '<ul><li>自分で足すときは <code>%LOCALAPPDATA%\\SecGad\\skins\\&lt;スキンID&gt;\\</code> に <code>secretary.png</code>(背景透過の縦長の絵・必須)を置く。<code>icon.ico</code>(トレイ用)と <code>skin.json</code>(表示名)は任意</li>' +
+          '<li>置いたらメニューの「スキン一覧を読み直す」で反映される</li>' +
+          '<li>絵の左端を見て、吹き出しがキャラにかぶらないよう位置を自動で決める</li></ul>' +
+          '<div class="gg-note">⚠ 終了は必ずメニューの「終了」か <code>--exit</code> で。強制終了すると、隠していた本家 Teams の小窓が表示されなくなることがあります(次回起動時に修復はします)。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeOffice 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    entry: { y: 12, color: C.gold,    name: '入口\n(index.html / app.js)' },
+    ui:    { y: 8,  color: C.third,   name: '画面パネル・判定層\n(HTMLパネルと状態の判定)' },
+    world: { y: 4,  color: C.good,    name: '世界(スキン)層\n(部屋・小物・演出を組み立てる)' },
+    ppl:   { y: 0,  color: C.me,      name: '人と動き\n(キャラ・歩き回り・超軽量)' },
+    base:  { y: -4, color: C.neutral, name: '土台\n(同梱ライブラリ・ブラウザ)' }
+  };
+  // 箱の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    // 入口
+    ['html', 'index.html\n(importmap と #stage #hud ...)', 'entry', -8, 0],
+    ['app', 'app.js\nbuildSkin / syncPeople\nframe / poll', 'entry', 0, 0],
+    ['css', 'style.css\n(パネル・吹き出し・名札)', 'entry', 8, 0],
+    // 画面パネル・判定
+    ['ui', 'ui.js\nrenderHUD / renderSide\nrenderTimeline / openDetail', 'ui', -10, 0],
+    ['chat', 'chat.js\ncreateChat\n(続きを送る欄)', 'ui', -3.5, 0],
+    ['notify', 'notify.js\nopenNotifyDialog\n(通知の設定画面)', 'ui', 3, 0],
+    ['people', 'people.js\nderiveState / assignSeats\nprogressBadge', 'ui', 9.5, 0],
+    // 世界
+    ['world', 'world.js\nKit / createSky / timeLook\nbuildClassroom / buildTavern', 'world', -14, 0],
+    ['makai', 'makai.js\nbuildMakai / skull', 'world', -8.5, 0],
+    ['spots', 'spots.js\nbuildSpot\n(水槽/酒棚/血の池)', 'world', -3, 0],
+    ['fancy', 'fancy.js\nbuildFancy\n(教室の演出)', 'world', 2.5, 0],
+    ['fancyT', 'fancy-tavern.js\nbuildTavernFancy', 'world', 8, 0],
+    ['fancyM', 'fancy-makai.js\nbuildMakaiFancy', 'world', 13.5, 0],
+    // 人と動き
+    ['avatar', 'avatar.js\ncreateAvatar\nupdate(t, state, motion)', 'ppl', -8, 0],
+    ['wander', 'wander.js\ncreateWander\n(通路グラフ+状態機械)', 'ppl', 0, 0],
+    ['ultra', '超軽量(app.js内)\napplyUltra / buildUltra', 'ppl', 8, 0],
+    // 土台
+    ['three', 'Three.js r170\n(public/vendor/)', 'base', -8, 0],
+    ['addons', 'OrbitControls / CSS2DRenderer\nEffectComposer / UnrealBloomPass', 'base', 0, 0],
+    ['browser', 'fetch / localStorage\nrequestAnimationFrame', 'base', 8, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色, ラベル]  (使う側 → 使われる側)
+  var DEPS = [
+    ['app', 'ui', '#ffd166'],
+    ['app', 'people', '#ffd166'],
+    ['app', 'world', '#ffd166'],
+    ['app', 'makai', '#ffd166'],
+    ['app', 'spots', '#ffd166'],
+    ['app', 'fancy', '#ffd166'],
+    ['app', 'wander', '#ffd166'],
+    ['app', 'avatar', '#ffd166'],
+    ['ui', 'chat', '#c77dff'],
+    ['chat', 'people', '#c77dff'],
+    ['makai', 'world', '#5ee6a8'],
+    ['spots', 'makai', '#5ee6a8'],
+    ['fancyT', 'fancy', '#5ee6a8'],
+    ['app', 'three', '#b8b2d6'],
+    ['app', 'addons', '#b8b2d6']
+  ];
+
+  GameGuide.start({
+    title: 'ClaudeOffice 内部設計',
+    back: 'index.html',
+    subtitle: '画面側(public/)のモジュール関係と、スキンの組み立て・人の動かし方',
+    camera: { pos: [4, 21, 33], target: [4, 6, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [34, 7], pos: [1, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-17, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- 箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.6, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.3, labelOffset: [0, 1.2, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- サーバー(右端) ----
+      g.box({ id: 'server', size: [4.6, 1.2, 2.6], pos: [22, 10, 0], color: '#2d2944', emissive: C.server, emissiveIntensity: 0.4, radius: 0.1, edgeColor: C.server,
+        label: 'server.js (Node)\n/api/state /api/session /api/chat ...\n(詳しくは「データの流れ」)', labelSize: 0.27, labelOffset: [0, 1.8, 0], labelBg: '#000000cc' });
+      g.arrow([19.7, 10.2, 0.3], [2.4, 12.5, 0.3], { id: 'dep-server', color: C.server, lift: 4.5, head: 0.25, label: 'fetch (3秒ごと)', labelSize: 0.26 });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+
+      // ---- ctx(スキンの引き渡し口)の中身(手順2) ----
+      g.label('ctx =\n{ kit, root, lights[], seats[], glows[],\n  shelf, board, clock, spot, fancy,\n  update(t, look), ultra ... }', [-0.5, 16.2, 0], { id: 'ctx-l', size: 0.34, bg: '#000000dd', color: '#ffd166', border: '#ffd166' });
+
+      // ---- 歩き回りの状態機械(手順5) ----
+      var ST = [
+        ['st-seated', 'seated\n席で作業', -9.5, '#5ee6a8'],
+        ['st-walk', 'walk\n通路グラフを歩く', -2.5, '#4fa3ff'],
+        ['st-act', 'act\nfeed / sake / blood', 4.5, '#ffd166'],
+        ['st-back', 'back\n席へ戻る', 11.5, '#c77dff']
+      ];
+      ST.forEach(function (s) {
+        g.box({ id: s[0], size: [4.4, 1.0, 2.0], pos: [s[2], 19, 0], color: '#2d2944', emissive: s[3], emissiveIntensity: 0.4, radius: 0.12, edgeColor: s[3], label: s[1], labelSize: 0.34, labelOffset: [0, 1.4, 0], labelBg: '#000000cc' });
+      });
+      g.arrow([-9.5, 19.5, 0], [-2.5, 19.5, 0], { id: 'st-a1', color: C.gold, lift: 1.3, label: 'nextAt を過ぎた\n(おやすみ以外)', labelSize: 0.26 });
+      g.arrow([-2.5, 19.5, 0], [4.5, 19.5, 0], { id: 'st-a2', color: C.gold, lift: 1.3, label: '立ち寄り先に着いた', labelSize: 0.26 });
+      g.arrow([4.5, 19.5, 0], [11.5, 19.5, 0], { id: 'st-a3', color: C.gold, lift: 1.3, label: '4〜5秒\n(物を持つ)', labelSize: 0.26 });
+      g.arrow([11.5, 18.5, 0], [-9.5, 18.5, 0], { id: 'st-a4', color: C.good, lift: -1.6, label: '席に着く → nextAt = 10〜25秒後', labelSize: 0.26 });
+      g.sphere({ id: 'st-pkt', radius: 0.28, pos: [-9.5, 19.5, 0], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [4, 21, 33], target: [4, 6, 0] },
+        update: function (g, t) { g.pulse('app', t, 0.04); },
+        html:
+          '<p>ClaudeOffice の画面側(<code>public/</code>)は、ビルド工程なしの <b>ES モジュール</b>(<code>&lt;script type="module" src="app.js"&gt;</code>)だけで動きます。3Dは同梱の Three.js r170 です。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>入口</td><td><code>app.js</code> が描画ループ・ポーリング・クリック判定・設定を握る司令塔</td></tr>' +
+          '<tr><td>画面パネル・判定</td><td>左右・下のHTMLパネル(<code>ui.js</code>)、続きを送る欄、通知設定、キャラの状態判定(<code>people.js</code>)</td></tr>' +
+          '<tr><td>世界(スキン)</td><td>教室・酒場・魔界の部屋と、立ち寄り先、標準モードの演出</td></tr>' +
+          '<tr><td>人と動き</td><td>キャラの見た目と動き、席を立って歩き回る状態機械、超軽量</td></tr>' +
+          '<tr><td>土台</td><td>Three.js 本体と addons、ブラウザの機能</td></tr></table>' +
+          '<p>右端のオレンジの箱が Node のサーバー(<code>server.js</code>)。画面は 3 秒ごとに <code>fetch</code> で状態をもらいます。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「次へ」で順番に寄っていきます。</div>'
+      },
+      {
+        title: '1. 入口 app.js(frame / poll / buildSkin)',
+        camera: { pos: [0, 18, 24], target: [0, 11.5, 0] },
+        focus: ['L-entry', 'Ln-entry'].concat(ids('entry')),
+        update: function (g, t) { g.pulse('app', t, 0.05); },
+        html:
+          '<table><tr><th>関数</th><th>やること</th></tr>' +
+          '<tr><td><code>start()</code></td><td><code>poll()</code> → <code>buildSkin()</code> → 描画ループ <code>frame()</code> 開始。<code>setInterval</code> で <code>poll</code>(3秒)・<code>pollAccount</code>(60秒)・<code>pollSessions</code>(30秒)・<code>refreshWindows</code>(3秒)</td></tr>' +
+          '<tr><td><code>poll()</code></td><td><code>/api/state?date=…</code> を取って <code>store.state</code> に入れ、<code>syncPeople()</code> と各パネルを更新。本棚用の履歴(<code>archive=1</code>)は60秒に1回だけ付ける</td></tr>' +
+          '<tr><td><code>buildSkin()</code></td><td>古い部屋を捨て、スキンに合う <code>buildClassroom / buildTavern / buildMakai</code> で部屋を作る(次の手順)</td></tr>' +
+          '<tr><td><code>syncPeople()</code></td><td>在席の一覧と席を突き合わせ、人の追加・削除・吹き出し/名札の更新</td></tr>' +
+          '<tr><td><code>frame()</code></td><td>毎フレーム。時間・空・演出の更新と、人の動き(<code>wander.update</code> → <code>avatar.update</code>)、描画</td></tr></table>' +
+          '<p>設定(スキン・動作モード・FPS・影・画質)は <code>store.options</code> に持ち、<code>localStorage</code> に保存。使えない環境でも動くよう、読み書きは全部 try/catch です。</p>'
+      },
+      {
+        title: '2. buildSkin と ctx(スキンの引き渡し口)',
+        camera: { pos: [0, 20, 30], target: [-1, 9, 0] },
+        focus: ['app', 'world', 'makai', 'spots', 'fancy', 'fancyT', 'fancyM', 'wander', 'ctx-l', 'dep-app-world', 'dep-app-makai', 'dep-app-spots', 'dep-app-fancy', 'dep-app-wander', 'L-world'],
+        show: ['ctx-l'],
+        update: function (g, t) { g.pulse('app', t, 0.05); },
+        html:
+          '<p><code>buildSkin()</code> は <b><code>ctx</code> という1個のオブジェクト</b>を作り、各モジュールがそこへ「部品」を足していく形です。</p>' +
+          '<ol><li><code>ctx = { kit: new Kit(false), root: new THREE.Group(), lights: [], sky, bloom, fog ... }</code></li>' +
+          '<li>スキンで分岐: <code>default → buildClassroom</code> / <code>isekai → buildTavern</code> / <code>makai → buildMakai</code>。部屋・机・窓・時計・本棚・白板を作り、<code>ctx.seats</code>(12席)、<code>ctx.glows</code>(机の画面)、<code>ctx.shelf</code>、<code>ctx.board</code>、<code>ctx.clock</code> などを埋める</li>' +
+          '<li><code>ctx.fancy = buildFancy / buildTavernFancy / buildMakaiFancy</code>(標準モードの演出)</li>' +
+          '<li><code>addNpc</code>(先生・ルイーダ)、<code>buildSpot(ctx, skin)</code>(立ち寄り先 → <code>ctx.spot</code>)</li>' +
+          '<li><code>wander = createWander(ctx)</code>(席と立ち寄り先から通路を作る)</li>' +
+          '<li><code>applyOptions()</code> → <code>syncPeople()</code> → シェーダーのコンパイル(最大8秒待ち)</li></ol>' +
+          '<div class="gg-note">スキンを切り替えるたびに <code>clearAvatars()</code> と <code>ctx.kit.dispose()</code> で作り直します。時刻ごとの色は <code>updateTime()</code> が <code>timeLook(hour, ctx.keys)</code> から空・太陽・ランプへ反映し、最後に <code>ctx.update / ctx.fancy.update</code> を呼びます。</div>'
+      },
+      {
+        title: '3. 世界(スキン)層',
+        camera: { pos: [0, 12, 28], target: [0, 4, 0] },
+        focus: ['L-world', 'Ln-world'].concat(ids('world')),
+        html:
+          '<table><tr><th>ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>world.js</code></td><td>共通の道具箱 <code>Kit</code>(箱・円柱・球の部品とマテリアルの使い回し)、空 <code>createSky</code>・時刻の見た目 <code>timeLook</code>、共通家具(時計・カレンダー・本棚・白板)、<b>席 <code>CLASSROOM_SEATS</code></b>(3行×4列=12席)、教室 <code>buildClassroom</code> と酒場 <code>buildTavern</code>、<code>projectColor</code>(プロジェクト名→色)</td></tr>' +
+          '<tr><td><code>makai.js</code></td><td>魔界の部屋 <code>buildMakai</code>(黒曜石の床・ドクロ・溶岩・墓場)。<code>skull</code> は血の池でも再利用</td></tr>' +
+          '<tr><td><code>spots.js</code></td><td>席を立った人の立ち寄り先。教室=金魚の水槽(エサやり)、酒場=酒棚(取りに行く)、魔界=血の池(汲みに行く)</td></tr>' +
+          '<tr><td><code>fancy.js</code><br><code>fancy-tavern.js</code><br><code>fancy-makai.js</code></td><td>標準モードだけの豪華な演出(HDR色+ブルーム)。教室=ミラーボール・虹・風船・噴水、酒場=魔法のシャンデリア・魔法陣・提灯、魔界=炎の柱・亡霊・赤い稲妻 など。軽量では <code>group.visible=false</code></td></tr></table>' +
+          '<p>3スキンとも<b>席の座標は同じ</b>(<code>CLASSROOM_SEATS</code>)なので、人の席割りも通路も共通のまま、見た目だけが入れ替わります。</p>'
+      },
+      {
+        title: '4. 人と動き(people / avatar / wander)',
+        camera: { pos: [0, 10, 28], target: [0, 5, 0] },
+        focus: ['L-ppl', 'Ln-ppl', 'L-ui', 'avatar', 'wander', 'ultra', 'people', 'dep-app-avatar', 'dep-app-wander', 'dep-app-people'],
+        show: ['dep-app-avatar', 'dep-app-wander', 'dep-app-people'],
+        update: function (g, t) { g.pulse('avatar', t, 0.05); g.pulse('wander', t + 1, 0.05); },
+        html:
+          '<table><tr><th>モジュール</th><th>責務</th></tr>' +
+          '<tr><td><code>people.js</code></td><td><b>状態の判定</b>。<code>deriveState(item, now)</code> が 作業中/考え中/入力待ち/おやすみ/終了 を決める(<code>busy</code>+ツール名・返信、<code>idle</code> 30分で「おやすみ」)。<code>assignSeats</code> は席割り(開始の早い順・同じプロジェクトは近く、13人目以降は一覧だけ)</td></tr>' +
+          '<tr><td><code>avatar.js</code></td><td><code>createAvatar({ id, color, skin, standing, scale, overrides })</code>。会話IDのハッシュで髪・服・職業などが決まる(酒場は猫耳・エルフなど耳やしっぽのある種族、魔界は悪魔・吸血鬼などの種族、教室は耳なし)。<code>update(t, state, motion)</code> が状態ごとのポーズと、歩き・立ち寄りの動作</td></tr>' +
+          '<tr><td><code>wander.js</code></td><td><code>createWander(ctx)</code>。席の間の通路グラフ(<code>buildGraph</code>)と最短経路(<code>route</code>)、行動の状態機械(次の手順)</td></tr>' +
+          '<tr><td>超軽量</td><td><code>app.js</code> 内の <code>applyUltra / buildUltra</code></td></tr></table>' +
+          '<p>毎フレーム <code>motion = wander.update(a, t, dt)</code> → <code>a.avatar.update(t, 状態キー, motion)</code> の順で、「どこへ動くか」と「どう見せるか」を分けています。</p>'
+      },
+      {
+        title: '5. 歩き回りの状態機械(wander.js)',
+        camera: { pos: [1, 21, 31], target: [1, 17.5, 0] },
+        focus: ['st-seated', 'st-walk', 'st-act', 'st-back', 'st-a1', 'st-a2', 'st-a3', 'st-a4', 'st-pkt'],
+        show: ['st-seated', 'st-walk', 'st-act', 'st-back', 'st-a1', 'st-a2', 'st-a3', 'st-a4', 'st-pkt'],
+        update: function (g, t) {
+          var xs = [-9.5, -2.5, 4.5, 11.5, -9.5];
+          var k = (t / 1.4) % 4, i = Math.min(3, Math.floor(k)), u = k - i;
+          var p = g.get('st-pkt');
+          p.position.set(xs[i] + (xs[i + 1] - xs[i]) * u, 19.5 + Math.sin(u * Math.PI) * (i === 3 ? -1 : 1), 0);
+        },
+        html:
+          '<p>席の人は <code>m = { mode, nextAt, path, trip, actT, carry, act }</code> を持ち、毎フレーム次のように動きます(<code>canRoam</code> は「おやすみ」でないこと)。</p>' +
+          '<ol><li><b>seated</b>: <code>nextAt</code> を過ぎたら出発。立ち寄り先が空いていれば50%でそこへ(<code>spot.user</code> で1人ずつ)、そうでなければ通路を1〜2か所うろうろ(<code>pace</code>)</li>' +
+          '<li><b>walk</b>: 通路グラフを <code>WALK_SPEED=2.3</code> で歩く。向きは少しずつ回す</li>' +
+          '<li><b>act</b>: 立ち寄り先で 4秒(金魚のエサやりは 5秒)。終わると <code>makeProp</code> があれば物(ジョッキ・杯)を手に持つ</li>' +
+          '<li><b>back</b>: 席へ戻る。着いたら向きと位置をぴたっと席に合わせて seated、次の <code>nextAt</code> は10〜25秒後</li></ol>' +
+          '<ul><li>席を外している途中で「おやすみ」になったら、その場から席へ引き返す</li>' +
+          '<li>通路は「縦通路=机の列の間、横通路=席の行の間」の格子で、席は右隣の縦通路につながる。立ち寄り先は右端の縦通路に接続(経路探索は素朴なダイクストラ)</li>' +
+          '<li>立ち寄り先は同時に1人だけ。全員がぞろぞろ行かないようにしている</li></ul>'
+      },
+      {
+        title: '6. 超軽量(applyUltra)',
+        camera: { pos: [4, 12, 30], target: [4, 3, 0] },
+        focus: ['ultra', 'app', 'avatar', 'dep-app-avatar'],
+        update: function (g, t) { g.pulse('ultra', t, 0.07); },
+        html:
+          '<p>動作モードは設定の組み合わせです(<code>MODES</code>)。</p>' +
+          '<table><tr><th>モード</th><th>effects</th><th>fps</th><th>影</th><th>画質</th><th>ultra</th></tr>' +
+          '<tr><td>標準</td><td>on</td><td>60</td><td>on</td><td>high</td><td>off</td></tr>' +
+          '<tr><td>軽量</td><td>off</td><td>30</td><td>off</td><td>low</td><td>off</td></tr>' +
+          '<tr><td>超軽量</td><td>off</td><td>30</td><td>off</td><td>low</td><td>on</td></tr></table>' +
+          '<p><code>applyUltra()</code> は、<b>壁・床・時計だけの簡素な部屋</b>(<code>buildUltra</code>。初回だけ作る)を表示し、<code>ctx.root</code> の他の子(部屋の家具や小物)を全部 <code>visible=false</code> にします。人は<b>体を隠して●の玉</b>(<code>a.dot</code>)だけを出し、サブエージェントの小さな人も隠します。吹き出し・名札・右パネルはそのまま使えます。</p>' +
+          '<div class="gg-note">どのモードの組み合わせにも当てはまらない設定にすると「カスタム」表示になります(<code>computeMode</code>)。</div>'
+      },
+      {
+        title: '7. 画面パネルと判定層',
+        camera: { pos: [0, 14, 28], target: [0, 8, 0] },
+        focus: ['L-ui', 'Ln-ui'].concat(ids('ui')),
+        html:
+          '<table><tr><th>ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>ui.js</code></td><td>左上のHUD(時計・在席数・アカウント・使用率・設定)、右パネル(在席/グループ/履歴)、下の日別タイムライン、<b>詳細の窓</b>(<code>openDetail</code> / <code>refreshWindow</code>)。同じ内容なら DOM を書き換えない(<code>setIfChanged</code>)</td></tr>' +
+          '<tr><td><code>chat.js</code></td><td><code>createChat(id)</code>。詳細の窓の「続きを送る」欄。<code>POST /api/chat/:id</code> の応答(NDJSON)を1行ずつ読んで表示。同時に送れるのはブラウザ全体で1会話だけ</td></tr>' +
+          '<tr><td><code>notify.js</code></td><td>通知の設定ダイアログ(<code>/api/notify-settings</code> の読み書きとテスト通知)</td></tr>' +
+          '<tr><td><code>people.js</code></td><td>状態の判定(前の手順)。<code>toolEmoji</code> や <code>progressBadge</code> も持ち、<code>ui.js</code> と <code>chat.js</code> から使われる</td></tr></table>' +
+          '<p>人の頭上の<b>吹き出し・名札</b>は、3Dの上に重ねた HTML(<code>CSS2DObject</code>)です。クリックで <code>selectPerson</code>(カメラが寄って詳細の窓)、ダブルクリックで VSCode で開きます。</p>'
+      },
+      {
+        title: '8. 依存の向きと土台',
+        camera: { pos: [4, 21, 33], target: [4, 6, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-server']),
+        update: function (g, t) { g.pulse('app', t, 0.05); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li><code>app.js</code> が司令塔。世界・人・パネルを呼ぶのは<b>ほぼ app.js だけ</b>で、下の層どうしの依存は少ない</li>' +
+          '<li>スキンの差し替えは <code>ctx</code> の受け渡しだけ。<code>wander.js</code> は <code>ctx.seats</code> と <code>ctx.spot</code> しか見ないので、スキンを増やしても歩き回りのコードは変わらない</li>' +
+          '<li>魔界は <code>makai.js</code> が <code>world.js</code> の部品(<code>Kit</code>・本棚・白板・時計)を借り、<code>spots.js</code> が <code>skull</code> を借りる。酒場の演出は <code>fancy.js</code> の <code>ADD / dotTexture / hdr</code> を共有</li>' +
+          '<li>土台は <code>public/vendor/</code> の Three.js r170(MIT)と addons。<code>index.html</code> の importmap で <code>three</code> と <code>three/addons/</code> を指すので、npm もバンドラーも不要</li>' +
+          '<li>ブラウザへの保存は <code>localStorage</code> だけ(スキン・モード・文字サイズ・開いたグループ)。サーバーへは書かない</li></ul>' +
+          '<div class="gg-note">テストは <code>test/server.test.js</code>(<code>node --test</code>)。サーバー側の関数(マスク・解析・通知の時間帯判定など)が対象です。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

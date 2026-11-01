@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecretaryGadget ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>SecretaryGadget(秘書さんガジェット) ドキュメント</h1>
+  <p class="lead">Outlook の新着メール・会議の開始前・Teams のメンションを、画面右下からせり上がってくる「秘書さん」の吹き出しで知らせる Windows 用の常駐ガジェット(C# / WPF / .NET 9)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(呼び名・差出人・件名・会議名・時刻)は<b>すべてダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎬 使い方</div>
+      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
+      <div class="d">起動 → 秘書さんを呼ぶ → トレイメニュー → スキン変更 → タイマー(ホイールで時間を回して設定 / 時間になったら通知)の順に、実際の画面を3D空間に並べて説明します。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子アニメ / 全11ステップ</div>
+      <div class="d">Outlook / Teams の見張り役 → お知らせキュー → 吹き出し表示までと、タイマー(入力 → TimerKeeper → timers.json → 期限の確認 → 通知)の流れを光の粒で追います。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
+      <div class="d">UI層・お知らせ層・見張り役・保存層・OS の層に、実際のクラス名・ファイル名(App.Tray / App.Timer / Notice / SecretaryWindow / TimerDialog / TimerKeeper / WheelColumn ほか)を並べて、責務と依存の向きを説明します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/SecretaryGadget</code>。このPC専用で、<code>Release\SecretaryGadget.exe</code> から直接起動する作りです。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

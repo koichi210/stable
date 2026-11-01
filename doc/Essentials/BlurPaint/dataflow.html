@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlurPaint データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: 入力(青)・状態/メモリ(水色)・履歴/設定(橙)・描画と出力(緑)・操作(紫)
+  var COL = { input: C.me, mem: C.data, keep: C.server, out: C.good, ops: C.third };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    src: [-15, -7], load: [-9, -7], base: [-3, -7], objs: [3, -7], hist: [9, -7], settings: [16, -3.5],
+    ptr: [-15, 0], draft: [-9, 0], commit: [-3, 0], undo: [3, 0], prop: [9, 0],
+    screen: [-15, 7], render: [-9, 7], exp: [-3, 7], blob: [3, 7], out: [9, 7]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  GameGuide.start({
+    title: 'BlurPaint データの流れ',
+    back: 'index.html',
+    subtitle: '貼り付け → ベース画像 + 注釈の配列 → 履歴 → 合成描画 → 書き出し',
+    camera: { pos: [-1, 27, 25], target: [-1, 0, 0] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.4, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.38, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 奥の列: 画像と注釈の「持ち物」 ----
+      node('src', '入力\n貼り付け / ドロップ / 開く', COL.input);
+      node('load', 'loadBlob\nBlob → Image → canvas', COL.input);
+      node('base', 'state.base\n(ベース画像の canvas)', COL.mem);
+      node('objs', 'state.objects\n(注釈オブジェクトの配列)', COL.mem);
+      node('hist', 'state.history\n(スナップショット最大100)', COL.keep);
+      node('settings', 'settings\n(localStorage)', COL.keep);
+      // ---- 中央の列: 操作 ----
+      node('ptr', 'ポインター / キー操作\nonPointerDown ほか', COL.ops);
+      node('draft', 'state.draft\n(作成中の図形)', COL.ops);
+      node('commit', 'commit()\n(履歴に1件積む)', COL.keep);
+      node('undo', 'undo / redo\nrestore(index)', COL.keep);
+      node('prop', 'プロパティバー\nsetProp', COL.ops);
+      // ---- 手前の列: 描画と書き出し ----
+      node('screen', '画面の canvas\n(UI層つき)', COL.out);
+      node('render', 'drawScene\n(base → 注釈を順に → UI層)', COL.out);
+      node('exp', 'exportBlob\n(別canvas・UI層なし)', COL.out);
+      node('blob', 'canvas.toBlob\nPNG / JPEG / WebP', COL.out);
+      node('out', 'クリップボード /\nファイル', COL.out);
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      arrow('src', 'load', COL.input, 'File / Blob');
+      arrow('load', 'base', COL.input, 'setBase');
+      arrow('ptr', 'draft', COL.ops, 'newObject');
+      arrow('draft', 'objs', COL.mem, 'endDrag →\nobjects.push', 1.4);
+      arrow('objs', 'commit', COL.keep, 'snapshot', 1.2);
+      arrow('commit', 'hist', COL.keep, 'history.push', 2.0);
+      arrow('hist', 'undo', COL.keep, 'Ctrl+Z / Y', 1.0);
+      arrow('undo', 'objs', COL.keep, '差し替え', 0.9);
+      arrow('prop', 'objs', COL.ops, '属性を変更', 1.2);
+      arrow('prop', 'settings', COL.keep, '設定を保存', 0.9);
+      arrow('base', 'render', COL.out, 'drawImage', 1.4);
+      arrow('objs', 'render', COL.out, '配列順に\ndrawObj', 1.6);
+      arrow('render', 'screen', COL.out, 'ui = true');
+      arrow('render', 'exp', COL.out, 'ui = false', 0.9);
+      arrow('exp', 'blob', COL.out, 'toBlob');
+      arrow('blob', 'out', COL.out, 'write / 保存');
+
+      // ---- 常時流れる粒(各矢印の上) ----
+      var FL = [['src', 'load', COL.input], ['load', 'base', COL.input], ['ptr', 'draft', COL.ops], ['draft', 'objs', COL.mem], ['objs', 'commit', COL.keep],
+        ['commit', 'hist', COL.keep], ['hist', 'undo', COL.keep], ['undo', 'objs', COL.keep], ['prop', 'objs', COL.ops],
+        ['base', 'render', COL.out], ['objs', 'render', COL.out], ['render', 'screen', COL.out], ['render', 'exp', COL.out], ['exp', 'blob', COL.out], ['blob', 'out', COL.out]];
+      var LIFT = { 'draft-objs': 1.4, 'objs-commit': 1.2, 'commit-hist': 2.0, 'undo-objs': 0.9, 'prop-objs': 1.2, 'base-render': 1.4, 'objs-render': 1.6 };
+      FL.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: f[2], count: 5, lift: LIFT[key] == null ? 0.9 : LIFT[key], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('src'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順3用: 注釈オブジェクトの見本 ----
+      g.label('{ type: "rect", x, y, w, h,\n  color, width, outline, shadow }', [N.objs[0] + 0.5, 3.6, N.objs[1]], { id: 'obj-l', size: 0.28, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      // ---- 手順6用: ぼかし計算の段取り ----
+      var blur = [['① 範囲 + 周囲 3σ を別canvasへ切り出す', '#7ef0ff'], ['② 画像の外へはみ出す余白は端の1pxを引き伸ばす', '#7ef0ff'],
+        ['③ ぼかし: ctx.filter = blur(σpx)', '#ffd166'], ['   モザイク: 縮小(ブロック = 1.5σ)→補間なしで拡大', '#ff9f7a'], ['④ 元の範囲だけを貼り戻す', '#5ee6a8']];
+      blur.forEach(function (r, i) {
+        g.label(r[0], [N.render[0] + 2.2, 3.4 + (blur.length - 1 - i) * 0.75, N.render[1] + 0.4], { id: 'blur-' + i, size: 0.26, bg: '#000000cc', color: r[1], border: r[1] });
+      });
+      // ---- 手順9用: トリミング ----
+      var crop = [['新しい canvas(w×h)へ base を (-x, -y) ずらして描く', '#ffd166'], ['objects を全部 (-x, -y) 動かす', '#7ef0ff'], ['旧 base は history の中に残る → Undo で戻れる', '#5ee6a8']];
+      crop.forEach(function (r, i) {
+        g.label(r[0], [1.5, 2.8 + (crop.length - 1 - i) * 0.6, -7], { id: 'crop-' + i, size: 0.26, bg: '#000000cc', color: r[1], border: r[1] });
+      });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [-1, 27, 25], target: [-1, 0, 0] },
+        update: function (g, t) { travel(g, t, pts(['src', 'load', 'base', 'render', 'exp', 'blob', 'out']), 1.0, null); },
+        html:
+          '<p>BlurPaint のデータは、<b>「ベース画像 + 注釈の配列」</b>として持たれ、画面と書き出しのときだけ1枚に合成されます。大きく3つの列です。</p>' +
+          '<ul><li><b>奥の列(青・水色・橙)</b>: 画像の入口と、持ち物(ベース画像・注釈の配列・履歴・設定)</li>' +
+          '<li><b>中央の列(紫・橙)</b>: 操作。ドラッグで図形を作る・履歴に積む・設定を変える</li>' +
+          '<li><b>手前の列(緑)</b>: 描画と書き出し。<code>drawScene</code> で合成 → 画面 / PNG・JPEG・WebP</li></ul>' +
+          '<p>金色の玉が、貼り付けた1枚の画像が出口まで旅する様子です(各ステップで寄って見ます)。</p>' +
+          '<div class="gg-note">「次へ」で順番に。3Dはドラッグで回せます。</div>'
+      },
+      {
+        title: '1. 画像を受け取る',
+        camera: { pos: [-12, 14, 9], target: [-12, 0, -7] },
+        focus: ['src', 'load', 'a-src-load', 'fl-src-load', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['src', 'load']), 2.0, ['image/* の Blob']); },
+        html:
+          '<p>画像の入口は4つあり、どれも最後は同じ <code>loadBlob(blob, 名前, 重ねてよいか)</code> に入ります。</p>' +
+          '<table><tr><th>入口</th><th>仕組み</th></tr>' +
+          '<tr><td><code>Ctrl+V</code></td><td><code>paste</code> イベントの <code>clipboardData.items</code> から <code>image/*</code> のファイル項目を探す</td></tr>' +
+          '<tr><td>「貼り付け」ボタン</td><td><code>navigator.clipboard.read()</code>。使えない・許可されない場合は「Ctrl+V で貼り付けてください」</td></tr>' +
+          '<tr><td>ドロップ</td><td><code>drop</code> イベントの <code>dataTransfer.files</code>(ファイルを含むドラッグのときだけ反応)</td></tr>' +
+          '<tr><td>開く(Ctrl+O)</td><td>隠した <code>&lt;input type=file&gt;</code>。常に新しいベースになる</td></tr></table>' +
+          '<ul><li>テキスト入力中・フォーム要素にフォーカスがあるときの <code>Ctrl+V</code> は、通常の貼り付けに任せる</li>' +
+          '<li>読み込めない形式は「この画像形式は読み込めません」</li></ul>'
+      },
+      {
+        title: '2. ベース画像になる',
+        camera: { pos: [-6, 14, 9], target: [-6, 0, -7] },
+        focus: ['load', 'base', 'a-load-base', 'fl-load-base', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['load', 'base']), 2.0, ['画像と同じ大きさの canvas']); },
+        html:
+          '<p><code>loadBlob</code> は、Blob を <code>Image</code> に読み込み、<b>画像と同じ大きさの canvas</b> に描き写します。以後の編集で元の画像データには触りません。</p>' +
+          '<ol><li><code>URL.createObjectURL</code> → <code>Image.onload</code> で幅・高さを取得(SVG などで 0 のときは 1024×768)</li>' +
+          '<li>設定が「今の画像に重ねる」で、すでに画像があるなら <code>addImageObject</code>: 図形(<code>type: "image"</code>)として、元画像の90%以内に縮小して中央へ</li>' +
+          '<li>それ以外は <code>setBase</code>: <code>state.base</code> を差し替え、<code>objects</code> を空にして、<code>commit()</code> で履歴に1件積む → <code>fit()</code> で全体表示</li></ol>' +
+          '<div class="gg-note">新しい画像を開いても履歴は<b>リセットしない</b>(1件積むだけ)ので、<code>Ctrl+Z</code> で前の画像と注釈に戻れます。</div>'
+      },
+      {
+        title: '3. 注釈オブジェクトを作る',
+        camera: { pos: [-3, 14, 9], target: [-3, 0, -3] },
+        focus: ['ptr', 'draft', 'objs', 'a-ptr-draft', 'a-draft-objs', 'fl-ptr-draft', 'fl-draft-objs', 'pkt', 'obj-l'],
+        show: ['obj-l'],
+        update: function (g, t) { travel(g, t, pts(['ptr', 'draft', 'objs']), 1.8, ['newObject(tool, 座標)', 'ドラッグで大きさが変わる', '']); },
+        html:
+          '<p>画面の座標は <code>toImg</code> で<b>画像のピクセル座標</b>(ズームに依存しない)に変換して扱います。</p>' +
+          '<ol><li><code>onPointerDown</code>: 選択中図形のハンドルを最優先で判定 → 無ければツールに応じて動く。<code>setPointerCapture</code> でドラッグ中は枠の外でも追従</li>' +
+          '<li>図形ツールなら <code>newObject</code> が <b>設定の現在値</b>(色・太さ・縁取り・影…)をコピーして <code>state.draft</code> を作る</li>' +
+          '<li><code>onPointerMove</code> で <code>draft</code> を更新(Shift で45°/正方形)。まだ <code>objects</code> には入らない</li>' +
+          '<li><code>endDrag</code>: 画面上で3px以上なら <code>normalize</code>(負の幅・高さを直す)→ <code>objects.push</code> → 選択状態にして <code>commit()</code></li></ol>' +
+          '<p>番号はクリックですぐ <code>objects</code> に入り(番号は<code>最大の n + 1</code>)、<code>commit()</code> されます。テキストは入力欄を開いた時点で <code>objects</code> に入り、<code>Enter</code> で確定したときに <code>commit()</code> します(空なら破棄)。</p>' +
+          '<table><tr><th>type</th><th>主な属性</th></tr>' +
+          '<tr><td>rect / ellipse</td><td>x y w h color width outline shadow</td></tr>' +
+          '<tr><td>arrow / line</td><td>x1 y1 x2 y2 color width outline shadow</td></tr>' +
+          '<tr><td>pen</td><td>points[] color width …</td></tr>' +
+          '<tr><td>text / step</td><td>x y text|n size color style shadow</td></tr>' +
+          '<tr><td>highlight / blur / image</td><td>x y w h + color / mode level / img</td></tr></table>'
+      },
+      {
+        title: '4. 履歴(元に戻す・やり直し)',
+        camera: { pos: [3, 15, 8], target: [3, 0, -4] },
+        focus: ['objs', 'commit', 'hist', 'undo', 'a-objs-commit', 'a-commit-hist', 'a-hist-undo', 'a-undo-objs', 'fl-objs-commit', 'fl-commit-hist', 'fl-hist-undo', 'fl-undo-objs', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['objs', 'commit', 'hist', 'undo', 'objs']), 1.4, ['commit(): スナップショット', 'history に追加', 'Ctrl+Z', 'restore(index)', '']); },
+        html:
+          '<p>履歴は<b>「操作後の状態」のスナップショットの配列</b>です(<code>history[]</code> と現在位置 <code>hIndex</code>)。</p>' +
+          '<ul><li><code>snapshot()</code> = <code>{ base, objects の複製 }</code>。<b>ベース画像の canvas は参照を共有</b>する(コピーしない)ので軽い。図形は <code>cloneObj</code> で複製(画像図形の <code>img</code> も参照のまま)</li>' +
+          '<li><code>commit()</code>: 現在位置より先(やり直し側)を捨てて追加。<b>100件</b>を超えたら古い方から削除</li>' +
+          '<li><code>undo</code> / <code>redo</code>: <code>restore(index)</code> が <code>base</code> と <code>objects</code> を差し替え、選択・作成中・トリミング範囲は解除</li>' +
+          '<li>画像サイズが変わる履歴(トリミング・別画像)へ戻るときは、canvas を作り直して全体表示にする</li>' +
+          '<li>動かさずに離しただけ・空のテキストなどは履歴に積まない</li></ul>' +
+          '<p>読み込み直後を含めて2件以上になると「未保存(<code>dirty</code>)」になり、閉じようとするとブラウザが確認します。コピー/保存に成功すると解除されます。</p>'
+      },
+      {
+        title: '5. 描画: 1枚に合成する',
+        camera: { pos: [-12, 17, 15], target: [-12, 0, 0] },
+        focus: ['base', 'objs', 'render', 'screen', 'a-base-render', 'a-objs-render', 'a-render-screen', 'fl-base-render', 'fl-objs-render', 'fl-render-screen', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['base', 'render', 'screen']), 1.8, ['① base を描く', '④ UI層(画面だけ)', '']); },
+        html:
+          '<p>画面の再描画は <code>requestRender</code> が <code>requestAnimationFrame</code> に1回だけ予約し(変更が重なってもまとめる)、<code>drawScene(ctx, ui=true)</code> を呼びます。</p>' +
+          '<ol><li>クリア(JPEG書き出しのときだけ白で塗る)</li>' +
+          '<li><code>state.base</code> を描く</li>' +
+          '<li><code>state.objects</code> を<b>配列の順に</b> <code>drawObj</code>(後のものが上に重なる。編集中のテキストは入力欄が代わりに見える)</li>' +
+          '<li><b>UI層</b>(<code>ui = true</code> のときだけ): 作成中の図形・ぼかし範囲の点線・選択枠とハンドル・トリミングの暗がり</li></ol>' +
+          '<div class="gg-note">画面の表示用 canvas は画像と同じピクセル数のまま、CSS の幅・高さだけでズームしています。だから拡大縮小しても書き出しの画質は変わりません。</div>'
+      },
+      {
+        title: '6. ぼかし・モザイクの計算',
+        camera: { pos: [-9, 14, 17], target: [-9, 2.5, 7] },
+        focus: ['render', 'blur-0', 'blur-1', 'blur-2', 'blur-3', 'blur-4', 'objs', 'base'],
+        show: ['blur-0', 'blur-1', 'blur-2', 'blur-3', 'blur-4'],
+        update: function (g, t) { g.pulse('render', t, 0.05); },
+        html:
+          '<p><code>drawBlur</code> は、<b>それまでに描いた内容(いま描いている canvas そのもの)</b>を入力にして、範囲の中だけを置き換えます。だから、配列で<b>前</b>にある図形や下の画像は隠れ、<b>後</b>の図形は隠れません。</p>' +
+          '<table><tr><th>方式</th><th>処理</th></tr>' +
+          '<tr><td>ぼかし</td><td>範囲 + 周囲 <code>3σ</code>(σ=強さ)を別canvasへ。画像の外にはみ出す余白は端の1pxを引き伸ばして埋めてから、<code>ctx.filter = blur(σpx)</code>。端が薄くならない</td></tr>' +
+          '<tr><td>モザイク</td><td>ブロックの大きさ = <code>max(2, round(1.5σ))</code>。小さな canvas に縮小 → 補間オフで拡大</td></tr></table>' +
+          '<ul><li><code>ctx.filter</code> が使えない環境では、縮小 → 拡大で代用</li>' +
+          '<li>強さは 2〜40。範囲が1px未満なら何もしない</li></ul>' +
+          '<div class="gg-note">ぼかしは弱いと読めてしまうことがあります。確実に隠すなら<b>モザイク(強さ大きめ)</b>を。</div>'
+      },
+      {
+        title: '7. プロパティバー(設定)',
+        camera: { pos: [10, 15, 8], target: [10, 0, -3] },
+        focus: ['prop', 'objs', 'settings', 'a-prop-objs', 'a-prop-settings', 'fl-prop-objs', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['prop', 'objs', 'prop', 'settings']), 1.5, ['選択中の図形へ', '', '次に描く既定値へ', 'localStorage']); },
+        html:
+          '<p>色・太さ・方式などを変えると <code>setProp</code> が<b>2か所</b>に反映します。</p>' +
+          '<ol><li><code>settings</code>(次に描く図形の既定値)を更新して、<code>localStorage</code>(キー <code>blur-paint.settings</code>)へ保存</li>' +
+          '<li>図形を選択中で、その図形がその属性を持つなら、図形の属性も書き換える</li></ol>' +
+          '<ul><li>スライダーは、動かしている間(<code>input</code>)は図形だけ変えて、離したとき(<code>change</code>)に <code>commit()</code> → 1回の操作が1件の履歴</li>' +
+          '<li>どのグループを出すかは、選択中の図形の種類(無ければ現在のツール)で決まる(<code>GROUPS</code>)</li>' +
+          '<li>蛍光ペンの色は別枠(<code>hlColor</code>)で覚える</li>' +
+          '<li>保存するのは<b>設定値だけ</b>。画像・図形は保存されない。読めない・保存できなくても動く</li></ul>'
+      },
+      {
+        title: '8. 書き出し(コピー・保存)',
+        camera: { pos: [3, 16, 16], target: [3, 0, 5] },
+        focus: ['render', 'exp', 'blob', 'out', 'a-render-exp', 'a-exp-blob', 'a-blob-out', 'fl-render-exp', 'fl-exp-blob', 'fl-blob-out', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['render', 'exp', 'blob', 'out']), 1.6, ['drawScene(ui = false)', 'toBlob(MIME, 0.92)', 'クリップボード or ファイル']); },
+        html:
+          '<p><code>exportBlob(format)</code> は、画像と同じ大きさの<b>別の canvas</b> に <code>drawScene(…, ui = false)</code> で合成し、<code>toBlob</code>(品質 0.92)で Blob にします。点線枠やハンドルは入りません。</p>' +
+          '<table><tr><th>操作</th><th>経路</th></tr>' +
+          '<tr><td>コピー</td><td>常に <b>PNG</b>。<code>ClipboardItem</code> に Blob の Promise を渡して書き込み(生成待ちの間にユーザー操作の有効期限が切れないように)</td></tr>' +
+          '<tr><td>保存</td><td>形式は PNG / JPEG / WebP。<code>showSaveFilePicker</code> が使えればダイアログ → 書き込み、キャンセルは何もしない。使えなければ <code>&lt;a download&gt;</code> でダウンロードフォルダへ</td></tr></table>' +
+          '<ul><li>ファイル名: 開いたファイルなら <code>元の名前_edit.拡張子</code>、無ければ <code>image_日付_時刻.拡張子</code></li>' +
+          '<li>JPEG は背景を白で塗ってから描く(透明が黒くならないように)</li>' +
+          '<li>成功したら <code>dirty</code> を解除してトーストで知らせる</li></ul>'
+      },
+      {
+        title: '9. トリミングの仕組み',
+        camera: { pos: [0, 15, 9], target: [0, 0, -5] },
+        focus: ['base', 'objs', 'hist', 'crop-0', 'crop-1', 'crop-2', 'a-load-base', 'pkt'],
+        show: ['crop-0', 'crop-1', 'crop-2'],
+        update: function (g, t) { g.pulse('base', t, 0.05); g.pulse('hist', t + 1, 0.04); },
+        html:
+          '<p>トリミングは、範囲を選ぶあいだは <code>state.crop</code> に持つだけで、画像は変えません(暗がりは UI層)。<code>Enter</code> で <code>runCrop</code> が動きます。</p>' +
+          '<ol><li>整数に丸めた範囲 <code>(x, y, w, h)</code> の<b>新しい canvas</b> を作り、<code>base</code> を <code>(-x, -y)</code> ずらして描く</li>' +
+          '<li><code>state.base</code> を新しい canvas に差し替え、<b>すべての図形を <code>(-x, -y)</code> 動かす</b></li>' +
+          '<li>選択ツールに戻して <code>commit()</code> → <code>fit()</code></li></ol>' +
+          '<p>旧 <code>base</code> は新しい canvas に作り替えるだけで<b>破棄されず</b>、履歴のスナップショットの中に残るので、<code>Ctrl+Z</code> でトリミング前に戻れます。2px未満の範囲は無視されます。</p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

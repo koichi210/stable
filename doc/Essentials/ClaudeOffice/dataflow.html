@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeOffice データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: Claude Code側(青)・サーバーの内部(橙)・画面(水色)・続きを送る(緑)・通知(紫)
+  var COL = { cc: C.me, srv: C.server, ui: C.data, chat: C.good, notice: C.third };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    // 通知の列(いちばん奥)
+    stop: [-15, -14], hookapi: [-9, -14], onstop: [-3, -14], notifyjson: [3, -14], toast: [9, -14],
+    // 読み取りの列
+    cc: [-15, -7], tx: [-9, -7], scan: [-3, -7], recs: [3, -7], state: [9, -7],
+    live: [-9, -1.5], arch: [3, -1.5], api: [16, -3.5],
+    // 画面の列
+    scene: [-9, 5], sync: [-3, 5], store: [3, 5], poll: [9, 5],
+    // 続きを送る列(手前)
+    pipe: [-9, 12], resume: [-9, 16.5], chatapi: [-3, 14], chatui: [3, 14], reply: [9, 14]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  GameGuide.start({
+    title: 'ClaudeOffice データの流れ',
+    back: 'index.html',
+    subtitle: 'Claude Code のログ → server.js → /api/state → 画面(+ 続きを送る・通知)',
+    camera: { pos: [-1, 30, 27], target: [-1, 0, 1] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.4, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.34, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 通知(奥) ----
+      node('stop', 'Claude Code の Stop フック\n(~/.claude/settings.json)', COL.notice);
+      node('hookapi', 'POST /api/hook/stop\n(session_id だけ使う)', COL.notice);
+      node('onstop', 'onHookStop\n1.5秒待って scan→判定', COL.notice);
+      node('notifyjson', 'notify.json\n(通知の設定)', COL.notice);
+      node('toast', 'showToast\nWindows のトースト通知', COL.notice);
+      // ---- 読み取り ----
+      node('cc', 'Claude Code\n(VSCode / ターミナル)', COL.cc);
+      node('tx', '会話の記録 *.jsonl\n~/.claude/projects/*/', COL.cc);
+      node('scan', 'scan / readIncrement\n追記分だけ読む', COL.srv);
+      node('recs', 'sessions (Map)\n会話ごとの要約 rec', COL.srv);
+      node('state', 'stateResponse\n/api/state', COL.srv);
+      node('live', '在席ファイル\n~/.claude/sessions/N.json', COL.cc);
+      node('arch', 'archive.json\n(%LOCALAPPDATA%\\ClaudeOffice)', COL.srv);
+      node('api', 'そのほかの API\n/api/session/:id /sessions\n/account /notify-settings', COL.srv);
+      // ---- 画面 ----
+      node('poll', 'poll()\n3秒ごとに fetch', COL.ui);
+      node('store', 'store.state\n(ブラウザ内)', COL.ui);
+      node('sync', 'syncPeople\nassignSeats / deriveState', COL.ui);
+      node('scene', '3Dの人・吹き出し\nframe() で描画', COL.ui);
+      // ---- 続きを送る ----
+      node('chatui', 'chat.js\n「続きを送る」欄', COL.chat);
+      node('chatapi', 'POST /api/chat/:id\nchatPrecheck', COL.chat);
+      node('pipe', 'chatPipe\n開いている会話→名前付きパイプ', COL.chat);
+      node('resume', 'chatResume\n閉じた会話→claude -p --resume', COL.chat);
+      node('reply', 'NDJSON の返事\n{t:text|tool|done}', COL.chat);
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      // 読み取り
+      arrow('cc', 'tx', COL.cc, '追記');
+      arrow('tx', 'scan', COL.cc, 'ファイルの\n増えた分');
+      arrow('scan', 'recs', COL.srv, 'parseLine');
+      arrow('recs', 'state', COL.srv, '要約');
+      arrow('live', 'state', COL.srv, '在席・状態', 1.2);
+      arrow('cc', 'live', COL.cc, '状態を書く', 0.8);
+      arrow('recs', 'arch', COL.srv, '60秒ごと保存', 0.8);
+      arrow('arch', 'recs', COL.srv, '起動時に復元', 1.8);
+      arrow('state', 'api', COL.srv, '', 0.5);
+      // 画面
+      arrow('state', 'poll', COL.ui, 'JSON', 1.6);
+      arrow('poll', 'store', COL.ui);
+      arrow('store', 'sync', COL.ui);
+      arrow('sync', 'scene', COL.ui);
+      // 続きを送る
+      arrow('chatui', 'chatapi', COL.chat, 'POST');
+      arrow('chatapi', 'pipe', COL.chat, '開いている会話', 0.8);
+      arrow('chatapi', 'resume', COL.chat, '閉じた会話', 0.8);
+      arrow('pipe', 'reply', COL.chat, '記録の増分を\n読んで返す', 1.5);
+      arrow('resume', 'reply', COL.chat, 'stream-json を\n変換して返す', 1.7);
+      arrow('reply', 'chatui', COL.chat, 'ストリーム');
+      arrow('pipe', 'tx', COL.chat, '返事は記録に\n書かれる', 2.4);
+      // 通知
+      arrow('stop', 'hookapi', COL.notice, 'curl');
+      arrow('hookapi', 'onstop', COL.notice);
+      arrow('onstop', 'notifyjson', COL.notice, '設定を読む');
+      arrow('notifyjson', 'toast', COL.notice, '条件に合えば');
+
+      // ---- 常時流れる粒 ----
+      var FL = [['cc', 'tx', COL.cc], ['tx', 'scan', COL.cc], ['scan', 'recs', COL.srv], ['recs', 'state', COL.srv], ['live', 'state', COL.srv],
+        ['state', 'poll', COL.ui], ['poll', 'store', COL.ui], ['store', 'sync', COL.ui], ['sync', 'scene', COL.ui],
+        ['stop', 'hookapi', COL.notice], ['hookapi', 'onstop', COL.notice], ['onstop', 'notifyjson', COL.notice], ['notifyjson', 'toast', COL.notice]];
+      var LIFT = { 'live-state': 1.2, 'state-poll': 1.6 };
+      FL.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: f[2], count: 5, lift: LIFT[key] == null ? 0.9 : LIFT[key], speed: 0.3, size: 0.08 });
+      });
+      // 続きを送る系の粒(手順6・7でだけ見せる)
+      var FC = [['chatui', 'chatapi'], ['chatapi', 'pipe'], ['chatapi', 'resume'], ['pipe', 'reply'], ['resume', 'reply'], ['reply', 'chatui']];
+      var LIFTC = { 'chatapi-pipe': 0.8, 'chatapi-resume': 0.8, 'pipe-reply': 1.5, 'resume-reply': 1.7 };
+      FC.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: COL.chat, count: 5, lift: LIFTC[key] == null ? 0.9 : LIFTC[key], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('cc'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順の補助ラベル ----
+      g.label('~/.claude には\n書き込まない(読み取り専用)', [-12, 3.0, -7], { id: 'ro-l', size: 0.3, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' });
+      g.label('127.0.0.1 だけで待ち受け\n(他のPCからは届かない)', [16, 3.2, -3.5], { id: 'lo-l', size: 0.3, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [-1, 30, 27], target: [-1, 0, 1] },
+        update: function (g, t) { travel(g, t, pts(['cc', 'tx', 'scan', 'recs', 'state', 'poll', 'store', 'sync', 'scene']), 1.0, null); },
+        html:
+          '<p>ClaudeOffice は、<b>Claude Code が自分で書いているファイルを覗き見る</b>仕組みです。Claude Code 側に手を入れる必要はありません。</p>' +
+          '<ul><li><b>青(Claude Code側)</b>: 会話の記録 <code>*.jsonl</code> と、在席ファイル <code>sessions/N.json</code></li>' +
+          '<li><b>橙(server.js)</b>: 記録を読んで会話ごとの要約にまとめ、<code>/api/state</code> で返す</li>' +
+          '<li><b>水色(画面)</b>: 3秒ごとにポーリングして、人・吹き出しを更新</li>' +
+          '<li><b>緑(手前)</b>: 「続きを送る」。画面から会話へ話しかける経路</li>' +
+          '<li><b>紫(奥)</b>: Stop フック → Windows の通知</li></ul>' +
+          '<p>金色の玉が、1回の更新が旅する様子です(各ステップで寄って見ます)。</p>' +
+          '<div class="gg-note">フックを使うのは<b>通知だけ</b>です。人の様子や履歴は、フックではなくログの読み取りで分かります。「次へ」で順番に。</div>'
+      },
+      {
+        title: '1. Claude Code が書くもの',
+        camera: { pos: [-12, 15, 6], target: [-10, 0, -5] },
+        focus: ['cc', 'tx', 'live', 'a-cc-tx', 'a-cc-live', 'fl-cc-tx', 'ro-l', 'pkt'],
+        show: ['ro-l'],
+        update: function (g, t) { travel(g, t, pts(['cc', 'tx']), 1.8, ['1行 = 1イベント(JSON)']); },
+        html:
+          '<p>ClaudeOffice が読むのは、Claude Code が作る次の2種類だけです(<code>CLAUDE_CONFIG_DIR</code> があればそこ、なければ <code>%USERPROFILE%\\.claude</code>)。</p>' +
+          '<table><tr><th>ファイル</th><th>中身</th></tr>' +
+          '<tr><td><code>projects/&lt;フォルダ&gt;/&lt;会話ID&gt;.jsonl</code></td><td><b>会話の記録</b>。1行1イベントのJSON(依頼・ツール呼び出し・返事・タイトル)。サブエージェントは <code>&lt;会話ID&gt;/subagents/*.meta.json</code></td></tr>' +
+          '<tr><td><code>sessions/&lt;pid&gt;.json</code></td><td><b>在席</b>。いま開いている会話の <code>sessionId</code>・<code>pid</code>・<code>status</code>(busy / idle)・開始時刻・<code>entrypoint</code>。プロセスが生きているものだけ在席扱い</td></tr></table>' +
+          '<p>「在席」=<code>sessions/</code> に居る人 → 机に座る。「履歴」=<code>*.jsonl</code> が残っている過去の会話 → 本棚の本。</p>' +
+          '<div class="gg-note">Claude Code の会話記録は既定で30日ほどで消えます。そのため要約だけは別に取っておきます(手順4)。</div>'
+      },
+      {
+        title: '2. 追記分だけ読む(scan / readIncrement)',
+        camera: { pos: [-1, 15, 4], target: [-1, 0, -7] },
+        focus: ['tx', 'scan', 'recs', 'a-tx-scan', 'a-scan-recs', 'fl-tx-scan', 'fl-scan-recs', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['tx', 'scan', 'recs']), 1.7, ['前回の続き(offset)から', 'parseLine で要約']); },
+        html:
+          '<p><code>scan()</code> は<b>ファイル監視ではなく、API を呼ばれたときに</b>実行されます(最短1.5秒おき)。</p>' +
+          '<ol><li><code>projects/*/*.jsonl</code> を列挙。会話ごとに <code>rec</code> を持ち、<b>前回読んだ位置(<code>offset</code>)</b>を覚えている</li>' +
+          '<li><code>readIncrement</code> が、増えた分だけ読む。末尾の改行なしの断片は次回へ持ち越す。ファイルが縮んでいたら最初から読み直す</li>' +
+          '<li><code>parseLine</code> が1行ずつ解釈して <code>rec</code> を更新: タイトル・依頼・ツール回数・最後のツール(名前+ファイル名や説明)・最後の返事・日別の集計・稼働区間(10分以内の間隔は同じ区間)</li></ol>' +
+          '<ul><li>ツールのコマンド本文は<b>表示に使わない</b>(説明やファイル名だけ)</li>' +
+          '<li>依頼や返事は画面へ出す前に <code>mask()</code> で、トークン・パスワード・ランダムに見える長い文字列を伏せる</li></ul>'
+      },
+      {
+        title: '3. /api/state を作る',
+        camera: { pos: [8, 15, 3], target: [6, 0, -6] },
+        focus: ['recs', 'live', 'state', 'api', 'a-recs-state', 'a-live-state', 'a-state-api', 'fl-recs-state', 'fl-live-state', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['recs', 'state']), 1.8, ['rec + 在席 + 進み具合']); },
+        html:
+          '<p><code>stateResponse()</code> が、要約(<code>rec</code>)と在席(<code>readLive</code>)を合わせて、画面向けのJSONにします。</p>' +
+          '<table><tr><th>項目</th><th>中身</th></tr>' +
+          '<tr><td><code>live[]</code></td><td>在席の人ごと。タイトル・プロジェクト名・状態・最後のツール・直近5件・動いているサブエージェント・<code>progress</code></td></tr>' +
+          '<tr><td><code>day[]</code> + <code>stats</code></td><td>選んだ日の会話(下のタイムライン用)と、依頼数・ツール回数・稼働時間</td></tr>' +
+          '<tr><td><code>archive[]</code></td><td>本棚の本(新しい順に最大160冊)。<code>?archive=1</code> のときだけ</td></tr></table>' +
+          '<p><code>progress</code> は「busy なら作業中 / 裏でエージェントやコマンドが動いていれば <b>background</b> / 質問で終わっていれば <b>question</b> / それ以外は <b>done</b>」。</p>' +
+          '<ul><li>プロジェクト名は会話の作業フォルダ(<code>cwd</code>)の最後の名前</li>' +
+          '<li>VSCode のグループ・アーカイブ済みは、VSCode の <code>state.vscdb</code> を<b>読み取り専用</b>で見る(<code>node:sqlite</code>)</li>' +
+          '<li>使用率(5時間/週)は <code>/api/account</code>。ログイン情報を使って Anthropic の使用率APIへ問い合わせる</li></ul>'
+      },
+      {
+        title: '4. 要約の保存(archive.json)',
+        camera: { pos: [4, 14, 4], target: [3, 0, -5] },
+        focus: ['recs', 'arch', 'a-recs-arch', 'a-arch-recs', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['recs', 'arch', 'recs']), 1.9, ['60秒ごと(変化があれば)', '起動時にだけ読み戻す']); },
+        html:
+          '<p>会話の記録が消えても本棚の本(履歴)が残るように、要約を <code>%LOCALAPPDATA%\\ClaudeOffice\\archive.json</code> に保存します。</p>' +
+          '<ul><li><code>saveArchive</code>: 起動時・終了時と<b>60秒ごと</b>(変化があるときだけ)。<code>.tmp</code> に書いてから <code>rename</code> で置き換えるので、書き込み中に落ちても壊れない。イベントは直近200件まで</li>' +
+          '<li><code>loadArchive</code>: 起動時に読み、<b>記録ファイルがもう無い会話だけ</b>復元(<code>transcriptGone</code>)。記録が残っているものは、記録から読み直す</li>' +
+          '<li>「要約のみ」の会話は、画面で「再開・送信はできません」と表示される</li></ul>' +
+          '<div class="gg-note">サーバーが書き込むのは、この <code>archive.json</code> と、通知を保存したときの <code>notify.json</code>(ClaudeOffice フォルダ内)の2つだけです。</div>'
+      },
+      {
+        title: '5. 画面のポーリング(3秒ごと)',
+        camera: { pos: [0, 16, 14], target: [0, 0, 5] },
+        focus: ['poll', 'store', 'sync', 'scene', 'a-poll-store', 'a-store-sync', 'a-sync-scene', 'fl-poll-store', 'fl-store-sync', 'fl-sync-scene', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['poll', 'store', 'sync', 'scene']), 1.5, ['store.state に保存', 'assignSeats / deriveState', '']); },
+        html:
+          '<p><code>app.js</code> の <code>poll()</code> が <code>/api/state</code> を取り、同じデータでパネルと3Dを一度に更新します。</p>' +
+          '<ol><li><code>store.state</code> に保存(サーバーに繋がらなければ「● サーバ停止中」)</li>' +
+          '<li><code>syncPeople()</code>: <code>assignSeats</code> で席を決め、人を追加/削除。席は前回のまま維持</li>' +
+          '<li><code>deriveState</code>: busy+ツール → <b>作業中</b>(ツール名の絵文字つき)/ busy+返信 → 作業中(返信を書いてる)/ busy のみ → <b>考え中</b>/ idle → <b>入力待ち</b>(30分以上で<b>おやすみ</b>)</li>' +
+          '<li>吹き出し・名札・「Z z」「？」の更新、机の画面の色、足もとの光の輪の色</li></ol>' +
+          '<ul><li>そのほか: <code>pollAccount</code> 60秒、<code>pollSessions</code>(グループ・履歴タブ用)30秒、開いている詳細の窓は3秒ごとに <code>/api/session/:id</code></li>' +
+          '<li>3Dの描画(<code>frame()</code>)はポーリングとは別。ポーリングの合間は前回の状態のまま動き続ける</li></ul>'
+      },
+      {
+        title: '6. 続きを送る(経路の分岐)',
+        camera: { pos: [-1, 20, 28], target: [-1, 0, 13] },
+        focus: ['chatui', 'chatapi', 'pipe', 'resume', 'reply', 'a-chatui-chatapi', 'a-chatapi-pipe', 'a-chatapi-resume', 'a-pipe-reply', 'a-resume-reply', 'a-reply-chatui',
+                'fl-chatui-chatapi', 'fl-chatapi-pipe', 'fl-chatapi-resume', 'fl-pipe-reply', 'fl-resume-reply', 'fl-reply-chatui', 'pkt'],
+        show: ['fl-chatui-chatapi', 'fl-chatapi-pipe', 'fl-chatapi-resume', 'fl-pipe-reply', 'fl-resume-reply', 'fl-reply-chatui'],
+        update: function (g, t) { travel(g, t, pts(['chatui', 'chatapi', 'resume', 'reply', 'chatui']), 1.4, ['本文を POST', '在席してない → resume', 'stream-json を中継', 'ストリームで表示']); },
+        html:
+          '<p>詳細の窓の「💬 続きを送る」(Ctrl+Enter)は、<b>すでにある会話の続き専用</b>です。新しい会話は作れません。</p>' +
+          '<ol><li><code>POST /api/chat/&lt;会話ID&gt;</code>(本文は20,000字まで)。<code>chatPrecheck</code> で検査: 会話がある・要約だけではない・本文が空でない・作業フォルダがある・同じ会話に送信中でない・在席なのに受信口が無い場合は断る</li>' +
+          '<li>在席していなければ → <b><code>chatResume</code></b>(この手順)。在席していれば → <code>chatPipe</code>(次の手順)</li>' +
+          '<li>応答は <code>application/x-ndjson</code> の<b>1行ずつのストリーム</b>。<code>start / text / tool / done</code> のイベントで、<code>chat.js</code> が読みながら表示</li></ol>' +
+          '<p><b>閉じた会話(chatResume)</b>: サーバーが <code>claude -p --resume &lt;ID&gt; --output-format stream-json …</code> を<b>子プロセスで起動</b>し、本文を標準入力へ渡します。返事はブロックごとに全文を <code>mask()</code> してから流します(断片のままだと秘密を伏せきれないため)。30分で打ち切り、停止ボタンは <code>taskkill</code> で止めます。</p>' +
+          '<div class="gg-note">閉じた会話の再開は<b>ツールの確認なし</b>(<code>bypassPermissions</code>)で動くため、画面に警告が出ます。送れるのはブラウザ全体で同時に1会話だけです。</div>'
+      },
+      {
+        title: '7. 続きを送る(開いている会話)',
+        camera: { pos: [-1, 18, 22], target: [-4, 0, 7] },
+        focus: ['chatapi', 'pipe', 'reply', 'tx', 'a-chatapi-pipe', 'a-pipe-reply', 'a-pipe-tx', 'fl-chatapi-pipe', 'fl-pipe-reply', 'pkt'],
+        show: ['fl-chatapi-pipe', 'fl-pipe-reply'],
+        update: function (g, t) { travel(g, t, pts(['chatapi', 'pipe', 'tx', 'pipe', 'reply']), 1.4, ['本文を受け取る', '名前付きパイプへ auth+user', '返事は記録に増える', '増分を読んで流す']); },
+        html:
+          '<p>いま開いている会話には、<b>その会話自身が持つ「受信口」</b>(<code>sessions/N.json</code> の <code>messagingSocketPath</code> の名前付きパイプ)へ送ります。</p>' +
+          '<ol><li>同じフォルダの <code>.key</code> から<b>トークン</b>を読み、パイプへ <code>{type:"auth"}</code> と <code>{type:"user", priority:"next", from:"dashboard", msg_id}</code> を書く</li>' +
+          '<li><code>priority:"next"</code> なので、相手の作業を<b>中断せず順番待ち</b>に入る</li>' +
+          '<li>500ms ごとに会話の <code>.jsonl</code> を見て、増えた分から <code>msg_id</code> つきの行(=受け取られた)→ 続く返事・ツールを読み、画面へ流す</li>' +
+          '<li>終わり: <code>turn_duration</code> などのイベント、または返事のあと3秒 idle。<b>90秒たっても受け取られなければ</b>「保留かも」で終了</li></ol>' +
+          '<div class="gg-note">本人の承認の代わりにはなりません。相手には「dashboard からのメッセージ」として届きます。</div>'
+      },
+      {
+        title: '8. 返事が終わったら通知(Stop フック)',
+        camera: { pos: [-3, 17, -7], target: [-3, 0, -14] },
+        focus: ['stop', 'hookapi', 'onstop', 'notifyjson', 'toast', 'a-stop-hookapi', 'a-hookapi-onstop', 'a-onstop-notifyjson', 'a-notifyjson-toast', 'fl-stop-hookapi', 'fl-hookapi-onstop', 'fl-onstop-notifyjson', 'fl-notifyjson-toast', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['stop', 'hookapi', 'onstop', 'notifyjson', 'toast']), 1.4, ['返事が終わった', 'session_id', '完了 or 質問?', '条件に合う']); },
+        html:
+          '<p>フックを使うのはここだけです。<code>~/.claude/settings.json</code> の <code>hooks.Stop</code> に、設定画面(⚙️ → 通知)に表示される1行を足します。</p>' +
+          '<pre><code>curl -s -m 3 -X POST -H \'Content-Type: application/json\'\n  --data-binary @- http://127.0.0.1:8765/api/hook/stop</code></pre>' +
+          '<ol><li>Claude Code が返事を終えると、フックが標準入力のJSON(<code>session_id</code> を含む)を <code>/api/hook/stop</code> へ POST</li>' +
+          '<li><code>onHookStop</code>: 返事が書き切れるまで<b>1.5秒待って</b> <code>scan</code>。busy のままでも idle とみなして <code>progressOf</code> で判定</li>' +
+          '<li>「完了(done)」か「質問(question)」のときだけ、<code>notify.json</code> の設定(ON/OFF・おやすみ時間帯・同じ内容は○分間出さない)を確認</li>' +
+          '<li><code>showToast</code>: PowerShell で Windows のトーストを出す。押すと <code>/?session=ID</code>(箱庭で詳細を開く)</li></ol>' +
+          '<ul><li>通知の文は <code>{name}</code> <code>{title}</code> を置き換えられる。表示前に <code>mask()</code> を通す</li>' +
+          '<li>設定画面の「テスト通知」は、保存前の値で出す(時間帯とON/OFFは見ない)</li></ul>'
+      },
+      {
+        title: '9. 安全のための決まり',
+        camera: { pos: [10, 18, 6], target: [8, 0, -4] },
+        focus: ['state', 'api', 'lo-l', 'ro-l', 'tx', 'live', 'poll', 'a-state-api'],
+        show: ['lo-l', 'ro-l'],
+        update: function (g, t) { g.pulse('api', t, 0.06); },
+        html:
+          '<table><tr><th>決まり</th><th>中身</th></tr>' +
+          '<tr><td>待ち受け</td><td><code>127.0.0.1</code> だけ(既定のポートは <code>8765</code>)。他のPCからはつながらない</td></tr>' +
+          '<tr><td>POST の検査</td><td><code>Content-Type: application/json</code> が必須で、<code>Origin</code> があるときは自分自身(127.0.0.1 / localhost の同ポート)だけ許可。他サイトのページからの送信を弾く</td></tr>' +
+          '<tr><td>読み取り専用</td><td><code>.claude</code> と VSCode の状態ファイルは読むだけ。書くのは <code>archive.json</code> と <code>notify.json</code> だけ</td></tr>' +
+          '<tr><td>秘密のマスク</td><td>画面・通知・ストリームへ出す文は <code>mask()</code>(<code>token</code>/<code>password</code> などの値、<code>Bearer</code>、ランダムに見える20字以上の語)</td></tr>' +
+          '<tr><td>ログ</td><td>件名や本文は書かない。「何が起きたか」だけ残す</td></tr>' +
+          '<tr><td>入力の検査</td><td>会話IDは UUID 形式だけ。本文のサイズ上限(続き=80KB、他=64KB〜)</td></tr></table>' +
+          '<div class="gg-note">表示される会話・プロジェクト名は<b>自分のPCの中だけ</b>で扱います。外部へ送るのは使用率APIへの問い合わせだけです。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecretaryGadget データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: 外の世界(青)・見張り役(水色)・キュー/表示(緑)・タイマー/保存(橙)・抑止/安全(赤)・メニュー操作(紫)
+  var COL = { src: C.me, watch: C.data, show: C.good, timer: C.server, guard: C.enemy, ui: C.third };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    out: [-17, -8], tms: [-10.5, -8], tray: [2.5, -8], hako: [9, -8],
+    ow: [-17, -3], tpw: [-10.5, -3], tmc: [-4, -3], call: [2.5, -3], guard: [9, -3],
+    post: [-10.5, 2], q: [-4, 2], show: [2.5, 2], win: [9, 2], open: [15.5, 2],
+    td: [-17, 8], ti: [-10.5, 8], tk: [-4, 8], flush: [2.5, 8], tj: [-4, 13]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  GameGuide.start({
+    title: 'SecretaryGadget データの流れ',
+    back: 'index.html',
+    subtitle: 'Outlook / Teams の見張り役 → お知らせキュー → 吹き出し / タイマー → TimerKeeper → timers.json',
+    camera: { pos: [-1, 31, 29], target: [-1, 0, 2.5] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.6, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.36, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 入口(奥) ----
+      node('out', 'Outlook\n(OUTLOOK.EXE)', COL.src);
+      node('tms', 'Teams の小窓\n(ms-teams)', COL.src);
+      node('tray', 'トレイ操作\n左クリック / メニュー', COL.ui);
+      node('hako', 'HakoniwaLauncher\n箱庭 127.0.0.1:8765', COL.ui);
+      // ---- 見張り役 ----
+      node('ow', 'OutlookWatcher\n(STA専用スレッド)', COL.watch);
+      node('tpw', 'TeamsPopupWatcher\n(UI Automation)', COL.watch);
+      node('tmc', 'TeamsMention\nCounter(60秒ごと)', COL.watch);
+      node('call', 'App.Call()\n秘書さんを呼ぶ', COL.ui);
+      node('guard', 'IsSuppressed\nロック/全画面/プレゼン', COL.guard);
+      // ---- お知らせ ----
+      node('post', 'Post() +\n通知ON/OFFの確認', COL.show);
+      node('q', 'Enqueue\nNotice キュー', COL.show);
+      node('show', 'ShowNext\n(Refresh・集約)', COL.show);
+      node('win', 'SecretaryWindow\nせり上がり → 吹き出し', COL.show);
+      node('open', 'Notice.Open\nメール/Teams/会議', COL.show);
+      // ---- タイマー(手前) ----
+      node('td', 'TimerDialog +\nWheelColumn', COL.timer);
+      node('ti', 'TimerInput\nFromClock / FromRelative', COL.timer);
+      node('tk', 'TimerKeeper\nAdd / TakeDue', COL.timer);
+      node('flush', 'Flush() 3秒ごと\nCheckTimers', COL.timer);
+      node('tj', 'timers.json\n(LocalDir)', COL.timer);
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      arrow('out', 'ow', COL.src);
+      arrow('tms', 'tpw', COL.src);
+      arrow('tms', 'tmc', COL.src, '', 1.4);
+      arrow('ow', 'post', COL.watch, 'メール/会議の\nNotice', 1.0);
+      arrow('tpw', 'post', COL.watch, 'Teams の\nNotice', 1.0);
+      arrow('post', 'q', COL.show);
+      arrow('q', 'show', COL.show, '0.3秒後 /\n即時');
+      arrow('show', 'win', COL.show, 'ShowNotice');
+      arrow('win', 'open', COL.show, 'クリック', 0.9);
+      arrow('guard', 'show', COL.guard, '出さない', 0.8);
+      arrow('tray', 'call', COL.ui);
+      arrow('call', 'ow', COL.ui, 'RequestCall', 1.8);
+      arrow('call', 'tmc', COL.ui, 'CountNowAsync', 1.0);
+      arrow('call', 'q', COL.ui, 'NoticeTexts.Call', 1.2);
+      arrow('tray', 'hako', COL.ui, '箱庭');
+      arrow('td', 'ti', COL.timer);
+      arrow('ti', 'tk', COL.timer, 'TimerEntry');
+      arrow('tk', 'tj', COL.timer, 'Save', 0.8);
+      arrow('tk', 'flush', COL.timer, 'TakeDue', 0.8);
+      arrow('flush', 'q', COL.timer, 'TimerDue', 1.4);
+
+      // ---- 常時流れる粒 ----
+      var FL = [['out', 'ow', COL.src], ['tms', 'tpw', COL.src], ['ow', 'post', COL.watch], ['tpw', 'post', COL.watch],
+        ['post', 'q', COL.show], ['q', 'show', COL.show], ['show', 'win', COL.show], ['win', 'open', COL.show],
+        ['tray', 'call', COL.ui], ['call', 'q', COL.ui],
+        ['td', 'ti', COL.timer], ['ti', 'tk', COL.timer], ['tk', 'tj', COL.timer], ['tk', 'flush', COL.timer], ['flush', 'q', COL.timer]];
+      var LIFT = { 'ow-post': 1.0, 'tpw-post': 1.0, 'call-q': 1.2, 'flush-q': 1.4, 'tk-tj': 0.8, 'tk-flush': 0.8, 'win-open': 0.9 };
+      FL.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: f[2], count: 5, lift: LIFT[key] == null ? 0.9 : LIFT[key], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('out'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 補足ラベル ----
+      g.label('4件以上たまったら\n1件に集約', [N.show[0] + 1.5, 3.7, N.show[1] + 0.3], { id: 'pile-l', size: 0.26, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('[ { "Due": 日時, "Label": "15分後" }, ... ]', [N.tj[0] + 2.5, 1.4, N.tj[1] + 2.2], { id: 'json-l', size: 0.28, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('クリックするまで消えない\n(IsSticky)', [N.win[0], 4.3, N.win[1] + 0.5], { id: 'sticky-l', size: 0.26, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [-1, 31, 29], target: [-1, 0, 2.5] },
+        update: function (g, t) { travel(g, t, pts(['out', 'ow', 'post', 'q', 'show', 'win', 'open']), 1.0, null); },
+        html:
+          '<p>SecretaryGadget のデータは、大きく3つの流れです。</p>' +
+          '<ul><li><b>奥〜中ほど(青・水色)</b>: Outlook と Teams の<b>見張り役</b>が、新着や会議を見つけて<code>Notice</code>(お知らせ1件分)にする</li>' +
+          '<li><b>中ほど(緑)</b>: <code>Notice</code> をキューに並べ、抑止の条件を見ながら<b>1件ずつ吹き出し</b>にする</li>' +
+          '<li><b>手前(橙)</b>: <b>タイマー</b>。入力 → 保存 → 期限が来たら <code>Notice</code> としてキューへ</li></ul>' +
+          '<p>金色の玉が、1通のメールが旅する様子です。なお、このツールが拾う入口は Outlook・Teams・トレイ/メニュー操作・タイマーで、<b>Claude からの通知を受け取る仕組み(フック等)は持っていません</b>(「箱庭」を開くメニューがあるだけです)。</p>' +
+          '<div class="gg-note">「次へ」で順番に。3Dはドラッグで回せます。</div>'
+      },
+      {
+        title: '1. Outlook の見張り',
+        camera: { pos: [-15, 13, 6], target: [-15, 0, -3] },
+        focus: ['out', 'ow', 'post', 'a-out-ow', 'a-ow-post', 'fl-out-ow', 'fl-ow-post', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['out', 'ow', 'post']), 1.8, ['新着メール', 'Notice(メール)']); },
+        html:
+          '<p><code>OutlookWatcher</code> は、<b>COM を触る専用スレッド(STA)1本</b>で動く見張り役です。従来版 Outlook(プロセス <code>OUTLOOK</code>)があるときだけ接続し、無ければ何もしません(勝手に起動させない)。</p>' +
+          '<ul><li>他スレッドからの読み出しも、すべてこのスレッドの<b>要求キュー</b>経由。待ち時間を <code>OutlookPollSeconds</code>(既定20秒)にして、要求が無ければ定期確認(Poll)</li>' +
+          '<li><b>新着メール</b>: 見張りフォルダごとの件数を前回と比べ、増えたフォルダだけ新しい順に見る。起動より前のメール・既出・既読は除く</li>' +
+          '<li><b>会議の開始前</b>: 予定表で「今−2分 〜 今＋5分(既定)」に始まる会議。終日とキャンセルは除く</li>' +
+          '<li>結果は <code>Notice</code> にして、コールバックで UI スレッドへ渡す</li></ul>'
+      },
+      {
+        title: '2. Teams の見張り',
+        camera: { pos: [-8, 13, 6], target: [-8, 0, -3] },
+        focus: ['tms', 'tpw', 'tmc', 'post', 'a-tms-tpw', 'a-tms-tmc', 'a-tpw-post', 'fl-tms-tpw', 'fl-tpw-post', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['tms', 'tpw', 'post']), 1.8, ['小窓の文字を読む', 'Notice(Teams)']); },
+        html:
+          '<p>新しい Teams が右下に出す<b>組み込みポップアップ</b>(クラス <code>TeamsWebView</code>)を、<code>TeamsPopupWatcher</code> が <b>UI Automation</b> で読みます。通知データベースを直接読む方式は、個人情報の扱い上、採用していません。</p>' +
+          '<ul><li>窓が出た合図(<code>EVENT_OBJECT_SHOW</code>)で起き、<b>3秒間は0.1秒ごと</b>に確認(ふだんは500ms)。UIA は小窓が出ている間だけ使う</li>' +
+          '<li>文字を集めて通知カードに分け、<code>MentionFilter</code> が<b>自分の姓(漢字・ひらがな・ローマ字など)</b>を含むかでメンションと判定(メールアドレスは先に除く)</li>' +
+          '<li>メンションのポップアップは、本家の小窓を透明にして隠す(終了時は必ず元へ戻す)</li>' +
+          '<li><code>TeamsMentionCounter</code> は、Teams の画面にある「メンション N 未読」の項目を60秒ごとに数える。「秘書さんを呼ぶ」で表示する件数に使う</li>' +
+          '<li>通知センター(トースト)を見る <code>TeamsWatcher</code> は予備で、<b>既定オフ</b></li></ul>'
+      },
+      {
+        title: '3. UIスレッドへ渡して、設定でふるいにかける',
+        camera: { pos: [-9, 12, 11], target: [-9, 0, 1] },
+        focus: ['ow', 'tpw', 'post', 'q', 'a-ow-post', 'a-tpw-post', 'a-post-q', 'fl-ow-post', 'fl-tpw-post', 'fl-post-q', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['ow', 'post', 'q']), 1.8, ['見張り役のスレッドから', 'NotifyOutlookMail 等']); },
+        html:
+          '<p>見張り役は別スレッドで動くので、結果は <code>Post()</code> で<b>UIスレッドへ依頼</b>して渡します(終了中は捨てる)。</p>' +
+          '<table><tr><th>設定(settings.json / メニュー「設定」)</th><th>OFF のとき</th></tr>' +
+          '<tr><td><code>NotifyOutlookMail</code></td><td>メールの <code>Notice</code> をキューへ入れない</td></tr>' +
+          '<tr><td><code>NotifyMeetings</code></td><td>会議の <code>Notice</code> を入れない</td></tr>' +
+          '<tr><td><code>NotifyTeams</code></td><td>Teams を入れない(送り主だけ記憶して、呼んだときの表示に使う)</td></tr>' +
+          '<tr><td><code>Paused</code>(おやすみ)</td><td>呼ぶ系・タイマー以外は捨てる</td></tr></table>' +
+          '<p>休憩中は、捨てる代わりに<b>件数だけ数えて</b>おき、休憩が明けたときに「休憩中に N 件のお知らせがありました」と伝えます。</p>'
+      },
+      {
+        title: '4. キューに並べる(Enqueue)',
+        camera: { pos: [-1, 12, 11], target: [-1, 0, 1] },
+        focus: ['post', 'q', 'show', 'a-post-q', 'a-q-show', 'fl-post-q', 'fl-q-show', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['post', 'q', 'show']), 1.8, ['Notice をキューの先頭へ', '0.3秒まとめて待つ']); },
+        html:
+          '<p><code>Enqueue</code> が <code>Notice</code> を<b>キューの先頭</b>に入れます。<code>Notice</code> には種類(<code>NoticeKind</code>: Greeting / Mail / Teams / Meeting / Schedule / Timer)と、本文(見出し + 最大3行)があります。</p>' +
+          '<ul><li><b>呼ぶ系</b>(Greeting・Schedule・Timer)は<b>おやすみ・休憩中でも出す</b>。表示も即時</li>' +
+          '<li>それ以外は<b>0.3秒のデバウンス</b>のあとに表示(続けて届いた新着をまとめて最新を出すため)</li>' +
+          '<li>残っている古い Greeting / Schedule は捨てる。<b>タイマーだけは取りこぼさないよう残す</b></li>' +
+          '<li><code>OnTeamsPopupItem</code> では、Teams の <code>Notice</code> にクリック動作(Teams を前へ)を付けてからキューへ</li></ul>'
+      },
+      {
+        title: '5. 1件ずつ出す(ShowNext)と抑止',
+        camera: { pos: [6, 13, 11], target: [6, 0, 0] },
+        focus: ['q', 'show', 'win', 'guard', 'a-q-show', 'a-show-win', 'a-guard-show', 'fl-q-show', 'fl-show-win', 'pkt', 'pile-l'],
+        show: ['pile-l'],
+        update: function (g, t) { travel(g, t, pts(['q', 'show', 'win']), 1.8, ['Refresh で作り直す', '集約・フッター付きで']); g.pulse('guard', t, 0.05); },
+        html:
+          '<p><code>ShowNext</code> がキューから次の <code>Notice</code> を取り出して秘書さんへ渡します。</p>' +
+          '<ol><li><b>Refresh</b>: 会議の通知は、出す直前に現在時刻で作り直す(「あと N 分」を最新に)。終わった会議なら捨てる</li>' +
+          '<li><b>タイマーを先頭へ</b>: タイマーはほかの新着より先に出す</li>' +
+          '<li><b>集約</b>: キューが4件以上なら、メール N 件・Teams N 件・会議 N 件の<b>1件にまとめる</b>(本人が呼んだ分は先に出す)</li>' +
+          '<li><b>フッター</b>: 残りがあれば「ほか N 件」、開く先があれば「クリックで開きます」</li></ol>' +
+          '<p><code>IsSuppressed</code>(<code>SHQueryUserNotificationState</code>)が、画面ロック・使用中・全画面ゲーム・プレゼンのどれかなら<b>出しません</b>。表示中でも1秒ごとに確認し、該当したら即座に隠して、そのお知らせをキューの先頭へ戻します。</p>'
+      },
+      {
+        title: '6. 吹き出しの表示と引っ込み',
+        camera: { pos: [10, 11, 10], target: [10, 0, 1] },
+        focus: ['show', 'win', 'open', 'a-show-win', 'a-win-open', 'fl-show-win', 'fl-win-open', 'pkt', 'sticky-l'],
+        show: ['sticky-l'],
+        update: function (g, t) { travel(g, t, pts(['show', 'win']), 2.0, ['絵がせり上がる→吹き出し']); g.pulse('win', t, 0.05); },
+        html:
+          '<p><code>SecretaryWindow</code> は、枠なし・透明・最前面・フォーカスを奪わない窓です(<code>WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE</code>)。画面右下の作業領域に合わせて置きます。</p>' +
+          '<table><tr><th>動き</th><th>時間</th></tr>' +
+          '<tr><td>絵がせり上がる</td><td>450ms</td></tr><tr><td>吹き出しが現れる</td><td>250ms(絵が下にあるときは300ms待つ)</td></tr>' +
+          '<tr><td>吹き出しが消える → 絵が下がる</td><td>150ms → 450ms</td></tr>' +
+          '<tr><td>自動で引っ込む</td><td>既定20秒(1/5/10/20秒から選べる)</td></tr></table>' +
+          '<ul><li><b>画面キャプチャから除外</b>(<code>WDA_EXCLUDEFROMCAPTURE</code>)。「自動的に隠さない」の5分間だけ除外を外す</li>' +
+          '<li>絵は <code>SkinCatalog</code> が読んだ画像。吹き出しの重なりは、絵の左端の形から自動で計算</li>' +
+          '<li>タイマーの <code>Notice</code> は <code>IsSticky</code> なので、自動では引っ込まない</li></ul>'
+      },
+      {
+        title: '7. クリックで開く',
+        camera: { pos: [13, 11, 10], target: [13, 0, 1] },
+        focus: ['win', 'open', 'a-win-open', 'fl-win-open'],
+        update: function (g, t) { g.pulse('open', t, 0.06); },
+        html:
+          '<p>吹き出しをクリックすると、<b>先に引っ込めてから</b> <code>Notice.Open</code> を実行します(<code>BubbleOpened</code>)。</p>' +
+          '<table><tr><th>お知らせ</th><th>開く先</th></tr>' +
+          '<tr><td>メール</td><td>そのメールを Outlook で開く(Outlook スレッド経由で <code>Display()</code>)</td></tr>' +
+          '<tr><td>会議</td><td>本文に Teams 会議のリンクがあれば <code>msteams:</code> で参加、無ければ予定を開く</td></tr>' +
+          '<tr><td>Teams</td><td>Teams のメイン窓を前へ(無ければ <code>msteams:</code> を起動)</td></tr>' +
+          '<tr><td>あいさつ・まとめ・タイマー</td><td>開く先なし。引っ込むだけ</td></tr></table>' +
+          '<div class="gg-note">フォーカスを持たない窓から前面化するため、Alt キーを押して離して許可を得てから <code>SetForegroundWindow</code> します(<code>WindowFocus</code>)。</div>'
+      },
+      {
+        title: '8. 秘書さんを呼ぶ(トレイ左クリック)',
+        camera: { pos: [0, 15, 12], target: [0, 0, -2] },
+        focus: ['tray', 'call', 'ow', 'tmc', 'q', 'a-tray-call', 'a-call-ow', 'a-call-tmc', 'a-call-q', 'fl-tray-call', 'fl-call-q', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['tray', 'call', 'q']), 1.8, ['Peek(絵だけ先に)', 'NoticeTexts.Call']); },
+        html:
+          '<p>トレイの左クリック(<code>OnTrayLeftClick</code>)で <code>Call()</code> が動きます。見張りの定期確認を待たず、<b>その場で読みにいく</b>のが特徴です。</p>' +
+          '<ol><li><code>Peek</code>: 中身を待たず、絵だけ先にせり上げる</li>' +
+          '<li>並行して、Teams のメンション数を <code>CountNowAsync</code> で数え直し、Outlook スレッドへ「会議 → 未読の差出人 → 未読数」を依頼</li>' +
+          '<li>そろったら <code>NoticeTexts.Call</code> で1つの <code>Notice</code> にして <code>Enqueue</code>(待つのは最大20秒)</li>' +
+          '<li>表示後に、裏で検索フォルダー(<code>MarkReadSearchFolder</code>。空でオフ)を既読にする</li></ol>' +
+          '<p>Outlook が無ければ、その行は「Outlook が起動していないようです」になります。古い件数は使いません。</p>'
+      },
+      {
+        title: '9. タイマーのセット(TimerKeeper に保存)',
+        camera: { pos: [-9, 16, 18], target: [-9, 0, 9] },
+        focus: ['td', 'ti', 'tk', 'tj', 'a-td-ti', 'a-ti-tk', 'a-tk-tj', 'fl-td-ti', 'fl-ti-tk', 'fl-tk-tj', 'pkt', 'json-l'],
+        show: ['json-l'],
+        update: function (g, t) { travel(g, t, pts(['td', 'ti', 'tk', 'tj']), 1.6, ['ホイールで選んだ値', 'TimerEntry(期限, 呼び名)', 'timers.json へ']); },
+        html:
+          '<ol><li><code>TimerDialog.Ask()</code> が、ラジオで「時刻を指定」か「指定時間後」を選ばせる。値は <code>WheelColumn</code> の <code>Value</code>(0〜23 / 0〜59)</li>' +
+          '<li>「セット」で <code>TimerInput.FromClock</code>(過ぎた時刻は翌日)か <code>FromRelative</code>(0分後は null → 赤字)で <code>TimerEntry(Due, Label)</code> にする</li>' +
+          '<li><code>App.AskTimer</code> が <code>TimerKeeper.Add</code>。<b>期限の早い順</b>に並べて保存</li>' +
+          '<li>確認の吹き出し「タイマーをセットしました」をキューへ</li></ol>' +
+          '<pre><code>[ { "Due": "...", "Label": "15分後" } ]</code></pre>' +
+          '<ul><li>保存先は設定フォルダの<b>外</b>の <code>%LOCALAPPDATA%\\SecGad\\timers.json</code>(<code>Settings.LocalDir</code>)。再起動しても <code>LoadTimers</code> で引き継ぐ</li>' +
+          '<li>読めない・壊れているときは空から始める。書けなくてもアプリは止めない</li>' +
+          '<li>メニューの「取り消す」は <code>TimerKeeper.Remove</code> → 保存</li></ul>'
+      },
+      {
+        title: '10. 期限の確認と通知(3秒ごと)',
+        camera: { pos: [-1, 20, 20], target: [-1, 0, 6] },
+        focus: ['tk', 'tj', 'flush', 'q', 'show', 'win', 'a-tk-flush', 'a-flush-q', 'a-q-show', 'a-show-win', 'fl-tk-flush', 'fl-flush-q', 'fl-q-show', 'fl-show-win', 'pkt', 'sticky-l'],
+        show: ['sticky-l'],
+        update: function (g, t) { travel(g, t, pts(['tk', 'flush', 'q', 'show', 'win']), 1.4, ['期限が来たものを取り出す', 'NoticeTexts.TimerDue', '先頭へ(タイマー優先)', '出す', '']); },
+        html:
+          '<p>専用の時計は持たず、<b>3秒ごとの <code>Flush()</code></b>(休憩や「隠さない」の期限確認もここ)の中で <code>CheckTimers</code> を呼びます。</p>' +
+          '<ol><li><code>TimerKeeper.TakeDue(now)</code> が、期限(<code>Due</code>)を過ぎたものを<b>一覧から外して</b>取り出す(保存も更新)</li>' +
+          '<li>1件ずつ <code>NoticeTexts.TimerDue</code> で「タイマーの時間です」の <code>Notice</code> にして <code>Enqueue</code></li>' +
+          '<li><code>ShowNext</code> がタイマーを先頭へ。<code>IsSticky</code> なので、<b>クリックされるまで消えず</b>、出ている間は新着で差し替えない</li></ol>' +
+          '<ul><li>期限から1分以上たってから出す場合は、2行目が「9:35 の予定でした。」になる</li>' +
+          '<li>おやすみ・休憩中でも出す(呼ぶ系の扱い)</li>' +
+          '<li>メニューを開くたびにメニュー自体を作り直すので、セット中の件数と「取り消す」一覧は常に最新</li></ul>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

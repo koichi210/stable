@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlurPaint 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:    { y: 12,  color: C.third,  name: '画面層\n(index.html / style.css)' },
+    input: { y: 8,   color: C.good,   name: '入力・操作層\n(app.js のイベント処理)' },
+    state: { y: 4,   color: C.server, name: '状態層\n(持ち物と履歴)' },
+    draw:  { y: 0,   color: C.data,   name: '描画・幾何層\n(座標・当たり判定・合成)' },
+    api:   { y: -4,  color: C.neutral, name: 'ブラウザ API' }
+  };
+  // 部品の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    // 画面層
+    ['html', 'index.html\n(画面の骨組み)', 'ui', -12, 0],
+    ['css', 'style.css\n(見た目)', 'ui', -6.5, 0],
+    ['bat', 'BlurPaint.bat\n(Edgeのアプリ窓で起動)', 'ui', -1, 0],
+    ['canvasEl', '#canvas / #textInput\n(描画面・文字入力欄)', 'ui', 4.5, 0],
+    ['bars', '#topbar / #tools / #props\n(ボタン・設定バー)', 'ui', 10, 0],
+    ['empty', '#empty / #toast\n(案内・通知)', 'ui', 15.5, 0],
+    // 入力・操作層
+    ['wiring', '結線\naddEventListener', 'input', -13, 0],
+    ['pointer', 'ポインター操作\nonPointerDown / Move\n/ endDrag', 'input', -8.2, 0],
+    ['keys', 'キーボード\nkeydown / TOOL_KEYS', 'input', -3.4, 0],
+    ['textedit', 'テキスト編集\nstartTextEdit /\nfinishTextEdit', 'input', 1.4, 0],
+    ['loader', '読込\nloadBlob / paste / drop', 'input', 6.2, 0],
+    ['propbar', 'プロパティバー\nsetProp / refreshProps', 'input', 11, 0],
+    ['actions', '操作\ndelete / duplicate /\nnudge / runCrop', 'input', 15.8, 0],
+    // 状態層
+    ['state', 'state\nbase / objects / tool / selected\ndraft / crop / editing / drag…', 'state', -9, 0],
+    ['history', '履歴\nsnapshot / commit /\nrestore / undo / redo', 'state', -2.5, 0],
+    ['settings', 'settings\nDEFAULTS + 保存', 'state', 4, 0],
+    ['consts', '定数表\nGROUPS / ATTR /\nOBJ_ATTRS / TOOL_KEYS', 'state', 10.5, 0],
+    // 描画・幾何層  z=-2.3 / +2.3
+    ['scene', 'drawScene', 'draw', -12, -2.3],
+    ['obj', 'drawObj\n(図形ごとの描き方)', 'draw', -6, -2.3],
+    ['blur', 'drawBlur\n(ぼかし・モザイク)', 'draw', -0.5, -2.3],
+    ['uiLayer', 'drawUI\n(画面だけの層)', 'draw', 5, -2.3],
+    ['export', 'exportBlob / copyImage\n/ saveImage', 'draw', 10.8, -2.3],
+    ['geom', 'bbox / handlesOf\nhitTest / objectAt', 'draw', -12, 2.3],
+    ['zoom', 'ズーム\nfit / setZoom', 'draw', -6, 2.3],
+    ['coord', 'toImg\n(画面→画像座標)', 'draw', -0.5, 2.3],
+    ['newobj', 'newObject\n(図形の生成)', 'draw', 5, 2.3],
+    ['render', 'requestRender\n(rAFで1回にまとめる)', 'draw', 10.8, 2.3],
+    // ブラウザ API
+    ['canvas2d', 'Canvas 2D\n(ctx.filter / toBlob)', 'api', -11, 0],
+    ['pointerApi', 'Pointer Events\nsetPointerCapture', 'api', -4.5, 0],
+    ['clip', 'Clipboard API\nread / ClipboardItem', 'api', 2, 0],
+    ['fsa', 'File System Access\nshowSaveFilePicker', 'api', 8.5, 0],
+    ['ls', 'localStorage\n(設定値だけ)', 'api', 15, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  // 同じ層のid一覧
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色]
+  var DEPS = [
+    ['wiring', 'pointer', '#ffd166'], ['wiring', 'keys', '#ffd166'], ['wiring', 'loader', '#ffd166'], ['wiring', 'propbar', '#ffd166'],
+    ['pointer', 'coord', '#5ee6a8'], ['pointer', 'geom', '#5ee6a8'], ['pointer', 'newobj', '#5ee6a8'],
+    ['pointer', 'state', '#7ef0ff'], ['keys', 'actions', '#ffd166'], ['actions', 'history', '#7ef0ff'], ['loader', 'state', '#7ef0ff'],
+    ['propbar', 'settings', '#7ef0ff'], ['newobj', 'settings', '#7ef0ff'],
+    ['render', 'scene', '#5ee6a8'], ['scene', 'obj', '#5ee6a8'], ['obj', 'blur', '#5ee6a8'], ['scene', 'uiLayer', '#5ee6a8'], ['export', 'scene', '#5ee6a8'],
+    ['scene', 'canvas2d', '#b8b2d6'], ['pointer', 'pointerApi', '#b8b2d6'], ['loader', 'clip', '#b8b2d6'], ['export', 'clip', '#b8b2d6'], ['export', 'fsa', '#b8b2d6'], ['settings', 'ls', '#b8b2d6']
+  ];
+
+  GameGuide.start({
+    title: 'BlurPaint 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・主要関数の責務・依存の向き(実際の関数名・状態名)',
+    camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [34, 7], pos: [1, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-17, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- 部品の箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.4, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.34, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- app.js の節(手順2でだけ見せる) ----
+      var PARTS = [
+        ['設定・小道具', 'SETTINGS_KEY / loadSettings\nclamp / cloneObj / toast', C.server],
+        ['描画(UI層まで)', 'drawScene / drawObj\ndrawBlur / drawUI', C.data],
+        ['座標・当たり判定・履歴・ズーム', 'bbox / hitTest / commit\nrestore / fit / setZoom', C.server],
+        ['図形生成・ポインター・テキスト・操作', 'newObject / onPointerDown\nstartTextEdit / runCrop', C.good],
+        ['読込・書き出し', 'loadBlob / paste / drop\nexportBlob / saveImage', C.good],
+        ['プロパティバー・キー・結線', 'setProp / keydown\naddEventListener', C.good]
+      ];
+      PARTS.forEach(function (p, i) {
+        var x = -13.5 + i * 5.4;
+        g.box({ id: 'part-' + i, size: [4.9, 0.9, 1.7], pos: [x, 15.4, 3.2], color: '#2d2944', emissive: p[2], emissiveIntensity: 0.4, radius: 0.1, edgeColor: p[2],
+          label: p[0] + '\n' + p[1], labelSize: 0.25, labelOffset: [0, 1.5, 0], labelBg: '#000000cc' });
+      });
+      // ---- 確認用の公開(右端) ----
+      g.box({ id: 'dbg', size: [4.6, 1.2, 2.6], pos: [21.5, 4.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'window.__blurPaint\n{ state, settings, exportBlob }\n(DevTools から状態を見る確認用)', labelSize: 0.26, labelOffset: [0, 1.8, 0], labelBg: '#000000cc' });
+      g.arrow([19.2, 4.8, 0], [-6.8, 4.9, 0.2], { id: 'dep-dbg', color: C.gold, lift: 2.6, head: 0.25, label: '状態を公開', labelSize: 0.26 });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+        update: function (g, t) { g.pulse('state', t, 0.04); },
+        html:
+          '<p>BlurPaint は<b>ビルド不要</b>の3ファイル(<code>index.html</code> / <code>style.css</code> / <code>app.js</code>)だけでできていて、画面側(HTML/CSS)と、処理側(app.js の1本の即時関数)に分かれます。ここでは app.js を役割で4層に分けて見ます。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>画面層</td><td>ボタン・ツールバー・プロパティバー・canvas・文字入力欄(index.html / style.css)</td></tr>' +
+          '<tr><td>入力・操作層</td><td>マウス・キー・貼り付け・ドロップ・ボタンの処理</td></tr>' +
+          '<tr><td>状態層</td><td><code>state</code>(ベース画像・注釈の配列など)・履歴・設定</td></tr>' +
+          '<tr><td>描画・幾何層</td><td>canvas への合成、座標変換、当たり判定、書き出し</td></tr>' +
+          '<tr><td>ブラウザ API</td><td>Canvas 2D・Pointer Events・Clipboard・File System Access・localStorage</td></tr></table>' +
+          '<p>各層は「次へ」で順に拡大して、実際の関数名・状態名を見ていきます。</p>'
+      },
+      {
+        title: '1. 画面層(HTML / CSS)',
+        camera: { pos: [0, 20, 26], target: [0, 11.5, 0] },
+        focus: ['L-ui', 'Ln-ui'].concat(ids('ui')),
+        html:
+          '<table><tr><th>要素 / ファイル</th><th>役割</th></tr>' +
+          '<tr><td><code>#topbar</code></td><td>開く・貼り付け・Undo/Redo・ズーム・画像サイズ・コピー・保存形式・保存。画像が無い間は <code>needs-image</code> のボタンを無効化</td></tr>' +
+          '<tr><td><code>#tools</code></td><td>11個のツールボタン(<code>data-tool</code> 属性で識別。アイコンはインライン SVG)</td></tr>' +
+          '<tr><td><code>#props</code></td><td>プロパティバー。部品は <code>.group[data-group]</code> で、種類に合うものだけ表示(右端の「貼り付け・ドロップ時」だけ常時)</td></tr>' +
+          '<tr><td><code>#canvas</code> / <code>#textInput</code></td><td>描画面と、テキスト編集用の <code>textarea</code>(canvas の上に重ねる)</td></tr>' +
+          '<tr><td><code>#empty</code> / <code>#toast</code></td><td>画像が無い間の案内 / 一時メッセージ</td></tr>' +
+          '<tr><td><code>BlurPaint.bat</code></td><td><code>msedge --app=file:///…/index.html</code> で、タブ・アドレスバー無しの窓として開く</td></tr></table>' +
+          '<div class="gg-note">フレームワークも外部ライブラリも使いません。HTML の要素は <code>$(id)</code>(<code>getElementById</code>)で直接つかみます。</div>'
+      },
+      {
+        title: '2. app.js の構成(1本・約1,850行)',
+        camera: { pos: [0, 24, 30], target: [0, 11, 1] },
+        focus: ['part-0', 'part-1', 'part-2', 'part-3', 'part-4', 'part-5', 'L-ui', 'L-input'],
+        show: ['part-0', 'part-1', 'part-2', 'part-3', 'part-4', 'part-5'],
+        html:
+          '<p><code>app.js</code> は <code>(function () { \'use strict\'; … })()</code> の<b>1つの即時関数</b>で、見出しコメント(<code>// ------ 描画</code> など)ごとに節が並びます。</p>' +
+          '<table><tr><th>節</th><th>主な中身</th></tr>' +
+          '<tr><td>設定・小道具</td><td>定数表・<code>loadSettings</code>/<code>saveSettings</code>・<code>clamp</code>・<code>cloneObj</code>・<code>rectOf</code>・<code>snap45</code>・<code>toast</code></td></tr>' +
+          '<tr><td>描画 / UI層</td><td><code>drawScene</code>・<code>drawObj</code>・図形ごとの描画・<code>drawBlur</code>・<code>drawUI</code></td></tr>' +
+          '<tr><td>外接矩形・当たり判定 / 履歴 / ズーム / 座標</td><td><code>bbox</code>・<code>handlesOf</code>・<code>hitTest</code>・<code>commit</code>/<code>restore</code>・<code>fit</code>/<code>setZoom</code>・<code>toImg</code></td></tr>' +
+          '<tr><td>オブジェクト生成・ポインター・テキスト編集・操作・ツール</td><td><code>newObject</code>・<code>onPointerDown</code>…・<code>startTextEdit</code>・<code>deleteSelected</code>・<code>runCrop</code>・<code>setTool</code></td></tr>' +
+          '<tr><td>読込 / 書き出し</td><td><code>loadBlob</code>・paste/drop・<code>exportBlob</code>・<code>copyImage</code>・<code>saveImage</code></td></tr>' +
+          '<tr><td>プロパティバー / キーボード / 結線</td><td><code>setProp</code>・<code>refreshUI</code>・<code>keydown</code>・<code>addEventListener</code>の一覧</td></tr></table>'
+      },
+      {
+        title: '3. 入力・操作層',
+        camera: { pos: [0, 15, 26], target: [0, 7.5, 0] },
+        focus: ['L-input', 'Ln-input'].concat(ids('input')),
+        html:
+          '<table><tr><th>部品</th><th>責務</th></tr>' +
+          '<tr><td><code>onPointerDown</code> / <code>onPointerMove</code> / <code>endDrag</code></td><td>ドラッグの開始・更新・終了。<code>state.drag</code> の <code>kind</code>(<code>create</code> / <code>move</code> / <code>resize</code> / <code>crop</code>)で振り分け。終了処理は <code>pointerup</code>・<code>pointercancel</code>・<code>lostpointercapture</code> のすべてから呼ぶ</td></tr>' +
+          '<tr><td><code>keydown</code></td><td>Ctrl 系(Z/Y/C/S/O/D/0/1/±)と、単キー(ツール切替・Enter・Delete・矢印・Esc)</td></tr>' +
+          '<tr><td><code>startTextEdit</code> / <code>finishTextEdit</code></td><td><code>textarea</code> を図形の位置・フォント・倍率に合わせて重ねる。IME 変換中の Enter は無視</td></tr>' +
+          '<tr><td><code>loadBlob</code> + paste / drop</td><td>画像の入口(<code>setBase</code> / <code>addImageObject</code>)</td></tr>' +
+          '<tr><td><code>setProp</code> / <code>refreshProps</code></td><td>プロパティバーの値 ⇄ 図形・設定。どのグループを出すかを決める</td></tr>' +
+          '<tr><td><code>deleteSelected</code> / <code>duplicateSelected</code> / <code>nudge</code> / <code>runCrop</code></td><td>選択図形の削除・複製・移動と、トリミング実行</td></tr>' +
+          '<tr><td>結線(末尾)</td><td>全イベントの <code>addEventListener</code> をここにまとめる</td></tr></table>'
+      },
+      {
+        title: '4. 状態層(state・履歴・設定)',
+        camera: { pos: [0, 10, 22], target: [0, 3.5, 0] },
+        focus: ['L-state', 'Ln-state', 'dbg', 'dep-dbg'].concat(ids('state')),
+        show: ['dbg', 'dep-dbg'],
+        html:
+          '<table><tr><th>項目</th><th>意味</th></tr>' +
+          '<tr><td><code>state.base</code></td><td>ベース画像の canvas</td></tr>' +
+          '<tr><td><code>state.objects</code></td><td>注釈オブジェクトの配列(<b>配列の順 = 重なり順</b>)</td></tr>' +
+          '<tr><td><code>state.tool</code> / <code>selected</code></td><td>今のツール / 選択中の図形</td></tr>' +
+          '<tr><td><code>state.draft</code> / <code>drag</code> / <code>crop</code> / <code>editing</code></td><td>作成中の図形 / ドラッグの途中情報 / トリミング範囲 / テキスト編集中の情報(いずれも「操作の途中」だけ持つ)</td></tr>' +
+          '<tr><td><code>state.zoom</code> / <code>fitMode</code></td><td>倍率 / 全体表示に追従するか</td></tr>' +
+          '<tr><td><code>state.fileName</code> / <code>dirty</code></td><td>保存名の元 / 未保存フラグ</td></tr>' +
+          '<tr><td><code>state.history</code> / <code>hIndex</code></td><td>スナップショットの配列(最大100)と現在位置</td></tr>' +
+          '<tr><td><code>settings</code></td><td>次に描く図形の既定値(ツール・色・太さ・保存形式など)。<code>localStorage</code> へ</td></tr></table>' +
+          '<div class="gg-note">図形は<b>ただのオブジェクト</b>(<code>{ type: "rect", x, y, w, h, … }</code>)で、クラスはありません。描き方・当たり判定・ハンドルは <code>type</code> を見る <code>switch</code> で分岐します。</div>'
+      },
+      {
+        title: '5. 描画・幾何層',
+        camera: { pos: [0, 8, 26], target: [0, 0.5, 0] },
+        focus: ['L-draw', 'Ln-draw'].concat(ids('draw')),
+        html:
+          '<table><tr><th>部品</th><th>責務</th></tr>' +
+          '<tr><td><code>requestRender</code></td><td>再描画を <code>requestAnimationFrame</code> で1フレームに1回へまとめる</td></tr>' +
+          '<tr><td><code>drawScene(ctx, ui, format)</code></td><td>クリア → base → 注釈を順に → UI層。画面にも書き出しにも使う同じ関数</td></tr>' +
+          '<tr><td><code>drawObj</code></td><td><code>type</code> ごとの描き方(矢印は根元が細い塗り図形、ペンは中点を結ぶ二次ベジェ、テキストは縁取り/背景ボックス/なし、番号は円+数字)</td></tr>' +
+          '<tr><td><code>drawBlur</code></td><td>下に描いた内容を入力にしてぼかし/モザイク</td></tr>' +
+          '<tr><td><code>drawUI</code></td><td>画面だけの層(作成中の図形・点線枠・選択ハンドル・トリミングの暗がり)。線幅などは <code>px()</code> で画面上の太さに揃える</td></tr>' +
+          '<tr><td><code>bbox</code> / <code>handlesOf</code> / <code>hitTest</code> / <code>objectAt</code></td><td>外接矩形・ハンドル・当たり判定(最前面から探す)。矩形は枠線付近だけが当たり</td></tr>' +
+          '<tr><td><code>toImg</code> / <code>fit</code> / <code>setZoom</code></td><td>画面座標→画像座標、全体表示、カーソル位置を固定した拡大縮小(5%〜800%)</td></tr>' +
+          '<tr><td><code>exportBlob</code> / <code>copyImage</code> / <code>saveImage</code></td><td>別canvasに UI層なしで合成 → PNG/JPEG/WebP</td></tr></table>'
+      },
+      {
+        title: '6. 依存の向き',
+        camera: { pos: [4, 24, 40], target: [4, 4, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-dbg', 'dbg']),
+        update: function (g, t) { g.pulse('state', t, 0.05); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li>イベントは、末尾の<b>結線</b>で各処理(ポインター・キー・読込・プロパティバー)につながる</li>' +
+          '<li>処理は<b>状態(<code>state</code>・履歴・設定)だけを書き換え</b>、画面への反映は <code>refreshUI</code> → <code>requestRender</code> に任せる(描画側から状態を書き換えない)</li>' +
+          '<li>描画は <code>drawScene</code> から <code>drawObj</code> → <code>drawBlur</code> の一本道。書き出しも同じ <code>drawScene</code> を使うので、<b>画面と出力の見た目が食い違わない</b></li>' +
+          '<li>ブラウザ API への依存は、Canvas 2D(描画)・Clipboard(貼り付け/コピー)・File System Access(保存)・Pointer Events・localStorage に限られる</li></ul>' +
+          '<p>外部ライブラリ・ネットワーク通信はありません。</p>'
+      },
+      {
+        title: '7. 設計上の工夫',
+        camera: { pos: [2, 24, 38], target: [2, 4, 0] },
+        focus: ['pointer', 'textedit', 'history', 'scene', 'blur', 'export', 'clip', 'canvas2d'],
+        update: function (g, t) { g.pulse('history', t, 0.05); g.pulse('scene', t + 1, 0.05); },
+        html:
+          '<ul><li><b>ベース画像 + 注釈の配列</b>: 画像を直接塗りつぶさないので、あとから移動・変形・削除・方式変更ができる。合成するのは表示と書き出しのときだけ</li>' +
+          '<li><b>軽い履歴</b>: スナップショットは図形の複製 + ベース画像の参照。トリミングで画像が変わっても、旧画像は履歴に残って Undo で戻る</li>' +
+          '<li><b>ぼかしは「下の内容」を入力にする</b>ので、配列順を変えるだけで隠す対象が変わる。端が薄くならないよう余白を引き伸ばして埋める</li>' +
+          '<li><b>画面と書き出しの共通化</b>: 同じ <code>drawScene</code> の <code>ui</code> フラグで UI層だけ切り替える</li>' +
+          '<li><b>ドラッグの取りこぼし防止</b>: <code>setPointerCapture</code> + 終了処理を3つのイベントから呼び、二重に呼ばれても <code>drag = null</code> で無害化</li>' +
+          '<li><b>テキスト入力欄の blur 対策</b>: canvas の <code>mousedown</code> の既定動作を止め、開いたばかりの入力欄が空のまま確定(破棄)されないようにしている</li>' +
+          '<li><b>コピーの有効期限対策</b>: <code>ClipboardItem</code> に Blob ではなく Promise を渡す</li>' +
+          '<li><b>設定は失敗しても動く</b>: <code>localStorage</code> の読み書きは try/catch で握りつぶし、型が違う値は既定値に戻す</li></ul>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

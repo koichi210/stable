@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlurPaint ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>BlurPaint ドキュメント</h1>
+  <p class="lead">スクリーンショットに矢印・枠・文字・番号・蛍光ペン・<b>ぼかし／モザイク</b>の注釈を入れる、ブラウザだけで動く軽量ペイントエディタ(HTML / CSS / JavaScript・依存なし)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(画像・文字・番号)は<b>すべて自作のダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎬 使い方</div>
+      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
+      <div class="d">実際の画面を3D空間に並べて、画像を入れる → 注釈を描く → ぼかす → 選択・変形 → トリミング → コピー/保存の順に、カメラが寄りながら手順を説明します。ショートカット一覧も。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
+      <div class="d">貼り付け・ドロップ → ベース画像 → 注釈オブジェクト → 履歴 → 合成描画 → PNG/JPEG/WebP の書き出し、までを光の粒の流れで追います。ぼかしの計算やトリミングの仕組みも。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
+      <div class="d">画面・入力操作・状態と履歴・描画・ブラウザ API の5層に、実際の関数名・状態名を並べて、1本の app.js の責務と依存の向きを説明します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/BlurPaint</code>(<code>index.html</code> / <code>style.css</code> / <code>app.js</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

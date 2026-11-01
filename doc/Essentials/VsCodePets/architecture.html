@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VsCodePets 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ext:   { y: 16,  color: C.me,      name: '拡張側(src/extension/)\nVS Code の拡張ホストで動く' },
+    com:   { y: 12,  color: C.gold,    name: '共通(src/common/)\n両側が使う型・名前' },
+    web:   { y: 8,   color: C.data,    name: 'webview側(src/panel/)\n画面の中で動く' },
+    pet:   { y: 4,   color: C.good,    name: 'ペットのクラス(src/panel/pets/)\n種類ごとの動きの設計' },
+    asset: { y: 0,   color: C.server,  name: '画像・ビルド成果物(media/ ほか)\nすべてオリジナル画像' }
+  };
+  // 箱の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    // 拡張側
+    ['Ext', 'extension.ts\n(activate・コマンド)', 'ext', -12, 0],
+    ['Spec', 'PetSpecification\n(種類・色・名前)', 'ext', -6, 0],
+    ['Cont', 'PetWebviewContainer\n(HTML・tick 100ms)', 'ext', 0, 0],
+    ['PanelC', 'PetPanel\n(独立パネル)', 'ext', 6, 0],
+    ['ViewC', 'PetWebviewView\nProvider(エクスプローラー)', 'ext', 12, 0],
+    // 共通
+    ['Types', 'types.ts\n(PetType・PetColor・ALL_PETS)', 'com', -9, 0],
+    ['Names', 'names.ts\n(randomName)', 'com', -1, 0],
+    ['Local', 'localize.ts\n(QuickPick 用)', 'com', 6, 0],
+    // webview側
+    ['Main', 'main.ts\n(petPanelApp・掴む)', 'web', -14, 0],
+    ['PetsTs', 'pets.ts\n(createPet・PetCollection)', 'web', -8, 0],
+    ['Base', 'basepettype.ts\n(BasePetType)', 'web', -2, 0],
+    ['States', 'states.ts\n(IState・States・各状態)', 'web', 4, 0],
+    ['Eggs', 'eggs.ts\n(卵・💩)', 'web', 9.5, -2.3],
+    ['Avoid', 'avoidance.ts\n(回避)', 'web', 14.5, -2.3],
+    ['Chat', 'chatter.ts\n(おしゃべり)', 'web', 9.5, 2.3],
+    ['Ball', 'ball.ts / themes.ts\n/ effects/', 'web', 14.5, 2.3],
+    // ペットクラス(2段)
+    ['Secretary', 'Secretary\n(secretary.ts)', 'pet', 13.5, 2.3],
+    // アセット
+    ['Gif', 'media/<種類>/<色>_<動作>_8fps.gif\n+ icon.png', 'asset', -9, -2.3],
+    ['Bg', 'media/backgrounds/\n<季節>/background.jpg', 'asset', 1, -2.3],
+    ['Bundle', 'media/main-bundle.js\n(webpack の出力)', 'asset', 10, -2.3],
+    ['Tools', 'tools/generate_art.py\ngenerate_secretary.py', 'asset', -9, 2.3],
+    ['Pkg', 'package.json\n(contributes・設定)', 'asset', 1, 2.3],
+    ['Vsix', 'release/\nvscode-pets-flying.vsix', 'asset', 10, 2.3]
+  ];
+  // 種類ごとのペットクラス(15種。Secretary は上に別掲)
+  var PETS = ['Chicken', 'Cockatiel', 'Crab', 'Dog', 'Fox', 'Horse', 'Monkey', 'Panda', 'Raccoon', 'Rat', 'RubberDuck', 'Skeleton', 'Snail', 'Snake', 'Turtle'];
+  PETS.forEach(function (n, i) {
+    var row = i < 8 ? 0 : 1, col = i < 8 ? i : i - 8;
+    CLS.push(['P' + n, n, 'pet', -15.5 + col * 3.7, row === 0 ? -2.3 : 2.3]);
+  });
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色, ラベル]
+  var DEPS = [
+    ['Ext', 'Spec', '#ffd166', '設定を読む'],
+    ['Ext', 'ViewC', '#ffd166', ''],
+    ['Ext', 'PanelC', '#ffd166', ''],
+    ['ViewC', 'Cont', '#5ee6a8', 'extends'],
+    ['PanelC', 'Cont', '#5ee6a8', 'extends'],
+    ['Cont', 'Bundle', '#7ef0ff', '<script> で読む'],
+    ['Spec', 'Types', '#b8b2d6', ''],
+    ['Bundle', 'Main', '#7ef0ff', 'main.ts が元'],
+    ['Main', 'PetsTs', '#ffd166', 'createPet'],
+    ['PetsTs', 'Secretary', '#5ee6a8', 'new'],
+    ['Secretary', 'Base', '#5ee6a8', 'extends'],
+    ['Base', 'States', '#ffd166', 'resolveState'],
+    ['Main', 'Eggs', '#ffd166', ''],
+    ['Main', 'Avoid', '#ffd166', ''],
+    ['Main', 'Chat', '#ffd166', ''],
+    ['Base', 'Gif', '#ff9f43', 'img.src']
+  ];
+
+  GameGuide.start({
+    title: 'VsCodePets 内部設計',
+    back: 'index.html',
+    subtitle: '拡張側 / webview側 / ペットのクラス / 画像アセット(実際のファイル名・クラス名)',
+    camera: { pos: [2, 25, 37], target: [2, 8, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [36, 8], pos: [1, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-18.5, L.y + 1.0, 0], { id: 'Ln-' + k, size: 0.3, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- クラスの箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        var isSec = c[0] === 'Secretary';
+        var small = c[0].charAt(0) === 'P' && PETS.indexOf(c[0].slice(1)) >= 0;
+        g.box({
+          id: c[0], size: small ? [3.3, 0.9, 1.7] : [4.8, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: isSec ? '#ff5f6d' : L.color, emissiveIntensity: isSec ? 0.55 : 0.32,
+          radius: 0.1, edgeColor: isSec ? '#ff5f6d' : L.color, label: c[1], labelSize: small ? 0.32 : 0.3, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.6, head: 0.22, radius: 0.03, label: d[3] || undefined, labelSize: 0.22 });
+      });
+      // ---- 手順5: 遷移表の見本 ----
+      g.label('sequence = {\n  startingState: sit-idle,\n  sequenceStates: [\n    { sit-idle  → walk-right | run-right },\n    { walk-right → walk-left | run-left }, ...\n    { chase → idle-with-ball } ] }', [0, 6.6, 7.5], { id: 'seq-l', size: 0.27, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      // ---- 手順8: 秘書さんの画像(右に立てる) ----
+      var pw = 11, phh = pw * 300 / 1000;
+      g.group('p-sec', { pos: [29, 4, 0] });
+      g.box({ id: 'f-sec', parent: 'p-sec', size: [pw + 0.3, phh + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+      g.add('s-sec', new T.Mesh(new T.PlaneGeometry(pw, phh), new T.MeshBasicMaterial({ map: new T.TextureLoader().load(window.VP_IMGS.secretary), transparent: true })), 'p-sec');
+      g.label('今回追加した秘書さん5色\n(media/secretary/)', [0, phh / 2 + 0.8, 0], { id: 't-sec', parent: 'p-sec', size: 0.3, bg: '#000000aa', color: '#ff5f6d', border: '#ff5f6d' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 25, 37], target: [2, 8, 0] },
+        update: function (g, t) { g.pulse('Main', t, 0.04); g.pulse('Cont', t + 1, 0.04); },
+        html:
+          '<p>VsCodePets は <b>TypeScript の VS Code 拡張</b>です。動く場所が違う2つのプログラム(拡張側・webview側)と、それをつなぐ共通部分でできています。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>拡張側</td><td>コマンド・設定・HTML の生成・100ms の時計(<code>src/extension/extension.ts</code> 1ファイル)</td></tr>' +
+          '<tr><td>共通</td><td>両側が使う型と名前(<code>src/common/</code>)</td></tr>' +
+          '<tr><td>webview側</td><td>画面の中でペットを動かす本体(<code>src/panel/</code>)</td></tr>' +
+          '<tr><td>ペットのクラス</td><td>種類ごとの色・動きの遷移表(<code>src/panel/pets/*.ts</code>)</td></tr>' +
+          '<tr><td>画像・成果物</td><td>GIF・背景・webpack の出力・VSIX(<code>media/</code>・<code>release/</code>)</td></tr></table>' +
+          '<div class="gg-note">赤い箱が今回追加した <code>Secretary</code>。「次へ」で層ごとに寄っていきます。</div>'
+      },
+      {
+        title: '1. 拡張側(src/extension/)',
+        camera: { pos: [0, 24, 30], target: [0, 16, 0] },
+        focus: ['L-ext', 'Ln-ext'].concat(ids('ext')),
+        html:
+          '<p>ここは VS Code の<b>拡張ホスト</b>(Node.js)で動きます。<code>extension.ts</code>(約1,350行)に全部入っています。</p>' +
+          '<table><tr><th>名前</th><th>責務</th></tr>' +
+          '<tr><td><code>activate()</code></td><td>全コマンドの登録・ステータスバー・設定変更の監視・ビューの登録。パネルの復元(<code>registerWebviewPanelSerializer</code>)も</td></tr>' +
+          '<tr><td><code>PetSpecification</code></td><td>「種類・色・サイズ・名前」の1匹ぶんの指定。設定から作る / <code>workspaceState</code> の一覧から作る</td></tr>' +
+          '<tr><td><code>PetWebviewContainer</code></td><td>2つの表示方式の共通の親。HTML の生成、100ms の <code>setInterval</code>、<code>postMessage</code> の送信窓口</td></tr>' +
+          '<tr><td><code>PetPanel</code></td><td>独立した Webview パネル(<code>petCoding</code>)。見えている間だけ tick を送る</td></tr>' +
+          '<tr><td><code>PetWebviewViewProvider</code></td><td>エクスプローラーのビュー(<code>petsView</code>)</td></tr></table>' +
+          '<ul><li>他に、<code>handleWebviewMessage</code>(webview からの <code>info</code> / <code>alert</code> を通知に)、<code>handleRemovePetMessage</code>(削除の選択肢)など</li></ul>'
+      },
+      {
+        title: '2. 共通(src/common/)',
+        camera: { pos: [0, 20, 28], target: [0, 12, 0] },
+        focus: ['L-com', 'Ln-com'].concat(ids('com')),
+        html:
+          '<table><tr><th>ファイル</th><th>中身</th></tr>' +
+          '<tr><td><code>types.ts</code></td><td><code>const enum</code> の <code>PetType</code>(上流の27種ぶんを残置)・<code>PetColor</code>・<code>PetSize</code>・<code>Theme</code>、メッセージの型 <code>WebviewMessage</code>、そして<b>選択肢の一覧</b> <code>ALL_PETS</code>(16種)・<code>ALL_COLORS</code>・<code>ALL_THEMES</code></td></tr>' +
+          '<tr><td><code>names.ts</code></td><td><code>randomName(type)</code>。種類ごとの名前リスト(各ペットのファイルが持つ)から選ぶ</td></tr>' +
+          '<tr><td><code>localize.ts</code></td><td>QuickPick の項目を <code>vscode.l10n.t</code> で翻訳してリストにする(拡張側のみ)</td></tr></table>' +
+          '<div class="gg-note"><b>ALL_PETS が「いま選べる種類」の正本</b>です。絵を描いていない種類(cat・clippy・totoro など)は、クラスは残っていても ALL_PETS に無いので、選べず、保存状態からも読まれません。</div>'
+      },
+      {
+        title: '3. webview側(src/panel/)',
+        camera: { pos: [2, 14, 28], target: [2, 8, 0] },
+        focus: ['L-web', 'Ln-web'].concat(ids('web')),
+        html:
+          '<p>画面(webview)の中で動く部分。webpack で <code>main.ts</code> を起点に1つの <code>main-bundle.js</code> にまとめます(グローバル名 <code>petApp</code>)。</p>' +
+          '<table><tr><th>ファイル</th><th>責務</th></tr>' +
+          '<tr><td><code>main.ts</code></td><td>入口 <code>petPanelApp</code>。メッセージの受信、tick の処理順、<b>マウスで掴む</b>、状態の保存/復元</td></tr>' +
+          '<tr><td><code>pets.ts</code></td><td><code>createPet</code>(種類 → クラスの switch)、<code>availableColors</code>、<code>PetCollection</code>(友だち探しも)</td></tr>' +
+          '<tr><td><code>basepettype.ts</code></td><td>全ペットの親 <code>BasePetType</code>。位置・画像・吹き出し・<b>次の状態の抽選</b>・飛行・産卵・回避</td></tr>' +
+          '<tr><td><code>states.ts</code></td><td>状態の名前 <code>States</code>・<code>IState</code>・各状態のクラス(座る・歩く・飛ぶ・ホバー・掴まれ中…)</td></tr>' +
+          '<tr><td><code>eggs.ts</code> / <code>avoidance.ts</code> / <code>chatter.ts</code></td><td><b>Flying で足した</b>卵・💩 / ペット同士の回避 / おしゃべり</td></tr>' +
+          '<tr><td><code>ball.ts</code></td><td>ボールの物理(上流由来)</td></tr>' +
+          '<tr><td><code>themes.ts</code> / <code>effects/</code></td><td>季節テーマ(spring・summer・autumn・winter)。落ち葉・雪のエフェクト</td></tr></table>'
+      },
+      {
+        title: '4. 状態機械(states.ts と basepettype.ts)',
+        camera: { pos: [-1, 14, 24], target: [-1, 8, 0] },
+        focus: ['Base', 'States', 'Main', 'L-web'],
+        update: function (g, t) { g.pulse('Base', t, 0.05); g.pulse('States', t + 1, 0.05); },
+        html:
+          '<p>ペットの動きは<b>状態機械</b>です。</p>' +
+          '<ul><li><b>状態</b>は <code>IState</code> のクラス1つずつ。<code>nextFrame()</code> が <code>FrameResult</code>(続く / 完了 / 中断)を返し、画像の種類 <code>spriteLabel</code> と向き <code>horizontalDirection</code> を持つ</li>' +
+          '<li><code>States</code> には上流の18状態に、Flying の <b>fly・hover・fly-down・fly-to-lay・dragged</b> の5つが加わっている</li>' +
+          '<li><code>resolveState(名前, ペット)</code> が、状態の名前から状態のオブジェクトを作る</li>' +
+          '<li><b>次の状態</b>は <code>BasePetType.chooseNextState</code>:<br>① <code>chooseFlyingState</code>(飛行の抽選。地上 → 80% fly、hover → 70% fly / 30% fly-down)<br>② 無ければ、そのペットの<b>遷移表</b>(<code>sequence</code>)から等確率で1つ</li>' +
+          '<li>遷移表に無い状態へ移ろうとすると <code>InvalidStateError</code></li>' +
+          '<li><code>isStateAboveGround</code> / <code>isStateFlying</code> は、空中判定(復元時に床へ戻さない・つかみ/スワイプ可否)に使う</li></ul>'
+      },
+      {
+        title: '5. ペットのクラス(src/panel/pets/)',
+        camera: { pos: [0, 12, 26], target: [0, 4, 1] },
+        focus: ['L-pet', 'Ln-pet'].concat(ids('pet')).concat(['seq-l']),
+        show: ['seq-l'],
+        update: function (g, t) { g.pulse('Secretary', t, 0.06); },
+        html:
+          '<p>種類ごとに <b>1ファイル1クラス</b>。<code>BasePetType</code> を継いで、<b>3つだけ</b>決めます。</p>' +
+          '<ol><li><code>label</code> と <code>static possibleColors</code>(選べる色)</li>' +
+          '<li><code>sequence</code>(開始状態と<b>遷移表</b>。地上の動きだけ。飛行は親が足す)</li>' +
+          '<li><code>emoji</code> と <code>hello</code>(点呼のあいさつ)と、名前リスト <code>〇〇_NAMES</code></li></ol>' +
+          '<p><code>Secretary</code> の例:</p>' +
+          '<ul><li>色: <code>enji・blue・red・brown・green</code></li>' +
+          '<li>遷移: sit-idle → walk-right / run-right → walk-left / run-left → sit-idle。ボール追い <code>chase → idle-with-ball</code> もあり</li>' +
+          '<li>寝る(<code>lie</code>)や壁登りは無い(その GIF を作っていないため)</li></ul>' +
+          '<div class="gg-note"><code>createPet</code> の switch と <code>availableColors</code> に1行ずつ足すと、新しい種類が増えます(秘書さんの追加でも、この2か所と <code>types.ts</code>・<code>names.ts</code> に追記)。</div>'
+      },
+      {
+        title: '6. 画像アセットの読み込み',
+        camera: { pos: [0, 8, 26], target: [0, 1, 0] },
+        focus: ['L-asset', 'Ln-asset', 'Gif', 'Bg', 'Bundle', 'Tools', 'Pkg', 'Vsix', 'Base', 'Cont'],
+        update: function (g, t) { g.pulse('Gif', t, 0.05); },
+        html:
+          '<table><tr><th>場所</th><th>中身 / 読まれ方</th></tr>' +
+          '<tr><td><code>media/&lt;種類&gt;/&lt;色&gt;_&lt;動作&gt;_8fps.gif</code></td><td>動作 = idle・walk・walk_fast・run・swipe・with_ball(種類によって lie・wallgrab なども)。<code>BasePetType.setAnimation</code> が <code>img.src</code> に入れる</td></tr>' +
+          '<tr><td><code>media/&lt;種類&gt;/icon.png</code> ほか</td><td>QuickPick の項目の左のアイコン(<code>icon_&lt;色&gt;.png</code>)</td></tr>' +
+          '<tr><td><code>media/backgrounds/&lt;季節&gt;/background.jpg</code></td><td>テーマの背景(1枚絵を横に繰り返す)</td></tr>' +
+          '<tr><td><code>media/main-bundle.js</code>・<code>pets.css</code>・<code>reset.css</code></td><td>webview が読む本体と見た目</td></tr></table>' +
+          '<ul><li>読み込みは<b>画像ファイルの URL を <code>img.src</code> に入れるだけ</b>。URL の元は拡張が作る <code>basePetUri</code>(= <code>media</code> の <code>asWebviewUri</code>)</li>' +
+          '<li>CSP の <code>img-src</code> と <code>localResourceRoots</code> が <code>media</code> に限られるので、他の場所の画像は読めない</li>' +
+          '<li>画像は全部オリジナル。<code>tools/generate_art.py</code> がドット絵を手続きで描いて <code>media/</code> に書き出す。秘書さんは <code>tools/generate_secretary.py</code>(SecretaryGadget のスキン絵から切り出し)</li></ul>'
+      },
+      {
+        title: '7. 依存の向き',
+        camera: { pos: [2, 26, 46], target: [2, 8, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }),
+        update: function (g, t) { g.pulse('Cont', t, 0.04); g.pulse('Base', t + 1, 0.04); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li><b>拡張側と webview側は直接は呼び合いません</b>。つなぐのは <code>postMessage</code> と、拡張が作った HTML が読む <code>main-bundle.js</code> だけ</li>' +
+          '<li><code>PetPanel</code> / <code>PetWebviewViewProvider</code> は <code>PetWebviewContainer</code> を継いだ薄い子クラス(表示場所の違いだけ)</li>' +
+          '<li>webview側は <code>main.ts</code> が司令塔: <code>pets.ts</code>(生成)・<code>eggs</code>・<code>avoidance</code>・<code>chatter</code>・<code>ball</code>・<code>themes</code> を呼ぶ</li>' +
+          '<li>各ペット(<code>Secretary</code> など)は <code>BasePetType</code> を継ぎ、<code>BasePetType</code> が <code>resolveState</code> で状態を作る</li>' +
+          '<li>画像はコードに埋め込まず、<b>URL で参照</b>するだけ</li></ul>'
+      },
+      {
+        title: '8. 今回の改造点(Flying・秘書さん)',
+        camera: { pos: [14, 14, 36], target: [14, 6, 0] },
+        focus: ['Base', 'States', 'Eggs', 'Avoid', 'Chat', 'Main', 'Secretary', 'Types', 'Names', 'PetsTs', 'Gif', 'Tools', 'p-sec'],
+        show: [],
+        update: function (g, t) { g.pulse('Secretary', t, 0.07); },
+        html:
+          '<p><b>Flying(上流 1.36.0 からの改造)</b></p>' +
+          '<table><tr><th>改造</th><th>おもな場所</th></tr>' +
+          '<tr><td>飛行(fly / hover / fly-down)</td><td><code>states.ts</code>(状態)、<code>basepettype.ts</code>(<code>chooseFlyingState</code>)</td></tr>' +
+          '<tr><td>マウスで掴む</td><td><code>main.ts</code>(<code>startDragging</code>)、<code>dragged</code> 状態</td></tr>' +
+          '<tr><td>卵と 💩</td><td><code>eggs.ts</code>、<code>fly-to-lay</code> 状態</td></tr>' +
+          '<tr><td>おしゃべり / 回避</td><td><code>chatter.ts</code> / <code>avoidance.ts</code></td></tr>' +
+          '<tr><td>パネル内クランプ</td><td><code>keepInsideWindow</code> と <code>maxLeftInWindow</code> など</td></tr>' +
+          '<tr><td>ワークスペース単位の保存</td><td><code>extension.ts</code>(<code>workspaceState</code>)</td></tr>' +
+          '<tr><td>画像の全面オリジナル化・季節テーマ</td><td><code>tools/generate_art.py</code>、<code>themes.ts</code></td></tr></table>' +
+          '<p><b>秘書さん追加</b>(園児・青髪・赤髪・茶髪・黄緑髪)</p>' +
+          '<ul><li>新規: <code>pets/secretary.ts</code>、<code>media/secretary/</code>(5色 × 6動作の GIF + アイコン)、<code>tools/generate_secretary.py</code></li>' +
+          '<li>追記: <code>types.ts</code>(<code>PetType.secretary</code>・<code>PetColor.enji</code>・<code>ALL_PETS</code> と <code>ALL_COLORS</code>)、<code>names.ts</code>、<code>pets.ts</code>(<code>createPet</code>・<code>availableColors</code>)、<code>package.json</code>(<code>petType</code> に secretary、<code>petColor</code> に enji)と各言語の <code>package.nls.*.json</code></li></ul>' +
+          '<div class="gg-note">ソースを読むと、<code>blue</code> は <code>package.json</code> の <code>petColor</code> と <code>ALL_COLORS</code> には入っていません(Spawn の色選択では選べる)。</div>'
+      },
+      {
+        title: '9. ビルド・テスト・配布',
+        camera: { pos: [4, 8, 26], target: [4, 1, 0] },
+        focus: ['L-asset', 'Ln-asset', 'Bundle', 'Pkg', 'Vsix', 'Tools'],
+        update: function (g, t) { g.pulse('Vsix', t, 0.06); },
+        html:
+          '<table><tr><th>コマンド</th><th>出力</th></tr>' +
+          '<tr><td><code>webpack</code>(<code>compile:panel</code>)</td><td><code>src/panel/main.ts</code> → <code>media/main-bundle.js</code>(webview 用。<code>tsconfig.panel.json</code>)</td></tr>' +
+          '<tr><td><code>tsc -p tsconfig.extension.json</code></td><td>拡張本体 → <code>out/extension/extension.js</code>(<code>package.json</code> の <code>main</code>)</td></tr>' +
+          '<tr><td><code>webpack</code>(Web 版)</td><td><code>dist/web/extension-web.js</code>(<code>browser</code> エントリ)</td></tr>' +
+          '<tr><td><code>npx @vscode/vsce package</code></td><td><code>release/vscode-pets-flying.vsix</code></td></tr></table>' +
+          '<ul><li><b>テスト</b>: <code>npm test</code> は VS Code を起動して mocha で <code>src/test/suite/panel.test.ts</code> を実行(<code>PetCollection</code>・<code>petPanelApp</code>・Change Theme など)。<code>pretest</code> でコンパイルと lint(eslint + prettier)が先に走る</li>' +
+          '<li><code>npm run test:gifs</code> は GIF とアイコンのファイル名の有無を調べる(<code>src/test/gifs.ts</code>。上流の種類の一覧のままで、secretary は入っていない)</li>' +
+          '<li>多言語: <code>package.nls.*.json</code>(設定・コマンド名)と <code>l10n/bundle.l10n.*.json</code>(実行時の文言)。ja の <code>package.nls.ja.json</code> には「秘書さん」「園児」の表記あり</li></ul>' +
+          '<div class="gg-note">ペットの GIF や拡張の動作は、VS Code 本体の中で動くため、この図解では実機の画面は撮っていません(パネルの絵は再現図)。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeOffice ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>ClaudeOffice ドキュメント</h1>
+  <p class="lead">Claude Code の会話を3Dの箱庭オフィスで見守るローカル専用ダッシュボード(Node.js + Three.js)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(プロジェクト名・会話)は<b>すべてダミー</b>です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎬 使い方</div>
+      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
+      <div class="d">実際の画面を3D空間に並べて、スキン3種・動作モード・席を立って歩き回る動き・詳細の窓と続きを送る欄・時間プレビュー・通知の順に、カメラが寄りながら説明します。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
+      <div class="d">Claude Code の会話記録・在席ファイル → server.js → /api/state → 画面のポーリング、と「続きを送る」(パイプ / claude --resume)・Stop フック通知の経路を光の粒で追います。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全9ステップ</div>
+      <div class="d">app.js(buildSkin / ctx / frame)・world / makai / fancy・avatar・wander(通路グラフと状態機械)・spots・超軽量(applyUltra)の関係を、実際のファイル名・関数名で説明します。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/ClaudeOffice</code>(<code>server.js</code> と <code>public/</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

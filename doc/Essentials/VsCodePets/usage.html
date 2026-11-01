@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VsCodePets 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  var PY = 3.2;
+  // 画像のパネル(中心x, 幅, 元画像の幅x高さ, タイトル)。panel は実画面ではなく再現図
+  var PANELS = {
+    panel:     { x: -12.5, w: 9,   iw: 1320, ih: 560, title: '① パネルの再現図' },
+    species:   { x: -3,    w: 9,   iw: 1200, ih: 420, title: '② 選べる16種(アイコン)' },
+    secretary: { x: 6,     w: 8,   iw: 1000, ih: 300, title: '③ 秘書さん5人' },
+    states:    { x: 14.5,  w: 8.5, iw: 1200, ih: 260, title: '④ 動作ごとのGIF(園児)' }
+  };
+  function ph(p) { return p.w * p.ih / p.iw; }
+  // 画像上の位置(0〜1)をパネルのローカル座標へ
+  function L(name, fx, fy, z) { var p = PANELS[name]; return [(fx - 0.5) * p.w, (0.5 - fy) * ph(p), z == null ? 0.2 : z]; }
+  function cam(name, dist) { var p = PANELS[name]; return { pos: [p.x, PY + 0.1, dist || 9.5], target: [p.x, PY - 0.1, 0] }; }
+  var WIDE = { pos: [1, 4.5, 37], target: [1, 2.8, 0] };
+
+  GameGuide.start({
+    title: 'VsCodePets 使い方',
+    back: 'index.html',
+    subtitle: 'VS Code のパネルにペットを住まわせる(画像はリポジトリ内のオリジナル。パネルは再現図)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画像のパネル ----
+      Object.keys(PANELS).forEach(function (name) {
+        var p = PANELS[name], h = ph(p);
+        g.group('p-' + name, { pos: [p.x, PY, 0] });
+        g.box({ id: 'f-' + name, parent: 'p-' + name, size: [p.w + 0.3, h + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.VP_IMGS[name]);
+        var plane = new T.Mesh(new T.PlaneGeometry(p.w, h), new T.MeshBasicMaterial({ map: tex, transparent: true }));
+        g.add('s-' + name, plane, 'p-' + name);
+        g.label(p.title, [0, h / 2 + 0.55, 0], { id: 't-' + name, parent: 'p-' + name, size: 0.34, bg: '#000000aa' });
+      });
+
+      // ---- 画像の上に重ねる吹き出し ----
+      function co(id, panel, text, fx, fy, color) {
+        g.label(text, L(panel, fx, fy), { id: id, parent: 'p-' + panel, size: 0.22, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      co('c-pos',   'panel', 'エクスプローラーの\n「ペット」欄(既定)', 0.20, 1.10);
+      co('c-fly',   'panel', '飛び回る\n(fly → hover)', 0.40, 0.30, '#7ef0ff');
+      co('c-walk',  'panel', '地上は歩く / 走る', 0.14, 0.60, '#5ee6a8');
+      co('c-drag',  'panel', 'クリックで掴んで動かせる\n離すと降りてくる', 0.25, 0.12, '#ffd166');
+      co('c-hover', 'panel', 'マウスを乗せると\n手を振る(swipe)', 0.74, 0.66, '#ff5f6d');
+      co('c-egg',   'panel', '🥚 クリックで即孵化\n💩 クリックで消える', 0.88, 0.66, '#ffd166');
+      co('c-chat',  'panel', 'おしゃべり\n(約10秒に1回)', 0.20, 0.50, '#7ef0ff');
+
+      co('c-sp1', 'species', '16種。色違いを持つ種類もある\n(犬5色・馬10色 など)', 0.50, 1.14, '#7ef0ff');
+      co('c-sp2', 'species', '今回追加', 0.40, 0.58, '#ff5f6d');
+
+      co('c-se1', 'secretary', '色(petColor)', 0.22, 1.12, '#ffd166');
+      co('c-se2', 'secretary', '「Spawn」の色選択で\n5色すべて選べる', 0.74, 1.12, '#7ef0ff');
+
+      co('c-st1', 'states', '1色につき 6動作 × 8コマ(8fps)', 0.25, 1.16, '#ffd166');
+      co('c-st2', 'states', '状態の名前 → GIF の名前\nで画像が決まる', 0.75, 1.16, '#7ef0ff');
+
+      // ---- 手順1: ビルド〜インストールの流れ(手前) ----
+      var BX = [-10.5, -3.5, 3.5, 10.5];
+      var BT = ['npm ci\n(依存を入れる)', 'npm run compile\n(webpack + tsc)', 'npx @vscode/vsce package\n-o release/\nvscode-pets-flying.vsix', 'code --install-extension\nrelease/...vsix --force'];
+      BX.forEach(function (x, i) {
+        g.box({ id: 'bd-' + i, size: [5.6, 1.0, 2.0], pos: [x, -1.2, 8], color: '#2d2944', emissive: i === 3 ? C.good : C.server, emissiveIntensity: 0.3, radius: 0.12, edgeColor: i === 3 ? C.good : C.server,
+          label: BT[i], labelSize: 0.3, labelOffset: [0, 1.5, 0], labelBg: '#000000cc' });
+        if (i < 3) g.flow([x + 2.9, -0.9, 8], [BX[i + 1] - 2.9, -0.9, 8], { id: 'bd-fl-' + i, color: C.gold, count: 5, lift: 0.5 });
+      });
+      g.label('VS Code を再読み込み(Reload Window)すると有効になる', [0, -3.6, 8], { id: 'bd-note', size: 0.3, bg: '#000000cc', color: C.good, border: C.good });
+
+      // ---- 手順3: スポーンの選択肢(手前) ----
+      var SX = [-10.5, -3.5, 3.5, 10.5];
+      var ST = ['① 種類\n(16種から)', '② 色\n(複数あるときだけ)', '③ 名前\n(空なら乱数)', '④ 登場!\n(ワークスペースに保存)'];
+      SX.forEach(function (x, i) {
+        g.box({ id: 'sp-' + i, size: [5.0, 1.0, 2.0], pos: [x, -1.2, 8], color: '#2d2944', emissive: C.third, emissiveIntensity: 0.3, radius: 0.12, edgeColor: C.third,
+          label: ST[i], labelSize: 0.32, labelOffset: [0, 1.5, 0], labelBg: '#000000cc' });
+        if (i < 3) g.flow([x + 2.6, -0.9, 8], [SX[i + 1] - 2.6, -0.9, 8], { id: 'sp-fl-' + i, color: C.third, count: 5, lift: 0.5 });
+      });
+      g.label('コマンドパレット → 「Pet Coding: Spawn Additional Pet」(またはステータスバーのアイコン)', [0, -3.6, 8], { id: 'sp-note', size: 0.28, bg: '#000000cc', color: C.third, border: C.third });
+    },
+
+    steps: [
+      {
+        title: '0. VsCodePets とは',
+        camera: WIDE,
+        focus: ['p-panel', 'p-species', 'p-secretary', 'p-states'],
+        html:
+          '<p>VS Code の中に<b>ペットを住まわせる</b>拡張機能(<b>vscode-pets (Flying)</b>)です。上流の vscode-pets の改造版で、ペットが<b>パネルの中を飛び回り</b>、掴んで動かしたり、卵を産んだり、時間帯に合わせておしゃべりしたりします。</p>' +
+          '<p>画像(GIF・アイコン・背景)は<b>すべてこのリポジトリで新しく描いたオリジナル</b>です。左から順に、</p>' +
+          '<ol><li>パネルの<b>再現図</b>(VS Code の実画面ではありません)</li><li>選べる16種のアイコン</li><li>追加した「秘書さん」5人</li><li>1体ぶんの動作ごとの GIF</li></ol>' +
+          '<p>の4枚。「次へ」で順番に寄っていきます。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. インストール(VSIX)',
+        camera: { pos: [0, 2, 32], target: [0, -1.5, 8] },
+        focus: ['bd-0', 'bd-1', 'bd-2', 'bd-3', 'bd-fl-0', 'bd-fl-1', 'bd-fl-2', 'bd-note'],
+        show: ['bd-0', 'bd-1', 'bd-2', 'bd-3', 'bd-fl-0', 'bd-fl-1', 'bd-fl-2', 'bd-note'],
+        update: function (g, t) { g.pulse('bd-' + (Math.floor(t / 1.2) % 4), t, 0.05); },
+        html:
+          '<p>Marketplace には出さず、<b>VSIX ファイルを作って手元に入れる</b>方式です(Node.js 20 以上が必要)。</p>' +
+          '<pre><code>npm ci\nnpm run compile\nnpx @vscode/vsce package -o release/vscode-pets-flying.vsix\ncode --install-extension release/vscode-pets-flying.vsix --force</code></pre>' +
+          '<ul><li><code>npm run compile</code> は webview 用の webpack・拡張本体の tsc・テストの tsc・Web 版の webpack をまとめて実行</li>' +
+          '<li>拡張 ID は <code>essentials-local.vscode-pets</code>、表示名は <b>vscode-pets (Flying)</b>(version 1.36.2)</li>' +
+          '<li>リポジトリには作成済みの <code>release/vscode-pets-flying.vsix</code> も入っている</li></ul>' +
+          '<div class="gg-note"><b>上流の vscode-pets と同時には入れられません</b>(コマンド ID が同じで衝突する)。上流版はアンインストールか無効化してください。</div>'
+      },
+      {
+        title: '2. ペットのパネルを開く',
+        camera: cam('panel', 9.6),
+        focus: ['p-panel'],
+        show: ['c-pos', 'c-fly', 'c-walk'],
+        html:
+          '<p>ペットの表示場所は設定 <code>vscode-pets.position</code> で選びます。</p>' +
+          '<table><tr><th>値</th><th>表示される場所</th></tr>' +
+          '<tr><td><code>explorer</code>(既定)</td><td>エクスプローラー(サイドバー)の「VS Code ペット」欄</td></tr>' +
+          '<tr><td><code>panel</code></td><td>独立した Webview パネル。コマンド <b>Pet Coding: Start Pet Coding Session</b> で開く</td></tr></table>' +
+          '<ul><li>最初の1匹は設定 <code>petType</code> / <code>petColor</code> / <code>petSize</code> のもの(既定は dog・brown・nano)</li>' +
+          '<li>地上では歩く・走る・座る。さらに、地上の動きが終わるたびに <b>80% で飛び立ち</b>、パネル内のランダムな点へ飛んで 4 秒ホバリング → 70% でもう一度飛ぶ／30% で真下へ降りる</li>' +
+          '<li>背景は設定 <code>theme</code>(none / spring / summer / autumn / winter)。再現図は春の背景を使っています</li></ul>' +
+          '<div class="gg-note">絵は <b>再現図</b> です。VS Code 本物の画面ではなく、リポジトリ内の GIF と背景画像を並べて作りました。</div>'
+      },
+      {
+        title: '3. ペットを追加する(種類・色・名前)',
+        camera: { pos: [0, 2.5, 33], target: [0, 0.3, 4] },
+        focus: ['p-species', 'sp-0', 'sp-1', 'sp-2', 'sp-3', 'sp-fl-0', 'sp-fl-1', 'sp-fl-2', 'sp-note'],
+        show: ['c-sp1', 'c-sp2', 'sp-0', 'sp-1', 'sp-2', 'sp-3', 'sp-fl-0', 'sp-fl-1', 'sp-fl-2', 'sp-note'],
+        update: function (g, t) { g.pulse('sp-' + (Math.floor(t / 1.2) % 4), t, 0.05); },
+        html:
+          '<p><b>Pet Coding: Spawn Additional Pet</b>(ステータスバー右のアイコンでも可)で、1匹ずつ増やせます。</p>' +
+          '<ol><li><b>種類</b>を選ぶ(chicken・cockatiel・crab・dog・fox・horse・monkey・panda・raccoon・rat・rubber-duck・<b>secretary</b>・skeleton・snail・snake・turtle の<b>16種</b>)</li>' +
+          '<li><b>色</b>を選ぶ(色が1つしかない種類は飛ばされる)</li>' +
+          '<li><b>名前</b>を入力(空欄なら種類ごとの名前リストからランダム。秘書さんは「ミライ」「ひなた」「さくら」…)</li>' +
+          '<li>パネルに登場する。ペット一覧は<b>ワークスペースごと</b>に保存され、次に開いたときも復元される</li></ol>' +
+          '<ul><li><b>Pet Coding: Delete Pet</b> で1匹ずつ、<b>Remove All Pets</b> で全員を削除</li>' +
+          '<li><b>Roll Call</b>(点呼)で、全員の名前・種類・あいさつを通知で表示</li></ul>'
+      },
+      {
+        title: '4. 秘書さん5人(今回の追加)',
+        camera: cam('secretary', 9),
+        focus: ['p-secretary'],
+        show: ['c-se1', 'c-se2'],
+        html:
+          '<p>新しい種類 <b>secretary(秘書さん)</b>が増えました。画像は SecretaryGadget のスキン絵の胸から上を切り出して、弾む・傾く・潰れる動きを付けたものです(1枚絵なので手足は動きません)。</p>' +
+          '<table><tr><th>色の名前(表示)</th><th>色コード</th></tr>' +
+          '<tr><td>園児</td><td><code>enji</code></td></tr><tr><td>青髪</td><td><code>blue</code></td></tr>' +
+          '<tr><td>赤髪</td><td><code>red</code></td></tr><tr><td>茶髪</td><td><code>brown</code></td></tr>' +
+          '<tr><td>黄緑髪</td><td><code>green</code></td></tr></table>' +
+          '<ul><li>あいさつは「こんにちは、秘書さんだよ 👋!」、絵文字は 🗂️</li>' +
+          '<li>名前候補は ミライ・ひなた・さくら・あおい・あかり・みどり・ことは・ゆず・ほのか・つむぎ</li></ul>' +
+          '<div class="gg-note">ソースを読むと、設定 <code>petColor</code> の候補(package.json の enum と <code>ALL_COLORS</code>)に <b>blue(青髪)は入っていません</b>。青髪は「Spawn Additional Pet」の色選択から選びます。設定で既定のペットにできるのは園児・赤髪・茶髪・黄緑髪です。</div>'
+      },
+      {
+        title: '5. ペットへの操作(掴む・卵・おしゃべり)',
+        camera: cam('panel', 9.2),
+        focus: ['p-panel'],
+        show: ['c-drag', 'c-hover', 'c-egg', 'c-chat'],
+        html:
+          '<table><tr><th>操作</th><th>起きること</th></tr>' +
+          '<tr><td>マウスを重ねる</td><td>地上にいるペットが<b>手を振る</b>(swipe)。吹き出しは 👋</td></tr>' +
+          '<tr><td>左ボタンで掴む</td><td>ペットを動かせる(パネル内に収まる)。<b>空中で離すと降りてくる</b>、床で離すとそのまま</td></tr>' +
+          '<tr><td>🥚 をクリック</td><td>その場で孵化(🐣)。放っておいても 20 秒ほどで孵化</td></tr>' +
+          '<tr><td>💩 をクリック</td><td>消える(放置でも自然に消える)</td></tr></table>' +
+          '<ul><li><b>卵と 💩</b>: ときどきパネルの上端まで飛んで、真下へ落とす(3分の1が 💩)。画面にある数は最大5個。リロードで消える</li>' +
+          '<li><b>おしゃべり</b>: 約10秒に1回、時間帯(朝・昼・夕・夜)に合ったひとことを吹き出しで話す</li>' +
+          '<li><b>ペット同士</b>: 近づくと進路を変え、重なったら押し離す。地上で近くにいると「友だち」になって ❤️ を出す</li></ul>' +
+          '<div class="gg-note">現在のソースの卵の確率(<code>EGG_CHANCE_PER_TICK</code>)は、動作確認用の高めの値(コメントで「本来値は 0.0001」)のままです。</div>'
+      },
+      {
+        title: '6. コマンド',
+        camera: { pos: [1, 4.5, 37], target: [1, 2.8, 0] },
+        focus: ['p-panel', 'p-species'],
+        html:
+          '<p>すべて コマンドパレットで「Pet Coding」と入力すると出ます。</p>' +
+          '<table><tr><th>コマンド</th><th>内容</th></tr>' +
+          '<tr><td>Start Pet Coding Session</td><td>ペットのパネルを開く(エクスプローラー表示なら、その欄へ移動)</td></tr>' +
+          '<tr><td>Spawn Additional Pet</td><td>ペットを追加(種類 → 色 → 名前)</td></tr>' +
+          '<tr><td>Delete Pet / Remove All Pets</td><td>1匹選んで削除 / 全員削除</td></tr>' +
+          '<tr><td>Roll Call</td><td>全員の点呼</td></tr>' +
+          '<tr><td>Throw Ball</td><td>ボールを投げて、ペットが追いかける(ボールを持った絵になる)</td></tr>' +
+          '<tr><td>Change Theme</td><td>背景テーマを選ぶ。<b>ワークスペースごと</b>に覚える</td></tr>' +
+          '<tr><td>Export / Import Pet List</td><td>ペット一覧を JSON で書き出し(<code>pets-時刻.json</code> の無題ファイルが開く)/ 読み込み</td></tr></table>' +
+          '<div class="gg-note">package.json には <code>Throw With Mouse</code> コマンドの宣言もありますが、<code>extension.ts</code> に対応する登録は見当たりません。マウスでボールを投げる機能は、次の設定 <code>throwBallWithMouse</code> で切り替えます。</div>'
+      },
+      {
+        title: '7. 設定',
+        camera: { pos: [1, 4.5, 37], target: [1, 2.8, 0] },
+        focus: ['p-species', 'p-secretary', 'p-states'],
+        html:
+          '<p>設定画面で「vscode-pets」と検索します(ID は <code>vscode-pets.〇〇</code>)。</p>' +
+          '<table><tr><th>設定</th><th>既定</th><th>内容</th></tr>' +
+          '<tr><td><code>petType</code></td><td>dog</td><td>最初のペットの種類(16種)</td></tr>' +
+          '<tr><td><code>petColor</code></td><td>brown</td><td>最初のペットの色。その種類に無い色なら、その種類の最初の色になる</td></tr>' +
+          '<tr><td><code>petSize</code></td><td>nano</td><td>nano(30px) / small(40) / medium(55) / large(110)</td></tr>' +
+          '<tr><td><code>position</code></td><td>explorer</td><td>表示場所(explorer / panel)</td></tr>' +
+          '<tr><td><code>theme</code></td><td>none</td><td>none / spring / summer / autumn / winter(autumn は落ち葉、winter は雪のエフェクト付き)</td></tr>' +
+          '<tr><td><code>throwBallWithMouse</code></td><td>false</td><td>マウスのドラッグでボールを投げる</td></tr>' +
+          '<tr><td><code>disableEffects</code></td><td>false</td><td>雪・落ち葉のエフェクトを切る</td></tr></table>' +
+          '<p>種類・色・サイズ・テーマを変えると、その場でパネルが作り直されます。</p>'
+      },
+      {
+        title: '8. 注意点・困ったとき',
+        camera: WIDE,
+        focus: ['p-panel', 'p-species', 'p-secretary', 'p-states'],
+        html:
+          '<ul><li><b>上流の vscode-pets と共存できません</b>。コマンド ID が同じなので、どちらかをアンインストール/無効化。</li>' +
+          '<li>卵・💩 は<b>保存されません</b>(パネルを開き直すと消える)。ペットの位置・状態・友だち関係は残ります。</li>' +
+          '<li>絵を描いていない種類(cat・bunny・frog・squirrel・clippy・deno・totoro・mod・morph・zappy・rocky)は選択肢に出ず、上流版で飼っていた分の保存状態があっても読み込まれません。</li>' +
+          '<li>パネル表示モードでは、パネルが見えていない間(別タブなど)ペットは止まります(tick を送らないため)。</li>' +
+          '<li>パネルを小さくしても、ペット・吹き出し・卵ははみ出さずに収まります。</li></ul>' +
+          '<div class="gg-note">仕組みの詳細は「データの流れ」「内部設計」のページへ。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

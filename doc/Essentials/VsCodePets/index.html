@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VsCodePets ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>VsCodePets ドキュメント</h1>
+  <p class="lead">VS Code のパネルにペットを住まわせる拡張機能「vscode-pets」の改造版(Flying。TypeScript / VS Code 拡張)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
+  3Dはドラッグで回転、ホイールで拡大縮小できます。VS Code の実画面は撮れないため、<b>パネルの絵は「再現図」</b>(リポジトリ内のオリジナル画像を並べて作ったもの)です。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🎬 使い方</div>
+      <div class="tech">Three.js / 画像つき / 全9ステップ</div>
+      <div class="d">VSIX のビルドとインストール → ペットの追加(種類・色・名前)→ 秘書さん5人 → 掴む・卵・おしゃべりなどの操作 → コマンドと設定、の順に説明します。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / 粒子アニメ / 全11ステップ</div>
+      <div class="d">拡張の起動 → webview の HTML 生成 → 100ms ごとの tick → ペットの状態遷移 → GIF の切り替えと位置の更新、までを光の粒の流れで追います。メッセージと状態の保存も。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🏗️ 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全10ステップ</div>
+      <div class="d">拡張側・共通・webview側・ペットクラス・画像アセットの5層に、実際のファイル名・クラス名を並べて説明します。今回の改造点(Flying・秘書さん追加)も。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/VsCodePets</code>(上流 tonybaloney/vscode-pets の MIT コードがベース。ペットの画像はすべてこのリポジトリで描いたオリジナル)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+  </p>
+</div>
+</body>
+</html>

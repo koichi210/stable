@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaudeOffice 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, T = window.THREE;
+  // 画面写真(960x558)を3D空間のパネルとして並べる(3列×3行)。パネルの幅と高さ
+  var PW = 8, PH = PW * 558 / 960;
+  var ROWS = [11.6, 5.4, -0.8];
+  var PANELS = {
+    skin_default: { x: -9, y: ROWS[0], title: '① 教室(Default)・標準モード' },
+    skin_isekai:  { x: 0,  y: ROWS[0], title: '② ルイーダの酒場' },
+    skin_makai:   { x: 9,  y: ROWS[0], title: '③ 魔界' },
+    walk_default: { x: -9, y: ROWS[1], title: '④ 席を立って水槽へ(教室)' },
+    walk_makai:   { x: 0,  y: ROWS[1], title: '⑤ 血の池へ(魔界)' },
+    ultra:        { x: 9,  y: ROWS[1], title: '⑥ 超軽量モード' },
+    detail:       { x: -9, y: ROWS[2], title: '⑦ 詳細の窓(続きを送る欄つき)' },
+    settings:     { x: 0,  y: ROWS[2], title: '⑧ ⚙️ 設定(スキン・動作モード)' },
+    night:        { x: 9,  y: ROWS[2], title: '⑨ 時間プレビュー(21時)' }
+  };
+  // 写真上の位置(0〜1)をパネルのローカル座標へ
+  function L(fx, fy, z) { return [(fx - 0.5) * PW, (0.5 - fy) * PH, z == null ? 0.2 : z]; }
+
+  // 手順のカメラ。パネル中心を正面から見る
+  function cam(name, dist) { var p = PANELS[name]; return { pos: [p.x, p.y + 0.1, dist || 9.6], target: [p.x, p.y - 0.2, 0] }; }
+  var WIDE = { pos: [0, 5.4, 31], target: [0, 5.2, 0] };
+
+  GameGuide.start({
+    title: 'ClaudeOffice 使い方',
+    back: 'index.html',
+    subtitle: 'Claude Code の会話を箱庭で見守る(実際の画面の写真つき)',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      // ---- 画面写真のパネル ----
+      Object.keys(PANELS).forEach(function (name) {
+        var p = PANELS[name];
+        g.group('p-' + name, { pos: [p.x, p.y, 0] });
+        g.box({ id: 'f-' + name, parent: 'p-' + name, size: [PW + 0.3, PH + 0.3, 0.1], pos: [0, 0, -0.08], color: '#2d2944', edgeColor: '#9b84ff' });
+        var tex = new T.TextureLoader().load(window.CO_IMGS[name]);
+        var plane = new T.Mesh(new T.PlaneGeometry(PW, PH), new T.MeshBasicMaterial({ map: tex, transparent: true }));
+        g.add('s-' + name, plane, 'p-' + name);
+        g.label(p.title, [0, PH / 2 + 0.55, 0], { id: 't-' + name, parent: 'p-' + name, size: 0.38, bg: '#000000aa' });
+      });
+
+      // ---- 写真の上に重ねる吹き出し(ステップごとに出す) ----
+      function co(id, panel, text, fx, fy, color) {
+        g.label(text, L(fx, fy), { id: id, parent: 'p-' + panel, size: 0.22, bg: '#000000cc', color: color || '#ffd166', border: color || '#ffd166' });
+      }
+      // 手順1: 画面の見かた
+      co('c-hud',  'skin_default', '① 左上: 時計・在席数\nアカウントと使用率・⚙️設定', 0.17, 0.30);
+      co('c-room', 'skin_default', '② 箱庭: 席の人=\nClaude Code の会話1つ', 0.36, 0.64, '#5ee6a8');
+      co('c-side', 'skin_default', '③ 右: 在席 / グループ / 履歴', 0.74, 0.07, '#7ef0ff');
+      co('c-time', 'skin_default', '④ 下: 日別タイムライン\n時間プレビュー', 0.50, 0.97, '#c77dff');
+      co('c-bub',  'skin_default', '吹き出し=いまの様子', 0.50, 0.30, '#ffd166');
+      // 手順2: スキン
+      co('c-sk1', 'skin_default', '先生がいる教室\n(水槽・ミラーボール)', 0.30, 0.20, '#5ee6a8');
+      co('c-sk2', 'skin_isekai', 'ルイーダがいる酒場\n(酒棚・魔法陣)', 0.30, 0.20, '#ffd166');
+      co('c-sk3', 'skin_makai', '血の池とドクロの魔界\n(魔法陣・炎の柱)', 0.30, 0.20, '#ff5f6d');
+      co('c-sk4', 'settings', '🎨 スキンはここで選ぶ\n(保存される)', 0.28, 0.43, '#ffd166');
+      // 手順3: 動作モード
+      co('c-md1', 'settings', '⚡ 動作: 標準 / 軽量 / 超軽量', 0.30, 0.60, '#ffd166');
+      co('c-md2', 'settings', '▼ 細かい設定\nエフェクト・FPS・影・画質', 0.30, 0.76, '#7ef0ff');
+      co('c-md3', 'ultra', '超軽量: 壁と時計と\n●の玉だけを描く', 0.30, 0.20, '#5ee6a8');
+      // 手順4: 歩き回り
+      co('c-w1', 'walk_default', '席を立った人が\n金魚の水槽でエサやり', 0.60, 0.30, '#5ee6a8');
+      co('c-w2', 'walk_makai', '血の池へ\n汲みに行く', 0.62, 0.30, '#ff5f6d');
+      // 手順5: 吹き出し・名札・詳細
+      co('c-d1', 'detail', '見出し: プロジェクト・ブランチ\nモデル・いまの状態', 0.50, 0.21, '#7ef0ff');
+      co('c-d2', 'detail', '続きを送る欄\n(Ctrl+Enter)', 0.66, 0.45, '#5ee6a8');
+      co('c-d3', 'detail', 'よく使ったツール・\nアクティビティの一覧', 0.50, 0.82, '#ffd166');
+      // 手順6: 時間プレビュー
+      co('c-t1', 'skin_default', '?t=14 → 14時の昼', 0.50, 0.42, '#ffd166');
+      co('c-t2', 'night', '?t=21 → 夜: 星・ランプ・\n光の輪が目立つ', 0.50, 0.30, '#ffd166');
+      co('c-t3', 'night', '時間プレビューのスライダー\n(チェックでON/OFF)', 0.70, 0.93, '#c77dff');
+
+      // ---- 動きのある印: 歩いている人のまわりで脈打つ輪 ----
+      function ring(id, panel, fx, fy, color) {
+        var m = new T.Mesh(new T.RingGeometry(0.34, 0.42, 32), new T.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.9, depthTest: false }));
+        var p = L(fx, fy, 0.06); m.position.set(p[0], p[1], p[2]);
+        m.renderOrder = 10;
+        g.add(id, m, 'p-' + panel);
+      }
+      ring('ring-w1', 'walk_default', 0.46, 0.52, '#ffd166');
+      ring('ring-w2', 'walk_makai', 0.485, 0.52, '#ffd166');
+      // ---- 在席の人を指す輪(手順1) ----
+      ring('ring-room', 'skin_default', 0.42, 0.50, '#5ee6a8');
+    },
+
+    steps: [
+      {
+        title: '0. ClaudeOffice とは',
+        camera: WIDE,
+        focus: Object.keys(PANELS).map(function (n) { return 'p-' + n; }),
+        html:
+          '<p>Claude Code の会話を、<b>3Dの箱庭オフィス</b>で見渡すローカル専用のダッシュボードです。開いている会話1つにつき1人が机に座り、いま何をしているかをアニメーションで見せます。</p>' +
+          '<ul><li>作業中・考え中・入力待ち・おやすみ、の様子が一目で分かる</li>' +
+          '<li>過去の会話の検索・日別タイムライン・使用率(5時間/週)の表示</li>' +
+          '<li>VSCode で開き直す・箱庭から会話の続きを送る・返事が終わったら通知</li></ul>' +
+          '<p>画面写真は<b>ダミーの会話</b>(架空のプロジェクト名)を表示した実際の画面です。3×3枚を、「次へ」で順番に寄って説明します。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜9」のボタンで好きなステップへ飛べます。</div>'
+      },
+      {
+        title: '1. 起動と画面の見かた',
+        camera: cam('skin_default'),
+        focus: ['p-skin_default'],
+        show: ['c-hud', 'c-room', 'c-side', 'c-time', 'c-bub', 'ring-room'],
+        update: function (g, t) { var s = 1 + 0.25 * Math.sin(t * 3); g.get('ring-room').scale.set(s, s, 1); },
+        html:
+          '<ol><li><code>start.bat</code> を実行(起動済みならブラウザで開くだけ)。裏起動したいときは <code>autostart.ps1</code> をスタートアップへ</li>' +
+          '<li>ブラウザで <code>http://127.0.0.1:8765/</code> が開く(このPCの中だけで動き、他のPCからは見えない)</li></ol>' +
+          '<table><tr><th>場所</th><th>役割</th></tr>' +
+          '<tr><td>① 左上</td><td>時計と時間帯・「○人在席・○人稼働」・アカウントと使用率・⚙️設定</td></tr>' +
+          '<tr><td>② 箱庭</td><td>席は12。開いている会話の人が座る。13人目以降は一覧にだけ出る</td></tr>' +
+          '<tr><td>③ 右パネル</td><td>在席(いまのメンバー)/ グループ(VSCodeのグループ)/ 履歴(過去の会話)</td></tr>' +
+          '<tr><td>④ 下</td><td>日別タイムライン(◀▶で日付移動)と時間プレビュー</td></tr></table>' +
+          '<p>頭上の<b>吹き出し</b>は、使っているツールと経過時間(例: 「Edit: cart.js · 1分」)。人の様子は 作業中 / 考え中 / 入力待ち / おやすみ(30分以上入力なし)です。</p>' +
+          '<p class="gg-files">本棚の本は過去の会話。本にカーソルを乗せるとタイトルが出て、クリックで詳細が開く。ホワイトボードをクリックすると在席タブに戻る。</p>'
+      },
+      {
+        title: '2. スキン3種(教室 / ルイーダの酒場 / 魔界)',
+        camera: { pos: [0, 10.5, 31], target: [0, 9, 0] },
+        focus: ['p-skin_default', 'p-skin_isekai', 'p-skin_makai', 'p-settings'],
+        show: ['c-sk1', 'c-sk2', 'c-sk3', 'c-sk4'],
+        update: function (g, t) { var k = Math.floor(t / 1.6) % 3; ['skin_default', 'skin_isekai', 'skin_makai'].forEach(function (n, i) { g.get('f-' + n).scale.set(1 + (i === k ? 0.025 : 0), 1 + (i === k ? 0.025 : 0), 1); }); },
+        html:
+          '<p>⚙️ → 🎨 スキンで、箱庭の世界観を切り替えます。選んだスキンは次回も使われます。</p>' +
+          '<table><tr><th>スキン</th><th>見た目</th><th>席の人</th></tr>' +
+          '<tr><td>🏫 教室(Default)</td><td>先生がいる教室。金魚の水槽・ミラーボール・虹・風船・噴水</td><td>制服やパーカーの人間</td></tr>' +
+          '<tr><td>🍺 ルイーダの酒場</td><td>ルイーダがいる酒場。酒棚・魔法陣・提灯・シャンデリア</td><td>猫耳・犬耳・エルフ・竜人などの冒険者(職業の装備つき)</td></tr>' +
+          '<tr><td>💀 魔界</td><td>赤黒い空と血の月、ロウソクとドクロの館、血の池・溶岩・墓場</td><td>悪魔(角と羽)・吸血鬼など</td></tr></table>' +
+          '<ul><li>席の位置・人数・動きは<b>3スキン共通</b>。見た目だけが変わる</li>' +
+          '<li>人の見た目は会話IDから決まるので、同じ会話はいつも同じ姿</li>' +
+          '<li>色分けは<b>プロジェクト単位</b>(名札の丸の色)。同じプロジェクトの人は近くの席に座る</li></ul>'
+      },
+      {
+        title: '3. 動作モード(標準 / 軽量 / 超軽量)',
+        camera: { pos: [4.5, 3.4, 22], target: [4.5, 2.6, 0] },
+        focus: ['p-settings', 'p-ultra'],
+        show: ['c-md1', 'c-md2', 'c-md3'],
+        update: function (g, t) { var k = Math.floor(t / 1.8) % 2; g.get('f-settings').scale.set(1 + (k ? 0 : 0.025), 1 + (k ? 0 : 0.025), 1); g.get('f-ultra').scale.set(1 + (k ? 0.025 : 0), 1 + (k ? 0.025 : 0), 1); },
+        html:
+          '<p>PCが重いとき・常時表示しておきたいときに、⚡ 動作で描画の重さを選びます。</p>' +
+          '<table><tr><th>モード</th><th>内容</th></tr>' +
+          '<tr><td>☀️ 標準</td><td>ネオン・ミラーボール・花火・紙吹雪などハデな演出あり。60fps・影あり・くっきり画質</td></tr>' +
+          '<tr><td>🍃 軽量</td><td>演出なし。30fps・影なし・粗め画質。部屋や人はそのまま</td></tr>' +
+          '<tr><td>🪶 超軽量</td><td>壁・時計と、人を<b>●の玉</b>にしただけ。吹き出し・名札・パネルは普通に使える</td></tr></table>' +
+          '<ul><li>「▼細かく設定」で エフェクト・FPS・影・超軽量・画質 を個別に変えられる。どのモードにも当てはまらない組み合わせは「カスタム」表示</li>' +
+          '<li>モードを切り替えると、シェーダーの準備のため「🏗️ 箱庭を準備中…」が少し出る</li></ul>'
+      },
+      {
+        title: '4. 仕事中に歩き回る(水槽・酒棚・血の池)',
+        camera: { pos: [-4.5, 5.6, 19], target: [-4.5, 5.0, 0] },
+        focus: ['p-walk_default', 'p-walk_makai'],
+        show: ['c-w1', 'c-w2', 'ring-w1', 'ring-w2'],
+        update: function (g, t) { var s = 1 + 0.3 * Math.sin(t * 3.5); g.get('ring-w1').scale.set(s, s, 1); g.get('ring-w2').scale.set(s, s, 1); },
+        html:
+          '<p>席の人は、座りっぱなしではありません。<b>仕事中でも</b>ときどき席を立って、通路を歩いて立ち寄ります(「おやすみ」の人は動かない)。</p>' +
+          '<table><tr><th>スキン</th><th>立ち寄り先</th><th>すること</th></tr>' +
+          '<tr><td>教室</td><td>金魚の水槽</td><td>エサをあげる(5秒)。金魚がエサの下へ集まる</td></tr>' +
+          '<tr><td>酒場</td><td>お酒の棚</td><td>ジョッキを取って、手に持って席へ戻る(4秒)</td></tr>' +
+          '<tr><td>魔界</td><td>血の池</td><td>杯で血を汲んで、持って席へ戻る(4秒)</td></tr></table>' +
+          '<ul><li>最初は 3〜10秒後、席に戻ったあとは 10〜25秒ごとに「出かけるか」を決める</li>' +
+          '<li>立ち寄り先は同時に1人だけ。空いていなければ、通路をぶらぶらして戻る</li>' +
+          '<li>席を外している最中に入力待ちやおやすみになったら、席へ引き返す</li></ul>' +
+          '<div class="gg-note">3Dの中で本当に動いているので、実際の画面で眺めると楽しいです。仕組みは「内部設計」へ。</div>'
+      },
+      {
+        title: '5. 吹き出し・名札クリックで詳細 / 続きを送る',
+        camera: cam('detail', 11),
+        focus: ['p-detail'],
+        show: ['c-d1', 'c-d2', 'c-d3', 'c-bub'],
+        html:
+          '<p>人の<b>吹き出し</b>か<b>名札</b>をクリックすると、カメラがその席へ寄り、<b>詳細の窓</b>が開きます(同じ人をもう一度クリックで閉じる)。窓はドラッグで移動・大きさ変更ができ、サイズは覚えます。</p>' +
+          '<ul><li>見出し: プロジェクト・ブランチ・モデル・いまの状態・裏作業の有無</li>' +
+          '<li>開始/最終時刻・依頼数・ツール回数・稼働時間、最初と最後の依頼、よく使ったツール、サブエージェント、アクティビティ</li>' +
+          '<li>ダブルクリック(窓の下部・吹き出し・人)で <b>VSCode の Claude Code で開く</b></li>' +
+          '<li>本棚の本をクリックすると、その日付に移って詳細が開く</li></ul>' +
+          '<p><b>💬 続きを送る</b>(Ctrl+Enter)は、<b>すでにある会話の続き専用</b>です。新しい会話は作れません。</p>' +
+          '<ul><li>開いている会話 → 「@dashboard からのメッセージ」として順番待ちで届く(相手の作業は中断しない)。本人の承認の代わりにはならない</li>' +
+          '<li>閉じた会話 → 続きから再開して返事が流れてくる。<b>ツールは確認なしで実行される</b>ので警告が出る</li>' +
+          '<li>送れるのは同時に1会話だけ。「⏹ 停止」で止められる。要約しか残っていない会話には送れない</li></ul>'
+      },
+      {
+        title: '6. 時間プレビュー(?t=14)',
+        camera: { pos: [0, 5.4, 26], target: [0, 5.0, 0] },
+        focus: ['p-skin_default', 'p-night', 'p-walk_default'],
+        show: ['c-t1', 'c-t2', 'c-t3'],
+        update: function (g, t) { var k = Math.floor(t / 1.5) % 2; g.get('f-skin_default').scale.set(1 + (k ? 0 : 0.025), 1 + (k ? 0 : 0.025), 1); g.get('f-night').scale.set(1 + (k ? 0.025 : 0), 1 + (k ? 0.025 : 0), 1); },
+        html:
+          '<p>空・太陽・月・ランプ・星は<b>実際の時刻</b>に合わせて変わります(朝焼け・昼・夕焼け・夜)。見たい時間帯を試すのが<b>時間プレビュー</b>です。</p>' +
+          '<ul><li>下のタイムラインの「時間プレビュー」にチェック → スライダーで 0〜24時を動かす。左上に「🕰 14:00 を表示中」と出る</li>' +
+          '<li>URL に <code>?t=14</code>(14時)や <code>?t=18.5</code>(18時30分)を付けても開始できる</li>' +
+          '<li>夜は光る演出(足もとの光の輪・提灯・魔法陣)がよく映える</li></ul>' +
+          '<table><tr><th>URL引数</th><th>意味</th></tr>' +
+          '<tr><td><code>?t=18.5</code></td><td>時間プレビュー</td></tr>' +
+          '<tr><td><code>?skin=default|isekai|makai</code></td><td>そのスキンで開く(設定画面から変えたときだけ保存される)</td></tr>' +
+          '<tr><td><code>?session=&lt;ID&gt;</code></td><td>その会話の詳細を開いて開始(通知を押したときもこれ)</td></tr>' +
+          '<tr><td><code>?first</code></td><td>在席の先頭の人を選んで開始</td></tr>' +
+          '<tr><td><code>?tab=groups|history</code></td><td>右パネルのタブを指定</td></tr></table>'
+      },
+      {
+        title: '7. 返事が終わったら通知',
+        camera: cam('settings', 12),
+        focus: ['p-settings'],
+        html:
+          '<p>⚙️ → 🔔 通知の「設定画面を開く」で、Windows のトースト通知を設定します。</p>' +
+          '<ol><li>Claude Code の設定 <code>~/.claude/settings.json</code> の <code>hooks.Stop</code> に、設定画面に表示される1行(<code>curl</code> で ClaudeOffice へ知らせる)を追加</li>' +
+          '<li>返事が終わるたびに、ClaudeOffice が「<b>完了</b>」か「<b>質問(返事待ち)</b>」かを判定して通知</li></ol>' +
+          '<ul><li>完了・質問それぞれのON/OFF、通知の文(<code>{name}</code> <code>{title}</code> が使える)、表示時間、音、おやすみ時間帯(初期値は 22:00〜08:00)、同じ内容を出さない間隔(既定10分)</li>' +
+          '<li>「テスト通知」で保存前に確認できる</li>' +
+          '<li>通知を押すと、その会話の詳細が箱庭で開く</li></ul>' +
+          '<div class="gg-note">通知の設定は ClaudeOffice フォルダの <code>notify.json</code>(保存したときだけ作られる)に入ります。</div>'
+      },
+      {
+        title: '8. 注意点・困ったとき',
+        camera: WIDE,
+        focus: Object.keys(PANELS).map(function (n) { return 'p-' + n; }),
+        html:
+          '<ul><li><b>前提</b>: Node.js 22.5 以上(<code>node:sqlite</code> を使うため)。npm パッケージは不要</li>' +
+          '<li>右上が「● サーバ停止中」のときは、サーバー(<code>start.bat</code>)が止まっています。止めるのは <code>stop.bat</code></li>' +
+          '<li>席は12人まで。13人目以降は右パネルの一覧にだけ出ます</li>' +
+          '<li>会話の記録は Claude Code の側で一定期間後に消えますが、要約は <code>%LOCALAPPDATA%\\ClaudeOffice\\archive.json</code> に残り、本棚には出ます(再開・送信は不可)</li>' +
+          '<li>箱庭からの「続きを送る」で<b>閉じた会話</b>を再開すると、確認なしでツールが動きます。内容を確認してから送ってください</li>' +
+          '<li>動きが重いときは ⚙️ の動作を「軽量」か「超軽量」へ</li>' +
+          '<li>使用率が出ないときは、Claude Code にログインしているか確認(ログイン情報が見つからないと「ログイン情報がありません」と表示)</li></ul>' +
+          '<div class="gg-note">仕組みの詳細は「データの流れ」「内部設計」のページへ。</div>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
