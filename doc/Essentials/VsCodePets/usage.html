@@ -175,7 +175,7 @@
           '<ul><li><b>卵と 💩</b>: ときどきパネルの上端まで飛んで、真下へ落とす(3分の1が 💩)。画面にある数は最大5個。リロードで消える</li>' +
           '<li><b>おしゃべり</b>: 約10秒に1回、時間帯(朝・昼・夕・夜)に合ったひとことを吹き出しで話す</li>' +
           '<li><b>ペット同士</b>: 近づくと進路を変え、重なったら押し離す。地上で近くにいると「友だち」になって ❤️ を出す</li></ul>' +
-          '<div class="gg-note">現在のソースの卵の確率(<code>EGG_CHANCE_PER_TICK</code>)は、動作確認用の高めの値(コメントで「本来値は 0.0001」)のままです。値は <code>0.0011</code>(1ペット・1tick(0.1秒)あたり)で、動いているペット1匹あたり平均約91秒に1個。本来値 <code>0.0001</code> なら約17分に1個。画面上の卵は最大5個です。</div>'
+          '<div class="gg-note">卵の確率(<code>EGG_CHANCE_PER_TICK</code>)は <code>1/1200</code>(1ペット・1tick(0.1秒)あたり)で、動いているペット1匹あたり平均約2分に1個です。画面上の卵は最大5個です。</div>'
       },
       {
         title: '6. コマンド',
@@ -191,7 +191,7 @@
           '<tr><td>Throw Ball</td><td>ボールを投げて、ペットが追いかける(ボールを持った絵になる)</td></tr>' +
           '<tr><td>Change Theme</td><td>背景テーマを選ぶ。<b>ワークスペースごと</b>に覚える</td></tr>' +
           '<tr><td>Export / Import Pet List</td><td>ペット一覧を JSON で書き出し(<code>pets-時刻.json</code> の無題ファイルが開く)/ 読み込み</td></tr></table>' +
-          '<div class="gg-note">package.json には <code>Throw With Mouse</code> コマンドの宣言もありますが、<code>extension.ts</code> に対応する登録は見当たりません。マウスでボールを投げる機能は、次の設定 <code>throwBallWithMouse</code> で切り替えます。</div>'
+          '<div class="gg-note"><code>Throw With Mouse</code> コマンドは、マウスでボールを投げる機能(パネル上でドラッグして離すとボールが飛び、ペットが追いかける)のON/OFF切り替えです。設定 <code>throwBallWithMouse</code>(既定ON)を反転します。</div>'
       },
       {
         title: '7. 設定',
