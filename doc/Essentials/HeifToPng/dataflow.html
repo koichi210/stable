@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeifToPng データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 11;                           // 工程どうしの間隔。ファイルのブロックがこの間を流れていく
+  var GREY = new T.Color('#4d4a63');
+  var DARK = new T.Color('#3a3656');     // 圧縮されたままのHEIF(中身はまだ見えない)
+
+  // ---- 説明用のファイル8個(ダミー)。c=復号した画素の色、d=脱落する工程(99=最後まで残る)、why=脱落の理由 ----
+  var F = [
+    { l: 'IMG_0001\n.HEIC', c: '#4fa3ff', d: 99 },
+    { l: 'IMG_0002\n.HEIC(縦)', c: '#5ee6a8', d: 99 },
+    { l: 'IMG_0003\n.HEIC', c: '#ffd166', d: 99 },
+    { l: 'IMG_0030\n.HEIC', c: '#ff9f43', d: 2, why: 'PNGあり\n→スキップ', bad: '#b8a46a' },
+    { l: 'IMG_0013\n_壊れ.HEIC', c: '#ff5f6d', d: 3, why: '読めない\n→失敗', bad: '#ff5f6d' },
+    { l: 'メモ.jpg', c: '#b8b2d6', d: 1, why: 'HEIFではない\n→対象外', bad: '#6b6788' },
+    { l: 'IMG_0100\n.HEIC', c: '#c77dff', d: 99 },
+    { l: 'IMG_0005\n.HEIC', c: '#7ef0ff', d: 99 },
+  ];
+  var OK = [0, 1, 2, 6, 7];
+
+  // ---- 各工程での置き場所(工程内のローカル座標。工程 k の中心は x = SX*k) ----
+  var SRC = [[0, 1, 4, 5, 2], [3, 7], [6]];                  // 変換元 3件(フォルダ / フォルダ / ファイル)に入っているもの
+  var SRC_Z = [-4.6, 0.4, 4.4];
+  var LIST = [0, 1, 4, 5, 2, 3, 7, 6];                       // PlanJobs が集める順(フォルダごとに名前順)
+  var LANE_OF = { 0: 0, 1: 1, 4: 2, 2: 3, 3: 0, 7: 1, 6: 2 }; // 並列4の作業員(Parallel.ForEach)に配られる先
+  var QUEUE = { 0: 0, 1: 0, 4: 0, 2: 0, 3: 1, 7: 1, 6: 1 };  // その作業員の何番目か
+  var LANE_Z = [-5.1, -1.7, 1.7, 5.1];
+  var layout = [];
+  (function () {
+    var k;
+    for (k = 0; k <= 6; k++) layout[k] = [];
+    SRC.forEach(function (list, s) { list.forEach(function (id, j) { layout[0][id] = [-3.4 + j * 1.7, 0.3, SRC_Z[s]]; }); });
+    LIST.forEach(function (id, r) { layout[1][id] = [0, 0.3, -5.6 + r * 1.6]; });
+    layout[1][5] = [2.4, 0.3, -5.6 + 3 * 1.6];               // jpg は列から外れる
+    for (k = 2; k <= 4; k++) Object.keys(LANE_OF).forEach(function (id) { layout[k][id] = [1.6 - QUEUE[id] * 3.2, 0.3, LANE_Z[LANE_OF[id]]]; });
+    OK.forEach(function (id, j) { layout[5][id] = [-2.6 + (j % 3) * 2.6, 0.3, -2.6 + Math.floor(j / 3) * 4.4]; });
+    OK.forEach(function (id) { layout[6][id] = layout[5][id]; });
+  })();
+  // 工程 k でのファイル i の位置(ワールド座標)。脱落したファイルは脱落した工程に残る
+  function P(k, i) {
+    var kk = Math.min(k, F[i].d);
+    var p = layout[kk][i] || layout[Math.min(kk, 4)][i] || layout[1][i];
+    var sx = Math.min(kk, 6);
+    if (kk >= 6) sx = 5;
+    return [p[0] + SX * sx, p[1], p[2]];
+  }
+
+  var files = [], tags = [];
+  var TAGS = [['GPS', C.enemy], ['EXIF', '#ff9f43'], ['XMP', '#ffd166'], ['ICC(色)', C.good]];
+
+  function look(k) {
+    var x = SX * k;
+    if (k === 5) return { pos: [SX * 5, 13, 13], target: [SX * 5, 0.3, 0] };
+    if (k === 6) return { pos: [SX * 5 + 3.6, 12, 15], target: [SX * 5 + 3.6, 0.8, 0] };
+    return { pos: [x, 15, 13.5], target: [x, 0.3, 0] };
+  }
+
+  // 工程 k の毎フレームの処理。位置・色・大きさは t から決める(途中のステップへ飛んでも壊れない)
+  function tick(g, t, k) {
+    var ph = k === 0 ? 1 : g.phase(t, 0, 1.8);
+    for (var i = 0; i < F.length; i++) {
+      var m = files[i];
+      var a = P(Math.max(k - 1, 0), i), b = P(k, i);
+      g.lerpPos(m, a, b, ph);
+      // 復号(③)で、圧縮された薄い板 → 画素の厚い板 に変わる
+      var dec = F[i].d === 99 ? (k > 3 ? 1 : k === 3 ? g.phase(t, 1.8, 1.2) : 0) : 0;
+      m.scale.set(1 + 0.35 * dec, 1 + 1.6 * dec, 1 + 0.25 * dec);
+      m.position.y = 0.3 + 0.2 * dec;
+      var col = DARK.clone().lerp(new T.Color(F[i].c), dec);
+      // 脱落 = 理由の色になってその場に残る
+      var drop = k > F[i].d ? 1 : k === F[i].d ? g.phase(t, 1.6, 0.8) : 0;
+      if (F[i].d !== 99) col.lerp(new T.Color(F[i].bad), drop);
+      m.material.color.copy(col);
+      var why = g.objects['why' + i];
+      if (why) why.visible = drop > 0.5;
+      // ⑤で .png に変わる
+      var lab = m.userData.label;
+      if (lab) {
+        lab.visible = !(F[i].d === 99 && k >= 5);
+        // ラベルは箱の子なので、箱の拡大で一緒に伸びないよう打ち消す
+        if (!lab.userData.base) lab.userData.base = lab.scale.clone();
+        lab.scale.set(lab.userData.base.x / m.scale.x, lab.userData.base.y / m.scale.y, 1);
+        lab.position.y = 0.75 / m.scale.y + 0.15 * dec;
+      }
+      var png = g.objects['png' + i];
+      if (png) png.visible = F[i].d === 99 && k >= 5 && (k > 5 || t > 2.2);
+      // 撮影情報のタグ(④で GPS / EXIF / XMP が飛んでいき、ICC だけ残る)
+      if (tags[i]) {
+        for (var j = 0; j < TAGS.length; j++) {
+          var tg = tags[i][j];
+          var show = k >= 3 && F[i].d === 99 && !(k === 3 && dec < 0.9);
+          var gone = j < 3 ? (k > 4 ? 1 : k === 4 ? g.phase(t, 0.6 + j * 0.35, 1.2) : 0) : 0;
+          tg.visible = show && gone < 1;
+          tg.position.set(m.position.x - 0.66 + j * 0.44, m.position.y + 0.55 + gone * 3, m.position.z + 0.9);
+          tg.material.opacity = 1 - gone;
+        }
+      }
+    }
+  }
+
+  function step(k, title, html, opt) {
+    opt = opt || {};
+    return {
+      title: title, html: html, camera: opt.camera || look(k), show: opt.show,
+      update: function (g, t) { tick(g, t, k); if (opt.extra) opt.extra(g, t); },
+    };
+  }
+
+  GameGuide.start({
+    title: 'HeifToPng データの流れ',
+    back: 'index.html',
+    subtitle: '変換元 → HEIFを集める → 作業員に配る → 復号 → 撮影情報を消す → PNGに書く → 集計。ブロックが流れていく',
+    camera: { pos: [30, 40, 44], target: [30, 0, 1] },
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 120;
+      var titles = ['⓪ 変換元', '① HEIFを集める', '② 作業員に配る(並列4)', '③ libheifで復号', '④ 撮影情報を消す', '⑤ PNGに書く ⑥ 集計'];
+      for (var k = 0; k <= 5; k++) {
+        g.plate({ id: 'st' + k, size: [10, 14], pos: [SX * k, 0.03, 0], color: '#211e33', label: titles[k], labelSize: 0.5, labelOffset: [0, 0.3, -7.4], labelColor: '#ffffff' });
+        if (k < 5) {
+          g.arrow([SX * k + 5.2, 0.4, 0], [SX * (k + 1) - 5.2, 0.4, 0], { id: 'ar' + k, color: C.gold, lift: 0.4, head: 0.35 });
+          g.flow([SX * k + 5.2, 0.4, 0], [SX * (k + 1) - 5.2, 0.4, 0], { id: 'fl' + k, color: C.data, lift: 0.4, count: 4, size: 0.1 });
+        }
+      }
+      // ⓪ 変換元の3件
+      ['フォルダ  P:\\Photos\\2024_旅行', 'フォルダ  P:\\Photos\\運動会', 'ファイル  P:\\Photos\\IMG_0100.HEIC'].forEach(function (s, j) {
+        g.plate({ id: 'src' + j, size: [9, 2.6], pos: [0, 0.07, SRC_Z[j]], color: '#3a3560', label: s, labelSize: 0.3, labelOffset: [-1.2, 0.3, -1.6] });
+      });
+      // ② 作業員(並列4)のレーン
+      LANE_Z.forEach(function (z, j) {
+        g.plate({ id: 'lane' + j, size: [9, 2.4], pos: [SX * 2, 0.07, z], color: '#3a3560', label: '作業員 ' + (j + 1), labelSize: 0.3, labelOffset: [-3.6, 0.3, -1.5] });
+        g.plate({ id: 'laneD' + j, size: [9, 2.4], pos: [SX * 3, 0.07, z], color: '#2f2b4d' });
+        g.plate({ id: 'laneM' + j, size: [9, 2.4], pos: [SX * 4, 0.07, z], color: '#2f2b4d' });
+      });
+      // ⑤⑥ 出力先と集計
+      g.plate({ id: 'out', size: [9, 8.6], pos: [SX * 5, 0.07, 0], color: '#2b3a3a', label: '元と同じフォルダに IMG_xxxx.png', labelSize: 0.3, labelOffset: [0, 0.3, 4.8] });
+      g.box({ id: 'tally', size: [5.2, 2.6, 0.3], pos: [SX * 5 + 7.6, 1.6, 0], color: '#2d2944', emissive: C.good, emissiveIntensity: 0.25, radius: 0.08, edgeColor: C.good,
+        label: '完了: 対象 7 件\n変換 5 / スキップ 1 / 失敗 1', labelSize: 0.34, labelOffset: [0, 2.0, 0], labelBg: '#000000cc' });
+
+      // ファイルのブロック
+      for (var i = 0; i < F.length; i++) {
+        var m = g.box({ id: 'f' + i, size: [1.2, 0.3, 0.9], pos: P(0, i), color: '#3a3656', radius: 0.06, edgeColor: '#ffffff',
+          label: F[i].l, labelSize: 0.22, labelOffset: [0, 0.75, 0], labelBg: '#000000aa' });
+        files.push(m);
+        if (F[i].why) {
+          var w = P(F[i].d, i);
+          g.label(F[i].why, [w[0], 2.1, w[2]], { id: 'why' + i, size: 0.24, color: F[i].bad === '#6b6788' ? '#c9c4e6' : F[i].bad, bg: '#000000cc' });
+        }
+        if (F[i].d === 99) {
+          var q = P(5, i);
+          g.label(F[i].l.split('\n')[0] + '.png', [q[0], 1.9, q[2]], { id: 'png' + i, size: 0.26, color: '#ffffff', bg: '#1d5c46dd' });
+          var row = [];
+          for (var j = 0; j < TAGS.length; j++) {
+            var tg = g.box({ id: 'tag' + i + '-' + j, size: [0.4, 0.22, 0.06], pos: [0, 0, 0], color: TAGS[j][1], emissive: TAGS[j][1], emissiveIntensity: 0.4, opacity: 0.99, edges: false });
+            row.push(tg);
+          }
+          tags[i] = row;
+        }
+      }
+      g.label('タグ: 赤=GPS(撮影場所) / 橙=EXIF / 黄=XMP / 緑=ICC(色)', [SX * 4, 0.6, 7.6], { id: 'tag-legend', size: 0.3, color: '#ffffff', bg: '#000000aa' });
+
+      // 速さ比べ(最後のステップだけ見せる)。実写真40枚(4032x2268)の実測
+      var chart = g.group('chart', { pos: [SX * 2.5, 0, 30] });
+      var BARS = [['WIC\n並列1', 95, '#6b6788'], ['WIC\n並列4', 82, '#8a86a8'], ['Magick.NET\n並列1', 45, C.data], ['Magick.NET\n並列4', 16, C.good]];
+      BARS.forEach(function (b, j) {
+        var h = b[1] * 0.07;
+        g.box({ id: 'bar' + j, parent: 'chart', size: [1.6, h, 1.2], pos: [-5.4 + j * 3.6, h / 2, 0], color: b[2], emissive: b[2], emissiveIntensity: 0.25, radius: 0.06,
+          label: b[0] + '\n' + b[1] + ' 秒', labelSize: 0.3, labelOffset: [0, h / 2 + 0.9, 0], labelBg: '#000000cc' });
+      });
+      g.label('40枚の変換にかかった秒数(実測・少ないほど速い)', [0, 8.6, 0], { id: 'chart-title', parent: 'chart', size: 0.4, color: '#ffffff' });
+    },
+
+    steps: [
+      step(0, '全体の流れ',
+        '<p>HeifToPng の中では、ファイルが次の順に流れます(色つきブロック=ダミーのファイル8個)。</p>' +
+        '<ol><li><b>変換元</b>(画面のリスト)</li><li><b>HEIFを集める</b>(サブフォルダをたどって、対象外を外す)</li><li><b>作業員に配る</b>(並列数のぶん同時に動く)</li>' +
+        '<li><b>libheifで復号</b>(圧縮された HEVC → 画素)</li><li><b>撮影情報を消す</b>(色のプロファイル以外)</li><li><b>PNGに書く</b> → <b>集計</b></li></ol>' +
+        '<p>ドラッグで回転、ホイールで拡大できます。各ステップでカメラがその工程へ寄ります。</p>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>Run</code></p>',
+        { camera: { pos: [30, 40, 44], target: [30, 0, 1] } }),
+      step(0, '⓪ 変換元',
+        '<p>画面の「変換元」に入れた<b>フォルダとファイル</b>が出発点です。ここではフォルダ2つ(<code>2024_旅行</code> / <code>運動会</code>)と、ファイル1つ(<code>IMG_0100.HEIC</code>)。</p>' +
+        '<p>変換開始を押すと、リストの中身・オプションを <code>ConvertOptions</code> にまとめて、<code>Task.Run</code> で別スレッドの <code>HeifConverter.Run</code> に渡します。画面のスレッドは待つだけなので固まりません。</p>' +
+        '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ConvertButton_Click</code>、<code>HeifConverter.cs</code> の <code>ConvertOptions</code></p>'),
+      step(1, '① HEIFを集める(PlanJobs)',
+        '<p><code>PlanJobs</code> が変換元を順に見て、<b>変換予定(ConvertJob)の一覧</b>を作ります。</p>' +
+        '<ul><li>フォルダは<b>自前でたどる</b>(読めないフォルダが1つあっても全体を止めず、ログに出して続ける)</li>' +
+        '<li>拡張子が <code>.heic</code> / <code>.heif</code> / <code>.hif</code>(大文字小文字は問わない)以外は外す → <code>メモ.jpg</code> は<b>対象外</b></li>' +
+        '<li>同じファイルが2回出てきたら1回だけ</li>' +
+        '<li>できあがりの名前がぶつかる(<code>x.heic</code> と <code>x.heif</code>)ときは、後の方に「重なる」印を付けておく</li></ul>' +
+        '<p>この間、件数をステータスバーに出します(<code>HEIFファイルを探しています… 37 件</code>)。</p>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>PlanJobs</code> / <code>EnumerateHeifFiles</code> / <code>IsHeif</code></p>'),
+      step(2, '② 作業員に配る(Parallel.ForEach)',
+        '<p>集めた一覧を <code>Parallel.ForEach</code> で<b>並列数(既定4)の作業員</b>に配ります。作業員はそれぞれ1枚ずつ、復号→書き出しまでを受け持ちます。</p>' +
+        '<p>作業員は最初に<b>出力先に同じ名前の PNG があるか</b>を見て、あって「上書き」がOFFなら<b>何もしないでスキップ</b>(<code>IMG_0030</code>)。中止して再開したとき、終わった分を飛ばせるのはこのためです。</p>' +
+        '<p>中止ボタンは <code>CancellationToken</code> で伝わり、<b>まだ配っていない分</b>を配らなくなります(作業中の1枚は最後まで終わらせる)。</p>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>Run</code> / <code>ConvertFile</code>(冒頭のスキップ判定)</p>'),
+      step(3, '③ libheifで復号',
+        '<p>HEIF の中身は <b>HEVC(H.265)で圧縮された画像</b>です。<code>new MagickImage(path)</code> で、Magick.NET に入っている <b>libheif + libde265</b> が画素に戻します(薄い板 → 色のついた厚い板)。</p>' +
+        '<ul><li>iPhone の写真は 512×512 のタイルに分かれていて、libheif が並べ直して1枚にする</li>' +
+        '<li><b>回転(irot)・反転(imir)</b>も libheif が済ませてくれる → 縦の写真(<code>IMG_0002</code>)も正しい向き。EXIF の向きでもう一度回すと二重に回るので、こちらでは回さない</li>' +
+        '<li>読めないもの(<code>IMG_0013_壊れ</code>)は <code>MagickException</code> → 「画像として読めません」と<b>失敗</b>に数えて、次のファイルへ</li></ul>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>ConvertFile</code> / <code>DescribeFailure</code></p>'),
+      step(4, '④ 撮影情報を消す(色は残す)',
+        '<p>復号した写真には、<b>撮影情報</b>がついてきます。ImageMagick は何もしないと、これを PNG の <code>eXIf</code> チャンクと<b>60個以上の tEXt チャンク</b>(<code>exif:GPSLatitude</code> など)に書き出してしまいます。</p>' +
+        '<p><code>RemoveMetadataExceptColor</code> で、<b>ICC(色のプロファイル)以外のプロファイルと属性を全部消し</b>ます。</p>' +
+        '<table><tr><th>タグ</th><th>扱い</th></tr>' +
+        '<tr><td>GPS(撮影場所)・EXIF(機種・日時)・XMP</td><td>消す → PNG を人に渡しても撮影場所が伝わらない</td></tr>' +
+        '<tr><td>ICC(Display P3 などの色)</td><td>残す → PNG の <code>iCCP</code> に入り、色が薄くならない</td></tr></table>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>RemoveMetadataExceptColor</code></p>'),
+      step(5, '⑤ PNGに書く',
+        '<p>PNG は <b><code>IMG_xxxx.png.tmp</code> に書き切ってから、本物の名前に置き換え</b>ます(<code>AtomicFile.Write</code>)。中止やエラーで止まっても、<b>書きかけの PNG が残りません</b>。一時ファイルの拡張子は <code>.tmp</code> なので、形式は <code>MagickFormat.Png</code> で明示します。</p>' +
+        '<p><b>圧縮レベルは1</b>(0〜9)。ImageMagick の既定だと書き出しに約5秒/枚かかったのが、約0.8秒/枚になります。サイズは既定より2割ほど増えますが、以前の WIC 版より小さいです。</p>' +
+        '<p>「日時を元ファイルに合わせる」がONなら、最後に PNG の作成日時・更新日時を元の HEIF と同じにします。</p>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>ConvertFile</code>(<code>_pngCompressionLevel</code>)、<code>_Common/AtomicFile.cs</code></p>'),
+      step(6, '⑥ 集計して画面へ',
+        '<p>作業員は1枚終わるごとに、<code>lock</code> の中で「済んだ件数」と失敗を記録します。進み具合は <code>IProgress&lt;ConvertProgress&gt;</code> で画面へ送りますが、<b>100ミリ秒に1回に間引き</b>ます(数千件で画面が詰まらないように)。</p>' +
+        '<p>全部終わると <code>ConvertResult</code>(対象・変換・スキップ・失敗の一覧・中止したか)が画面に戻り、ログとステータスバーに出ます。失敗の一覧は、並列で終わった順ではなく<b>パス順</b>に並べ直します。</p>' +
+        '<p>この例では <code>完了: 対象 7 件 / 変換 5 / スキップ 1 / 失敗 1</code>(<code>メモ.jpg</code> は最初から数えない)。</p>' +
+        '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>Run</code> / <code>ConvertResult</code>、<code>MainWindow.xaml.cs</code> の <code>ShowProgress</code> / <code>ShowResult</code></p>',
+        { show: ['tally'] }),
+      step(6, 'おまけ: なぜ Magick.NET なのか(速さ比べ)',
+        '<p>最初の版は、Windows の <b>WIC</b>(「HEIF 画像拡張機能」)で読んでいました。追加の部品が要らないのが利点でしたが、<b>WIC の HEIF デコーダーはプロセスの中で1枚ずつしか動かず</b>、並列にしても速くなりませんでした(4並列にすると1枚あたりの時間が4倍に伸びるだけ)。</p>' +
+        '<p>そこで <b>Magick.NET</b>(ImageMagick の .NET 版。libheif 入り)に替えました。実写真40枚(4032×2268)での実測:</p>' +
+        '<table><tr><th></th><th>並列1</th><th>並列4</th></tr><tr><td>WIC</td><td>95 秒</td><td>82 秒</td></tr><tr><td>Magick.NET</td><td>45 秒</td><td><b>16 秒</b></td></tr></table>' +
+        '<p>代わりに exe の横に dll が約27MB増えますが、Windows の拡張機能を入れなくても動くようになりました。変換結果は、別の libheif(pillow-heif)で読んだ画素と<b>完全に一致</b>することを確かめています。</p>' +
+        '<p class="gg-files">📄 <code>HeifToPng.csproj</code>(<code>Magick.NET-Q8-x64</code> 14.17.2)</p>',
+        { show: ['chart'], camera: { pos: [SX * 2.5, 6, 46], target: [SX * 2.5, 3.6, 30] } }),
+    ],
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeifToPng 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:     { y: 12, color: C.third,   name: '画面層\n(WPF)' },
+    set:    { y: 8,  color: C.server,  name: '設定層\n(前回の入力・保存先)' },
+    conv:   { y: 4,  color: C.good,    name: '変換層\n(HeifConverter.cs)' },
+    common: { y: 0,  color: C.data,    name: '共通部品\n(_Common)' },
+    ext:    { y: -4, color: C.neutral, name: '外部ライブラリ・OS' }
+  };
+  // 部品の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    ['app', 'App.xaml(.cs)\n(起動・例外の受け止め)', 'ui', -9, 0],
+    ['xaml', 'MainWindow.xaml\n(リスト・オプション・ログ)', 'ui', -2.5, 0],
+    ['main', 'MainWindow.xaml.cs\nConvertButton_Click / AddSources\nShowProgress / ShowResult', 'ui', 5, 0],
+    ['close', 'Window_Closing\n(中止を待ってから閉じる)', 'ui', 12, 0],
+
+    ['settings', 'AppSettings\n(settings.json)', 'set', -6, 0],
+    ['location', 'UserDataLocation\n(DataFolder.txt)', 'set', 0.5, 0],
+    ['folderMenu', 'DataFolderMenu /\nWpfDataFolderMenu\n(保存先の変更)', 'set', 7, 0],
+
+    ['run', 'Run\n(全体の段取り・集計)', 'conv', -10, -2.2],
+    ['plan', 'PlanJobs /\nEnumerateHeifFiles\n(HEIFを集める)', 'conv', -4, -2.2],
+    ['file', 'ConvertFile\n(1枚を変換)', 'conv', 2, -2.2],
+    ['meta', 'RemoveMetadataExceptColor\n(ICC以外を消す)', 'conv', 8.5, -2.2],
+    ['fail', 'DescribeFailure\n(失敗を日本語に)', 'conv', 14.5, -2.2],
+    ['dto', 'ConvertOptions / ConvertJob\nConvertProgress / ConvertResult', 'conv', -7, 2.2],
+    ['out', 'IsHeif / GetOutputPath\n(拡張子・出力名)', 'conv', 1, 2.2],
+
+    ['atomic', 'AtomicFile\n(.tmp に書いて置き換え)', 'common', -3, 0],
+    ['guard', 'StcWpfExceptionGuard\n(想定外の例外を表示)', 'common', 5, 0],
+
+    ['magick', 'Magick.NET-Q8-x64\n(libheif / libde265 / PNG)', 'ext', -10, 0],
+    ['tpl', '.NET\nTask.Run / Parallel.ForEach\nProgress<T>', 'ext', -3.5, 0],
+    ['json', 'Newtonsoft.Json', 'ext', 3, 0],
+    ['fs', 'ファイルシステム\n(読む・書く・日時)', 'ext', 9, 0],
+    ['dlg', 'FolderBrowserDialog /\nWindowsAPICodePack', 'ext', 15, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id) { var p = POS[id]; return [p[0], p[1] + 0.45, p[2]]; }
+
+  // 依存の矢印 [from, to, 色]
+  var DEPS = [
+    ['main', 'run', C.gold], ['main', 'settings', '#7ef0ff'], ['main', 'folderMenu', '#7ef0ff'], ['main', 'dlg', '#b8b2d6'],
+    ['settings', 'json', '#b8b2d6'], ['folderMenu', 'location', '#7ef0ff'],
+    ['run', 'plan', '#5ee6a8'], ['run', 'file', '#5ee6a8'], ['run', 'fail', '#5ee6a8'], ['run', 'tpl', '#b8b2d6'],
+    ['file', 'meta', '#5ee6a8'], ['file', 'atomic', '#7ef0ff'], ['file', 'magick', '#b8b2d6'], ['meta', 'magick', '#b8b2d6'],
+    ['plan', 'out', '#5ee6a8'], ['plan', 'fs', '#b8b2d6'], ['atomic', 'fs', '#b8b2d6'], ['app', 'guard', '#7ef0ff']
+  ];
+
+  GameGuide.start({
+    title: 'HeifToPng 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・クラスと関数の責務・依存の向き(実際の名前)',
+    camera: { pos: [2, 22, 36], target: [2, 4, 0] },
+    floor: false,
+
+    build: function (g) {
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [34, 7], pos: [2.5, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-16.5, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [5, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.3, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+      // スレッドの流れ(手順2でだけ見せる)
+      g.flow(top('main'), top('run'), { id: 'thr-1', color: C.gold, lift: 2.2, count: 6, size: 0.12 });
+      g.flow(top('run'), top('main'), { id: 'thr-2', color: C.data, lift: 3.2, count: 6, size: 0.12 });
+      g.label('Task.Run で別スレッドへ', [-3, 10.6, 0], { id: 'thr-l1', size: 0.3, color: C.gold, bg: '#000000cc' });
+      g.label('IProgress で進み具合が戻る\n(100ms に1回)', [2, 12.2, -2.5], { id: 'thr-l2', size: 0.3, color: C.data, bg: '#000000cc' });
+      // テスト(手順6でだけ見せる)
+      g.box({ id: 'tests', size: [6.2, 1.2, 2.6], pos: [21.5, 4.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'HeifToPng.Tests (MSTest 14件)\nHeifConverterTests\nTestData: landscape / rotated90\ntenbit / withexif .heic', labelSize: 0.26, labelOffset: [0, 2.0, 0], labelBg: '#000000cc' });
+      g.arrow([18.3, 4.8, 0], [11.5, 4.9, -2.2], { id: 'dep-tests', color: C.gold, lift: 1.6, head: 0.25, label: 'internal を直接呼ぶ', labelSize: 0.26 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 22, 36], target: [2, 4, 0] },
+        update: function (g, t) { g.pulse('file', t, 0.04); },
+        html:
+          '<p>HeifToPng は C# / WPF(.NET Framework 4.8・x64)の小さなツールで、<b>画面</b>と<b>変換</b>をはっきり分けています。変換側(<code>HeifConverter</code>)は画面のことを何も知らないので、テストから直接呼べます。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>画面層</td><td><code>MainWindow</code>(リスト・オプション・ログ・ボタンの処理)と <code>App</code></td></tr>' +
+          '<tr><td>設定層</td><td>前回の入力(<code>settings.json</code>)と、その置き場所</td></tr>' +
+          '<tr><td>変換層</td><td><code>HeifConverter</code>(静的クラス)と、受け渡し用の小さなクラス4つ</td></tr>' +
+          '<tr><td>共通部品</td><td>Essentials の他のツールと共有する <code>_Common</code>(サブモジュール)</td></tr>' +
+          '<tr><td>外部</td><td>Magick.NET(HEIF の読み込みと PNG の書き出し)・.NET の並列処理・JSON・OS</td></tr></table>' +
+          '<p>矢印は「呼ぶ側 → 呼ばれる側」。上の層から下の層へだけ向いています。</p>',
+      },
+      {
+        title: '1. 画面層: MainWindow',
+        camera: { pos: [2, 19, 25], target: [2, 10.5, 0] },
+        focus: ['app', 'xaml', 'main', 'close', 'L-ui', 'Ln-ui'],
+        html:
+          '<p><code>MainWindow.xaml.cs</code> は、ボタンとリストの処理だけを持ちます。</p>' +
+          '<ul><li><code>AddSources</code>: フォルダ・ファイルをリストに足す(フルパスにそろえて重複は足さない)。ボタン・ドラッグ＆ドロップ共通</li>' +
+          '<li><code>ConvertButton_Click</code>: 入力を <code>ConvertOptions</code> にまとめて <code>HeifConverter.Run</code> を <code>Task.Run</code> で呼ぶ(<code>async</code>)</li>' +
+          '<li><code>UpdateControlState</code>: 変換中はリスト・オプション・変換開始を押せなくし、中止だけ押せるようにする</li>' +
+          '<li><code>ShowProgress</code> / <code>ShowResult</code>: ステータスバー・プログレスバー・ログへ出す</li>' +
+          '<li><code>Window_Closing</code>: 変換中なら確認して、<b>中止が終わってから</b>閉じ直す(<code>_closeRequested</code>)。すぐ閉じると作業中のスレッドが <code>.png.tmp</code> を残すため</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code> / <code>App.xaml.cs</code></p>',
+      },
+      {
+        title: '2. スレッドのつなぎ方',
+        camera: { pos: [0, 17, 30], target: [0, 7.5, 0] },
+        show: ['thr-1', 'thr-2', 'thr-l1', 'thr-l2'],
+        focus: ['main', 'run', 'tpl', 'thr-1', 'thr-2', 'thr-l1', 'thr-l2'],
+        html:
+          '<ol><li>画面のスレッドが <code>await Task.Run(() =&gt; HeifConverter.Run(options, progress, token))</code></li>' +
+          '<li><code>Run</code> がまず <code>PlanJobs</code> で一覧を作り(1本のスレッド)、次に <code>Parallel.ForEach</code>(<code>MaxDegreeOfParallelism</code> = 並列数)で1枚ずつ <code>ConvertFile</code></li>' +
+          '<li>件数や失敗は <code>lock</code> と <code>Interlocked</code> で数え、<code>IProgress&lt;ConvertProgress&gt;</code> で画面へ。<code>Progress&lt;T&gt;</code> が画面のスレッドに戻してくれるので、画面側は普通にコントロールを触れる</li>' +
+          '<li>中止は <code>CancellationTokenSource.Cancel()</code> → <code>ParallelOptions.CancellationToken</code> が新しい1枚を配らなくなり、<code>OperationCanceledException</code> を受けて <code>Cancelled = true</code></li></ol>' +
+          '<div class="gg-note">進み具合は100ミリ秒に1回に間引くので、画面に届くのが変換の終了より遅れることがあります。<code>ShowProgress</code> は <code>_isConverting</code> を見て、終わった後に届いた古い通知を捨てます。</div>' +
+          '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>Run</code>、<code>MainWindow.xaml.cs</code> の <code>ConvertButton_Click</code> / <code>ShowProgress</code></p>',
+      },
+      {
+        title: '3. 変換層: 1枚を変換する',
+        camera: { pos: [4, 13, 25], target: [4, 2.5, 0] },
+        focus: ['file', 'meta', 'out', 'atomic', 'magick', 'fs', 'L-conv', 'Ln-conv'],
+        html:
+          '<p><code>ConvertFile(sourcePath, outputPath, overwrite, keepTimestamps)</code> の中身:</p>' +
+          '<ol><li>出力先に PNG があって上書きしないなら <code>JobOutcome.Skipped</code></li>' +
+          '<li><code>new MagickImage(sourcePath)</code> で読む(形式は中身から判断。回転は libheif が適用済み)</li>' +
+          '<li><code>RemoveMetadataExceptColor</code>: <code>ProfileNames</code> から <code>icc</code> 以外を <code>RemoveProfile</code>、<code>AttributeNames</code> を全部 <code>RemoveAttribute</code>(プロファイルを消しても <code>exif:GPSLatitude</code> などが属性として残り、tEXt になるため)</li>' +
+          '<li><code>compression-level=1</code> を設定して、<code>AtomicFile.Write</code> の一時ファイルへ <code>image.Write(tempPath, MagickFormat.Png)</code></li>' +
+          '<li>必要なら <code>File.SetCreationTimeUtc</code> / <code>SetLastWriteTimeUtc</code> で日時を写す</li></ol>' +
+          '<p>出力名は <code>GetOutputPath</code>(<code>Path.ChangeExtension(path, ".png")</code>)。拡張子の判定は <code>IsHeif</code>(<code>.heic</code> / <code>.heif</code> / <code>.hif</code>、大文字小文字を問わない)。</p>' +
+          '<p class="gg-files">📄 <code>HeifConverter.cs</code>、<code>_Common/AtomicFile.cs</code></p>',
+      },
+      {
+        title: '4. 設定層: 前回の入力と保存先',
+        camera: { pos: [1, 15, 25], target: [1, 6.5, 0] },
+        focus: ['settings', 'location', 'folderMenu', 'json', 'main', 'L-set', 'Ln-set'],
+        html:
+          '<p><code>AppSettings</code> は、変換元のリスト・サブフォルダ・上書き・日時・並列数の5つだけを持つクラスです。起動時に <code>Load</code>、閉じるときに <code>Save</code>(Newtonsoft.Json)。壊れていたら既定値で起動します。</p>' +
+          '<p>置き場所は Essentials の他のツールと同じ仕組み:</p>' +
+          '<ul><li><code>UserDataLocation.GetUserDataFolder("HeifToPng")</code> が、exe の横の <b><code>DataFolder.txt</code>(案内板)</b>を読んで実際のフォルダを決める(既定 <code>%LOCALAPPDATA%\\HeifToPng</code>)</li>' +
+          '<li><code>WpfDataFolderMenu.Attach</code> がタイトルバーの右クリックメニューに「データ保存先を変更」を足し、<code>DataFolderMenu.ChangeDataFolder</code> が引っ越しを受け持つ</li></ul>' +
+          '<p class="gg-files">📄 <code>AppSettings.cs</code>、<code>_Common/UserDataLocation.cs</code> / <code>DataFolderMenu.cs</code> / <code>Wpf/WpfDataFolderMenu.cs</code></p>',
+      },
+      {
+        title: '5. 失敗の扱い',
+        camera: { pos: [4, 13, 26], target: [4, 3.5, -1] },
+        focus: ['run', 'plan', 'file', 'fail', 'L-conv', 'Ln-conv'],
+        html:
+          '<p>1枚の失敗で全体を止めず、<b>理由を記録して次へ</b>進みます。</p>' +
+          '<table><tr><th>起きること</th><th>扱い</th></tr>' +
+          '<tr><td>フォルダが読めない(権限など)</td><td><code>EnumerateHeifFiles</code> が「フォルダを読めません」と記録して、他のフォルダは続ける</td></tr>' +
+          '<tr><td>変換元が見つからない</td><td><code>PlanJobs</code> が「見つかりません」と記録</td></tr>' +
+          '<tr><td>出力名がぶつかる</td><td><code>ConvertJob.Conflict</code> に理由を入れておき、変換しないで失敗に数える</td></tr>' +
+          '<tr><td>読めない・壊れている</td><td><code>MagickException</code> → <code>DescribeFailure</code> が「画像として読めません(…)」に言い換える(ImageMagick のエラー文は英語で長いため)</td></tr>' +
+          '<tr><td>書けない(使用中・権限)</td><td><code>IOException</code> / <code>UnauthorizedAccessException</code> のメッセージをそのまま記録</td></tr></table>' +
+          '<p>それ以外の想定外の例外は、<code>App</code> で入れている <code>StcWpfExceptionGuard</code> が受け止めて表示します。</p>' +
+          '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>Run</code> / <code>DescribeFailure</code>、<code>_Common/StcWpfExceptionGuard.cs</code></p>',
+      },
+      {
+        title: '6. テスト',
+        camera: { pos: [15, 11, 22], target: [15, 4.5, 0] },
+        show: ['tests', 'dep-tests'],
+        html:
+          '<p><code>Tests/HeifToPng.Tests</code>(MSTest)の <code>HeifConverterTests</code> が、<code>InternalsVisibleTo</code> で <code>HeifConverter</code> を直接呼びます(14件)。</p>' +
+          '<ul><li>拡張子・出力名、サブフォルダのON/OFF、同じファイルの重複、出力名のぶつかり</li>' +
+          '<li>本物の小さな HEIC で変換: 色(左が赤・右が青)、<b>縦向きの画像が正しい向き</b>、10bit の画像、既存 PNG のスキップと上書き、日時のコピー</li>' +
+          '<li><b>撮影情報を残さない</b>: ダミーの GPS 座標入りの HEIC を変換して、PNG に <code>eXIf</code> / <code>tEXt</code> が無く <code>iCCP</code> がある</li>' +
+          '<li>まとめて <code>Run</code>: 変換・スキップ・失敗の数、壊れたファイルで PNG が残らない、中止</li></ul>' +
+          '<p>テスト用の HEIC(<code>TestData</code>)は、Python の pillow-heif で作った 64×32 の単色の絵です(WPF からは HEIF を書けないため)。</p>' +
+          '<p class="gg-files">📄 <code>Tests/HeifToPng.Tests/HeifConverterTests.cs</code></p>',
+      },
+      {
+        title: '7. ファイル一覧',
+        camera: { pos: [2, 22, 36], target: [2, 4, 0] },
+        html:
+          '<table><tr><th>ファイル</th><th>役割</th></tr>' +
+          '<tr><td><code>HeifToPng.csproj</code></td><td>SDK 形式・net48・x64。Magick.NET-Q8-x64 14.17.2 / Newtonsoft.Json / WindowsAPICodePack-Shell、<code>_Common</code> のファイルをリンク</td></tr>' +
+          '<tr><td><code>App.xaml(.cs)</code></td><td>起動。例外ガードを入れる</td></tr>' +
+          '<tr><td><code>MainWindow.xaml(.cs)</code></td><td>画面とその処理</td></tr>' +
+          '<tr><td><code>HeifConverter.cs</code></td><td>変換のすべて(<code>ConvertOptions</code> / <code>ConvertProgress</code> / <code>ConvertResult</code> / <code>ConvertJob</code> / <code>JobOutcome</code> も)</td></tr>' +
+          '<tr><td><code>AppSettings.cs</code></td><td>前回の入力</td></tr>' +
+          '<tr><td><code>Properties/AssemblyInfo.cs</code></td><td>バージョンなど。テストに internal を見せる</td></tr>' +
+          '<tr><td><code>bin/Release/</code></td><td>ビルド済みの exe と dll(<code>Magick.Native-Q8-x64.dll</code> が約24MB)</td></tr></table>' +
+          '<p>ビルドは <code>dotnet build HeifToPng.sln -c Release</code>、テストは <code>dotnet test</code>。</p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

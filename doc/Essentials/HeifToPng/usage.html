@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeifToPng 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+<script src="hp-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var X0 = -5.6, X1 = 5.6, XD = 15.2;    // スクショパネルの中心x(左から 起動直後 / 変換が終わったところ / 結果ダイアログ)
+  var OVERVIEW = { pos: [3.8, 5, 31], target: [3.8, 3.9, 0] };
+
+  GameGuide.start({
+    title: 'HeifToPng 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面で、フォルダを入れる → 変換開始 → 結果を確かめる、までを1歩ずつ',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      HP.panel(g, 'p-start', 'start', X0);
+      HP.panel(g, 'p-done', 'done', X1);
+      HP.panel(g, 'p-dialog', 'dialog', XD, 5.2, 4.2, 0.2);
+      g.label('① 起動直後\n(変換元を入れた状態)', [X0, HP.H + 1.5, 0.3], { size: 0.5, color: '#fff' });
+      g.label('② 変換が終わったところ', [X1, HP.H + 1.5, 0.3], { size: 0.5, color: '#fff' });
+      g.label('③ 失敗があったときの\n知らせ', [XD, 7.6, 0.3], { size: 0.42, color: '#fff' });
+      g.arrow([X0 + 3.9, 6.5, 0.3], [X1 - 4.1, 6.5, 0.3], { color: C.gold, lift: 0.9, label: '変換開始', labelSize: 0.3 });
+      g.arrow([X1 + 5, 5.4, 0.3], [XD - 2.8, 5.4, 0.3], { color: C.gold, lift: 0.5, head: 0.22 });
+
+      // ステップごとに出す注目枠（ピクセルはスクショ上の座標）
+      HP.hl(g, 'h-src', X0, 58, 39, 697, 158);
+      HP.hl(g, 'h-btns', X0, 704, 39, 804, 138, C.good);
+      HP.hl(g, 'h-opts', X0, 58, 168, 657, 188);
+      HP.hl(g, 'h-run', X0, 58, 197, 206, 221, C.good);
+      HP.hl(g, 'h-note', X0, 214, 197, 730, 221);
+      HP.hl(g, 'h-log', X1, 18, 238, 802, 520);
+      HP.hl(g, 'h-fail', X1, 22, 267, 797, 287, C.enemy);
+      HP.hl(g, 'h-sum', X1, 22, 288, 420, 307, C.good);
+      HP.hl(g, 'h-status', X1, 8, 532, 808, 552, C.good);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p><b>HeifToPng</b> は、iPhone などで撮った <b>HEIF 画像</b>(<code>.heic</code> / <code>.heif</code> / <code>.hif</code>)を、フォルダごとまとめて <b>PNG</b> に変換する Windows アプリ(WPF)です。</p>' +
+          '<ol><li>変換したいフォルダ・ファイルを入れる</li><li>オプションを決める</li><li>「変換開始」</li><li>ログで結果を確かめる</li></ol>' +
+          '<p>PNG は<b>元のファイルと同じフォルダに、同じ名前(拡張子だけ .png)</b>で作ります。<b>元の HEIF はそのまま残します</b>。</p>' +
+          '<p>写っているのは、このガイド用に作った<b>ダミーの写真フォルダ</b>(<code>P:\\Photos</code>、グラデーションの絵だけ)です。ドラッグで回転、ホイールで拡大できます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: '1. 変換元を入れる',
+        camera: HP.cam(X0, 430, 100, 8.6),
+        show: ['h-src', 'h-btns'],
+        html:
+          '<p>上の「変換元」に、変換したい<b>フォルダ</b>や<b>ファイル</b>を登録します。混ぜて何件でも入れられます。</p>' +
+          '<ul><li><b>フォルダを追加…</b> / <b>ファイルを追加…</b>(ファイルは複数選べます)</li>' +
+          '<li>エクスプローラーから<b>ウィンドウへドラッグ＆ドロップ</b>(フォルダもファイルも、複数可)</li>' +
+          '<li><b>外す</b> / <code>Delete</code> キー / <b>すべて外す</b> でリストから外す(<b>ファイル自体は消えません</b>)</li></ul>' +
+          '<div class="gg-note">HEIF 以外のファイル(<code>.jpg</code> など)を入れても、変換のときに飛ばすだけなので大丈夫です。同じファイルを2回入れても(フォルダとその中のファイル、など)1回だけ変換します。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>AddSources</code> / <code>Window_PreviewDrop</code> / <code>RemoveSelectedSources</code></p>',
+      },
+      {
+        title: '2. オプションを決める',
+        camera: HP.cam(X0, 360, 180, 8.4),
+        show: ['h-opts'],
+        html:
+          '<table><tr><th>項目</th><th>意味</th></tr>' +
+          '<tr><td>サブフォルダも含める</td><td>既定でON。フォルダの中のフォルダも全部たどる</td></tr>' +
+          '<tr><td>同じ名前のPNGがあれば上書きする</td><td>既定でOFF＝<b>もうPNGがあるファイルは飛ばす</b>。途中で中止しても、もう一度押せば続きから再開できる</td></tr>' +
+          '<tr><td>日時を元ファイルに合わせる</td><td>既定でON。PNG の作成日時・更新日時を元の HEIF と同じにする(撮影順に並べたいとき用)</td></tr>' +
+          '<tr><td>並列数</td><td>1/2/4/8/16。同時に変換する枚数。<b>4</b> が既定(6コアのPCでは4以上はほぼ速くならなかった)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>CollectSettings</code>、<code>HeifConverter.cs</code> の <code>ConvertOptions</code></p>',
+      },
+      {
+        title: '3. 変換開始(中止もできる)',
+        camera: HP.cam(X0, 400, 230, 9.6),
+        show: ['h-run', 'h-note'],
+        html:
+          '<p><b>変換開始</b> を押すと、別スレッド(<code>Task.Run</code>)で変換が走るので、画面は固まりません。まずHEIFファイルを探して件数を数え、それから変換します。進み具合は下のステータスバー(<code>変換中… 12 / 37</code>)とプログレスバーに出ます。</p>' +
+          '<p><b>中止</b>を押すと、<b>いま変換中のファイルが終わったところで</b>止まります。書きかけの PNG は残しません(一時ファイル <code>.png.tmp</code> に書いてから置き換えるため)。</p>' +
+          '<div class="gg-note">変換中にウィンドウを閉じようとすると「中止して閉じますか？」と聞きます。「はい」なら中止を待ってから閉じます。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ConvertButton_Click</code> / <code>CancelButton_Click</code> / <code>Window_Closing</code></p>',
+      },
+      {
+        title: '4. 結果を確かめる',
+        camera: { pos: [9.2, 3.8, 18], target: [9.2, 3.6, 0] },
+        show: ['h-log', 'h-fail', 'h-sum', 'h-status'],
+        html:
+          '<p>終わると<b>ログ</b>とステータスバーに結果が出ます。例(ダミー):</p>' +
+          '<p><code>完了: 対象 37 件 / 変換 35 件 / スキップ(PNGあり) 1 件 / 失敗 1 件</code></p>' +
+          '<ul><li><b>スキップ</b> = 同じ名前の PNG がもうあったので飛ばしたもの</li>' +
+          '<li><b>失敗</b> = 読めなかったもの。ログに1件ずつ、パスと理由が出ます(例: <code>画像として読めません(ファイルが壊れているか、中身がHEIFではありません)</code>)</li></ul>' +
+          '<p>失敗があったときだけ、右の<b>知らせ</b>が出ます。ログは選んで <code>Ctrl+C</code>、または右クリック →「選んだ行をコピー」でコピーできます。「ログを消去」で空にもできます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ShowResult</code> / <code>CopySelectedLog</code></p>',
+      },
+      {
+        title: '5. できあがる PNG',
+        camera: HP.cam(X0, 470, 210, 8.8),
+        show: ['h-note'],
+        html:
+          '<table><tr><th>どこに</th><td>元のファイルと<b>同じフォルダ</b>。<code>IMG_0001.HEIC</code> → <code>IMG_0001.png</code></td></tr>' +
+          '<tr><th>向き</th><td>縦に撮った写真も<b>正しい向き</b>で書き出す(HEIF の回転情報を反映済み)</td></tr>' +
+          '<tr><th>色</th><td>写真の<b>カラープロファイル</b>(iPhone なら Display P3)を PNG にも入れるので、色が薄くならない</td></tr>' +
+          '<tr><th>撮影情報</th><td>EXIF・XMP(<b>撮影場所の GPS</b>・カメラの機種・撮影日時など)は <b>PNG に入れない</b>。PNG を人に渡しても撮影場所は伝わらない</td></tr>' +
+          '<tr><th>元のHEIF</th><td><b>そのまま残す</b>(消したり、ごみ箱へ移したりしない)</td></tr></table>' +
+          '<div class="gg-note"><code>IMG_1.heic</code> と <code>IMG_1.heif</code> のように<b>できあがりの名前がぶつかる</b>ときは、先の1つだけ変換し、もう一方は「出力先が重なるため変換しません」とログに出します。</div>' +
+          '<p class="gg-files">📄 <code>HeifConverter.cs</code> の <code>GetOutputPath</code> / <code>ConvertFile</code> / <code>RemoveMetadataExceptColor</code> / <code>PlanJobs</code></p>',
+      },
+      {
+        title: 'おまけ: 前回の設定・動かすのに要るもの',
+        camera: OVERVIEW,
+        html:
+          '<p>終了時に、変換元のリストと各オプションを <code>settings.json</code> へ保存し、次回起動で復元します(壊れていたら既定値で起動)。</p>' +
+          '<p>保存先は既定で <code>%LOCALAPPDATA%\\HeifToPng\\</code>。exe と同じフォルダの <code>DataFolder.txt</code>(1行目が保存先のパス)が指す場所を使います。タイトルバーを右クリック →「データ保存先を変更」で別の場所へ引っ越せます(変換中はできません)。</p>' +
+          '<p>動かすのに要るもの:</p>' +
+          '<ul><li>.NET Framework 4.8、64bit の Windows</li>' +
+          '<li>exe と同じフォルダの dll(<code>Magick.NET-Q8-x64.dll</code> / <code>Magick.NET.Core.dll</code> / <code>Magick.Native-Q8-x64.dll</code> など)。HEIF を読む部品はこの中に入っているので、<b>Windows の「HEIF 画像拡張機能」は入れなくてよい</b></li></ul>' +
+          '<p class="gg-files">📄 <code>AppSettings.cs</code>、<code>_Common/UserDataLocation.cs</code> / <code>DataFolderMenu.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeifToPng ドキュメント</title>
+<link rel="stylesheet" href="../lib/guide.css">
+</head>
+<body>
+<div class="gg-hub">
+  <h1>HeifToPng ドキュメント</h1>
+  <p class="lead">iPhone などで撮った <b>HEIF 画像</b>(.heic / .heif / .hif)を、フォルダごとまとめて <b>PNG</b> に変換するツール「HeifToPng」(C# / WPF)の使い方と仕組みを、Three.js の立体図で1歩ずつ解説します。<br>
+  画面のスクリーンショットは、このガイド用に作った<b>ダミーの写真フォルダ</b>(グラデーションの絵だけ)を使っています。</p>
+
+  <div class="gg-grid">
+    <a class="gg-card" href="usage.html">
+      <div class="t">🖱️ 使い方</div>
+      <div class="tech">Three.js / 実画面のスクリーンショット / 全7ステップ</div>
+      <div class="d">変換元を入れる → オプション → 変換開始・中止 → ログで結果を見る → できあがる PNG(向き・色・撮影情報)。実際の画面を3D空間に並べ、カメラが注目点へ寄ります。</div>
+    </a>
+    <a class="gg-card" href="dataflow.html">
+      <div class="t">🌊 データの流れ</div>
+      <div class="tech">Three.js / ブロックが流れるアニメ / 全9ステップ</div>
+      <div class="d">HEIF を集める → 作業員(並列)に配る → libheif で復号 → 撮影情報(GPS など)を消す → PNG に書く → 集計。WIC から Magick.NET に替えた理由の速さ比べも。</div>
+    </a>
+    <a class="gg-card" href="architecture.html">
+      <div class="t">🧱 内部設計</div>
+      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
+      <div class="d">画面・設定・変換・共通部品・外部の5層と、<code>MainWindow</code> / <code>HeifConverter</code> / <code>AppSettings</code> などの役割、スレッドのつなぎ方、失敗の扱い、テスト。</div>
+    </a>
+  </div>
+
+  <p class="lead" style="margin-top:28px">
+    ソースは <code>Essentials/HeifToPng</code>(共通部品は <code>Essentials/_Common</code>)。
+    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
+    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
+  </p>
+</div>
+</body>
+</html>
