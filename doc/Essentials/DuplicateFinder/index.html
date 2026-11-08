@@ -3,38 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DuplicateFinder ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>DuplicateFinder — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>DuplicateFinder ドキュメント</h1>
-  <p class="lead">重複ファイル削除ツール「DuplicateFinder」(C# / WPF)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
-  フォルダ以下で<b>中身がバイナリまで同じ</b>ファイルを見つけて、残す1件を決めて消すツールです。画面のスクリーンショットは、このガイド用に作った<b>ダミーフォルダ</b>だけを使っています。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全9ステップ</div>
-      <div class="d">フォルダを入れる → 条件を決める → 検索 → 結果の見かた → 自動選択 → 確認して削除。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / ブロックの絞り込みアニメ / 全9ステップ</div>
-      <div class="d">ファイル一覧 → サイズで仲間分け → 先頭と末尾 → 全員同時のチャンク比較 → 重複グループ → 一覧 → 削除。違うと分かった瞬間に読むのをやめるので、大きな動画でも速い理由が見えます。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / クラス構成の3D図 / 全9ステップ</div>
-      <div class="d">画面・画面用モデル・ロジック・外部の4層と、<code>MainWindow</code> / <code>DuplicateScanner</code> / <code>RowMarker</code> などの実際のクラス・ファイルの役割と依存関係。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/DuplicateFinder</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'DuplicateFinder',
+  caption: 'フォルダの中から中身がまったく同じファイルを見つけて、残す1件を決めて消す',
+  lead: 'フォルダ以下（サブフォルダも含む）で、<b>中身がバイナリまで同じ</b>ファイルを探す Windows 用ツールです（C# / WPF）。' +
+        'サイズ → 先頭と末尾 → 中身の順に絞り込み、違うと分かった時点で読むのをやめるので、大きな動画でも速く比べられます。' +
+        '見つかったグループごとに残す1件を決めて、残りを<b>ごみ箱へ</b>移せます。',
+  say: ['バックアップとの二重コピーを片付けたい', '同じ写真・動画がどこにあるか知りたい', 'ディスクの空きを増やしたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/1-start.png', title: '検索する前の画面', cap: '実際の画面（ダミーフォルダで撮影）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: '探すフォルダと条件を決めて「検索開始」を押し、最後に消すものを確かめる人。' },
+    { id: 'ui', type: 'screen', label: 'メイン画面', sub: 'フォルダ・条件', at: [-4.8, -3.6], img: 'img/1-start.png',
+      desc: '対象フォルダ（複数）・最小サイズ・拡張子・隠しファイルの除外・同時比較数を入れる画面。下に結果の一覧が出る。' },
+    { id: 'settings', type: 'store', label: 'settings.json', sub: '前回の設定', at: [-4.8, 3.6],
+      desc: 'フォルダ・条件・自動選択ルール・「ごみ箱へ移動」の状態。既定の置き場は <code>%LOCALAPPDATA%\\DuplicateFinder\\</code>。' },
+    { id: 'app', type: 'main', label: 'DuplicateFinder', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。検索を別スレッドで起こし、結果をグループつきの一覧にする。' },
+    { id: 'disk', type: 'os', label: 'ファイル', sub: '対象フォルダ', at: [0, -5],
+      desc: '探す相手。最初は名前・サイズ・更新日時だけを見て、中身は必要になったぶんだけ読む。' },
+    { id: 'scanner', type: 'code', label: 'DuplicateScanner', sub: '絞り込み', at: [4.8, -3.4],
+      desc: '重複を探す本体。サイズで仲間分けし、先頭64KB＋末尾64KB、残りはチャンクずつ全員同時に読んでバイト単位で比べる。' },
+    { id: 'groups', type: 'data', label: '重複グループ', at: [8.8, -0.6],
+      desc: '最後まで一致したファイルのまとまり（<code>DuplicateGroup</code>）。1件残して消したときに空く容量の大きい順に並ぶ。' },
+    { id: 'marker', type: 'code', label: 'RowMarker', sub: '残す1件', at: [4.6, 3.6],
+      desc: '自動選択のルールや右クリックの「このファイルを残す」で、各グループの削除チェックを付ける。' },
+    { id: 'deleter', type: 'code', label: 'FileDeleter', sub: 'ごみ箱へ', at: [8.8, 4.2],
+      desc: 'ごみ箱へ移動（元に戻せる）か、オフなら完全削除。消す直前にもう一度確かめる。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['app', 'scanner'], ['disk', 'scanner'], ['scanner', 'groups'], ['groups', 'app', true],
+          ['app', 'marker'], ['marker', 'deleter'], ['app', 'settings']],
+  steps: [
+    { by: 'user', title: '探すフォルダを入れる', flow: [['user', 'ui']], shot: 'img/1-start.png',
+      text: '「追加」ボタンかドラッグ＆ドロップで、探すフォルダを登録する。複数入れると、フォルダをまたいだ重複も探せる。上にあるフォルダほど優先で、あとの自動選択で残す側になる。' },
+    { by: 'user', title: '条件を決めて「検索開始」', flow: [['ui', 'app'], ['app', 'scanner']],
+      text: '最小サイズ・拡張子・隠しファイルの除外・同時比較数を決めて押す。検索は別スレッドで走るので、画面は固まらない。同時比較数は、HDD・外付け・NAS なら 1 が最速。',
+      note: '「中止」で止めると、それまでに重複と確定した分だけが一覧に出る' },
+    { by: 'scanner', title: 'サイズで仲間分け（まだ読まない）', flow: [['disk', 'scanner']],
+      text: '名前・サイズ・更新日時だけを集めて、同じサイズが2件以上あるものだけ残す。サイズが違えば中身が同じはずがないので、ここまでは中身を1バイトも読まない。',
+      note: 'ジャンクション・シンボリックリンクのフォルダ、クラウド上にしかないファイル、0バイトのファイルは比べない' },
+    { by: 'scanner', title: '先頭と末尾 → 中身を全員同時に', flow: [['disk', 'scanner'], ['scanner', 'groups']],
+      text: 'まず先頭64KB＋末尾64KBで分け直し、残りはチャンクずつ全員同時に読んでバイト単位で比べる。違いが出たファイルはそこで読むのをやめる。ハッシュ値ではなく中身そのものを比べるので、ハッシュの衝突による誤判定は起きない。' },
+    { by: 'app', title: 'グループごとに一覧で見る', flow: [['groups', 'app'], ['app', 'ui']], shot: 'img/2-result.png',
+      text: '一致したファイルがグループにまとまり、空く容量の大きい順に並ぶ。列ヘッダを押すとグループの中だけ並べ替える。ダブルクリックで開いて中身を確かめられる。' },
+    { by: 'marker', title: '残す1件を決める', flow: [['app', 'marker']], shot: 'img/3-marked.png',
+      text: '自動選択のルール（既定は「対象フォルダ欄で上のものを残す」）で「適用」を押すと、各グループで1件だけ残して他に削除チェックが付く。右クリックの「このファイルを残す」でも選べる。' },
+    { by: 'deleter', title: '確かめてから消す', flow: [['marker', 'deleter']],
+      text: '「削除」を押すと確認が出て、OK なら1件ずつ、消す直前にもう一度確かめてから消す。既定は「ごみ箱へ移動」なので元に戻せる。',
+      note: 'グループの全件にチェックが付いていたら消さずに警告する。検索のあとに変更・移動されたファイルは消さない。「ごみ箱へ移動」をオフにすると完全削除で、元に戻せない' },
+    { by: 'app', title: '前回の設定を覚えておく', flow: [['app', 'settings'], ['settings', 'app']],
+      text: '終了するときに、フォルダ・条件・自動選択ルール・「ごみ箱へ移動」の状態を <code>settings.json</code> に保存し、次に起動したときに戻す。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: 'フォルダを入れる → 条件 → 検索 → 結果の見かた → 自動選択 → 削除（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: 'サイズ → 先頭と末尾 → 全員同時のチャンク比較で絞り込む様子を、ブロックの動きで（全9ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '画面・画面用モデル・ロジック・外部の4層と、実際のクラスの役割（全9ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/DuplicateFinder</code>（共通部品は <code>Essentials/_Common</code>）。画面のスクリーンショットは、このガイド用に作ったダミーフォルダだけを使っています。',
+});
+</script>
 </body>
 </html>

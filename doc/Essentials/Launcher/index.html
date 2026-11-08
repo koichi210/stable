@@ -3,38 +3,80 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Launcher ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>Launcher — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>Launcher ドキュメント</h1>
-  <p class="lead">exe・URL・フォルダなどをボタンとして登録しておき、ワンクリックで起動できるランチャー(.NET 10 / WPF)の仕組みと使い方を、Three.jsの立体図で1歩ずつ解説します。<br>
-  図の中の画面は、図解用に作った<b>ダミー設定</b>(メモ帳・電卓・サンプルサイト)で撮影したものです。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全8ステップ</div>
-      <div class="d">起動画面 → ボタンで起動 → セクション開閉 → 項目・セクションの追加 → 編集・削除 → ツールバー → 自動保存。実際の画面を3D空間に並べて、ステップごとにカメラが寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🔀 データの流れ</div>
-      <div class="tech">Three.js / 粒と矢印のアニメーション / 全8ステップ</div>
-      <div class="d">保存先の決定 → 設定JSONの読み込み → 画面表示 → クリックして起動 → 編集して自動保存 → 読み込み失敗時の保護 → 保存先の変更、を光る粒で追えます。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / レイヤの立体図 / 全7ステップ</div>
-      <div class="d">画面・モデル・サービス・共有部品(_Common)・外部の5段構成。MainWindow / ConfigService / LaunchService などの実クラス名と、依存の向きを3Dで。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/Launcher</code>(共有部品は <code>Essentials/_Common</code>)にあります。
-    3D図解の共通フレームワーク(<code>../lib/guide.js</code> / <code>../lib/guide.css</code>)は
-    Essentialsの図解ページで共有しています。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'Launcher',
+  caption: 'exe・URL・フォルダをボタンにしておいて、ワンクリックで開く',
+  lead: 'exe・URL・フォルダなどを<b>ボタン</b>として登録しておき、ワンクリックで起動できるランチャーです（.NET 10 / WPF）。' +
+        'ボタンは<b>セクション</b>ごとに折りたためて、追加・編集・削除のたびに設定が <code>config.json</code> へ<b>自動で保存</b>されます。',
+  say: ['よく使うアプリをすぐ開きたい', 'よく見るサイトやフォルダをまとめておきたい', '同じボタン一覧を別の場所の設定ファイルで使いたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/main.png', title: '起動した画面', cap: '実際の画面（図解用のダミー設定）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: 'ボタンを押して起動する人。ボタンの追加・編集もする。' },
+    { id: 'ui', type: 'screen', label: 'メイン画面', sub: 'セクションとボタン', at: [-4.6, -3.4], img: 'img/main.png',
+      desc: 'セクション（開閉できる <code>Expander</code>）の中に、項目のボタンが並ぶ。上段はツールバー。' },
+    { id: 'dlg', type: 'screen', label: '項目の編集', sub: 'ダイアログ', at: [-4.6, 3.4], img: 'img/dlg-item-filled.png',
+      desc: 'タイトルとリンク先を入れるダイアログ（<code>ItemEditDialog</code>）。セクション名は <code>TextInputDialog</code> で入れる。' },
+    { id: 'app', type: 'main', label: 'Launcher', at: [0, 0],
+      desc: '.NET 10 / WPF の画面（<code>MainWindow</code>）。モデル（<code>LauncherConfig</code> → <code>SectionModel</code> → <code>ItemModel</code>）を画面に結び付ける。' },
+    { id: 'launch', type: 'code', label: 'LaunchService', sub: 'Process.Start', at: [4.6, -3.0],
+      desc: '<code>UseShellExecute = true</code> で <code>Process.Start</code> する。種類ごとの分岐はなく、Windows に「開いて」と頼むだけ。' },
+    { id: 'win', type: 'os', label: 'Windows', sub: 'exe・URL・フォルダ', at: [8.8, -1.2],
+      desc: 'exe はそのまま起動、URL は既定のブラウザ、フォルダや書類は関連付けで開く。' },
+    { id: 'config', type: 'code', label: 'ConfigService', sub: '読み書き', at: [4.6, 3.4],
+      desc: '保存先を決め、<code>config.json</code> を読み書きする。保存先フォルダの変更もここ。' },
+    { id: 'json', type: 'store', label: 'config.json', sub: 'ボタンの一覧', at: [8.8, 4.2],
+      desc: 'セクションと項目（タイトル・リンク先・開閉の状態）を入れたインデント付き JSON。既定は <code>%LOCALAPPDATA%\\Launcher\\config.json</code>。' },
+    { id: 'guide', type: 'store', label: 'DataFolder.txt', sub: '案内板', at: [-0.4, 4.8],
+      desc: 'exe と同じフォルダに置く小さなテキスト。1行目が設定フォルダのパス。' },
+  ],
+  links: [['user', 'ui'], ['user', 'dlg'], ['ui', 'app'], ['dlg', 'app'], ['app', 'launch'], ['launch', 'win'],
+          ['app', 'config'], ['config', 'json'], ['config', 'guide']],
+  steps: [
+    { by: 'config', title: '設定を置く場所を決める', flow: [['app', 'config'], ['config', 'guide']],
+      text: '起動するとまず、exe と同じフォルダの <code>DataFolder.txt</code> の1行目を見て、設定フォルダを決める。無い・壊れているときは既定の <code>%LOCALAPPDATA%\\Launcher\\</code> を使い、案内板を作り直す。' },
+    { by: 'config', title: '設定を読み込む', flow: [['json', 'config'], ['config', 'app']],
+      text: '<code>config.json</code> をモデルに読み込む。ファイルが無いか空のときは、メモ帳・電卓・Google の3つが入ったサンプル設定を作る。' },
+    { by: 'app', title: 'セクションとボタンを並べる', flow: [['app', 'ui']], shot: 'img/main.png',
+      text: 'セクション1つにつき開閉できる枠、項目1つにつきボタンを出す。開閉の状態も保存されて、次に起動したときも同じ状態で出る。ボタンにマウスを載せると、リンク先がツールチップで出る。' },
+    { by: 'launch', title: 'ボタンを押して起動する', flow: [['user', 'ui'], ['ui', 'app'], ['app', 'launch'], ['launch', 'win']],
+      text: '1回クリックするだけで、<code>LaunchService</code> がリンク先を Windows に開いてもらう。exe・URL・フォルダ・書類のどれでも同じ動き。',
+      note: '起動に失敗したときは「起動エラー」のメッセージが出る。アプリは落ちない' },
+    { by: 'user', title: 'ボタンやセクションを足す・直す', flow: [['user', 'dlg'], ['dlg', 'app']], shot: 'img/dlg-item-filled.png',
+      text: '「＋項目」でタイトルとリンク先を入れる（「参照...」でファイルを選ぶと、タイトルが空ならファイル名が入る）。「＋ セクション追加」「名前変更」「編集」「削除」もある。',
+      note: 'タイトルかリンク先が空だと警告が出る。削除は確認で「はい」を選んだときだけ' },
+    { by: 'config', title: '変えるたびに自動で保存', flow: [['app', 'config'], ['config', 'json']],
+      text: '追加・編集・削除のたびに、インデント付きの JSON で <code>config.json</code> に書く。「保存」ボタンはない。' },
+    { by: 'config', title: '読めないときは保存を止める', flow: [['json', 'config']],
+      text: '手で編集した <code>config.json</code> が書き間違いで読めないと、エラーを出して保存を止める。編集中のファイルを画面の内容で上書きしないため。直して「再読み込み」すれば戻る。' },
+    { by: 'config', title: '保存先フォルダを変える', flow: [['config', 'guide'], ['config', 'json']],
+      text: '「保存先フォルダを変更...」で選んだ先に <code>config.json</code> があればそれを使い、無ければ今のファイルを移す。<code>DataFolder.txt</code> を書き換えて、新しい場所から読み直す。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: '起動画面 → ボタンで起動 → セクション開閉 → 追加 → 編集・削除 → ツールバー → 自動保存（全8ステップ）' },
+    { href: 'dataflow.html', icon: '🔀', title: 'データの流れ', desc: '保存先の決定 → 読み込み → 表示 → 起動 → 自動保存 → 失敗時の保護 → 保存先の変更（全8ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '画面・モデル・サービス・共有部品（_Common）・外部の5段と、依存の向き（全7ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/Launcher</code>（共有部品は <code>Essentials/_Common</code>）。図の中の画面は、図解用に作ったダミー設定（メモ帳・電卓・サンプルサイト）で撮影したものです。',
+});
+</script>
 </body>
 </html>

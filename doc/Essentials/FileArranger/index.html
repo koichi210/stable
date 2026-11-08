@@ -3,40 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FileArranger ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>FileArranger — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p style="margin:0 0 10px"><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>FileArranger ドキュメント</h1>
-  <p class="lead">フォルダ・ファイルの<b>移動・名前変更・並べ替え・振り分け</b>をまとめて行う、Windows デスクトップツール(C# / WPF)の「動きのある設計図」です。<br>
-  Three.js の立体図を1歩ずつ進めながら、使い方・データの流れ・内部設計を見られます。画面のフォルダ名・ファイル名は<b>すべて撮影用のダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖥️ 使い方</div>
-      <div class="tech">Three.js + 実画面のスクリーンショット / 全8ステップ</div>
-      <div class="d">実際のウィンドウを3D空間に並べ、Common・MoveDir・RenameDir・SortFileName・MoveFile・PartitionFile の6タブへカメラが寄ります。手前ではフォルダ/ファイルの塊が動いて、操作の結果を見せます。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 全9ステップ</div>
-      <div class="d">入力フォルダ → 一覧 → 新しい名前の決定 → 移動・リネーム(重複回避) → 結果。別スレッド実行、元に戻す履歴、設定のJSON保存/読込まで、ファイルの塊が動くアニメで追います。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / 階段状の5層 / 全7ステップ</div>
-      <div class="d">入口・画面(MainWindow の partial 分割)・アプリ固有ロジック(Logic/Utils/FileSorter…)・共通部品 _Common・外部ライブラリ。実際のクラス名・ファイル名と、依存の向き、1回の操作が層を降りる様子。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/FileArranger</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code>、
-    このツール用の部品は <code>fa-lib.js</code>、スクリーンショットは <code>img/</code>(3Dのテクスチャ用に <code>fa-img.js</code> へも同じ画像をデータとして持っています)。
-    HTMLをダブルクリック(file://)で開いても動きます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'FileArranger',
+  caption: 'フォルダ・ファイルの移動、名前の番号そろえ、連番、振り分けをまとめてやる',
+  lead: 'フォルダ・ファイルの<b>移動・名前変更・並べ替え・振り分け</b>をまとめて行う Windows 用ツールです（C# / WPF）。' +
+        '画面上部の<b>6つのタブ</b>（Common・MoveDir・RenameDir・SortFileName・MoveFile・PartitionFile）が機能ごとに分かれていて、どのタブも「リストアップ」で一覧を作ってから実行します。',
+  say: ['フォルダ名の番号を 01, 02… にそろえたい', 'フォルダの中のファイルを 000, 001… の連番にしたい', 'ファイル名の頭でフォルダへ振り分けたい', 'たくさんのフォルダやファイルをまとめて移したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/partition.png', title: 'PartitionFile タブ', cap: '実際の画面（フォルダ名・ファイル名は撮影用のダミー）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: 'タブを選び、フォルダを入れて「リストアップ」し、一覧から選んで実行する人。' },
+    { id: 'ui', type: 'screen', label: '6つのタブ', at: [-4.6, -3.4], img: 'img/partition.png',
+      desc: 'Common（候補づくり）・MoveDir（フォルダ移動）・RenameDir（番号そろえ）・SortFileName（連番）・MoveFile（ファイル移動）・PartitionFile（振り分け）。' },
+    { id: 'src', type: 'os', label: '入力フォルダ', sub: '中身を一覧に', at: [-4.6, 3.4],
+      desc: '「リストアップ」で中身を取る相手（<code>Directory.GetFiles</code> / <code>GetDirectories</code>）。' },
+    { id: 'app', type: 'main', label: 'FileArranger', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。タブごとにファイルを分けた partial class。' },
+    { id: 'logic', type: 'code', label: 'Logic / Utils', sub: '新しい名前', at: [0, -5],
+      desc: '番号の取り出し・全角から半角・ゼロ埋め・振り分け名・同名を避ける名前など、「新しい名前」を決める部分。' },
+    { id: 'memory', type: 'store', label: '復元の履歴', sub: 'メモリ上', at: [4.6, -3.4],
+      desc: 'RenameDir と SortFileName のリネームを1件ずつ記録しておく場所（<code>StcProcessMemory</code>）。アプリを閉じると消える。' },
+    { id: 'worker', type: 'code', label: 'BackgroundWorker', sub: '別スレッド', at: [4.6, 3.4],
+      desc: 'MoveFile と PartitionFile の実行を別スレッドで回し、1件ごとに進捗バーを進める。' },
+    { id: 'dest', type: 'os', label: '結果のフォルダ', sub: '移動・リネーム後', at: [8.8, 0],
+      desc: '移動・リネーム・フォルダ作成が反映される先。実行後は一覧を取り直す。' },
+    { id: 'json', type: 'store', label: '設定 JSON', sub: '入力値', at: [0, 4.8],
+      desc: '画面の入力値を保存する JSON。起動時は <code>FileArranger.json</code> を読む。既定の置き場は <code>%LOCALAPPDATA%\\FileArranger\\</code>。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['src', 'app'], ['app', 'logic'], ['app', 'memory'], ['memory', 'dest'],
+          ['app', 'worker'], ['worker', 'dest'], ['app', 'dest'], ['app', 'json']],
+  steps: [
+    { by: 'user', title: '候補の元を決める（Common）', flow: [['user', 'ui'], ['ui', 'app']], shot: 'img/common.png',
+      text: '見本のフォルダが並ぶ親フォルダ（リファレンスフォルダ）を入れて「リストアップ」すると、直下のフォルダが候補になる。新規追加リストの名前も候補に足される。この画面ではフォルダは作られない。' },
+    { by: 'app', title: 'リストアップで一覧を作る', flow: [['src', 'app'], ['app', 'ui']],
+      text: 'どのタブも最初は「リストアップ」。入力フォルダの中身を取り、基準フォルダの部分を除いた表示名にして、名前順で一覧に並べる。' },
+    { by: 'logic', title: '名前の番号をそろえる（RenameDir）', flow: [['app', 'logic'], ['logic', 'app']], shot: 'img/renamedir.png',
+      text: '行を選ぶたびに、フォルダ名の末尾の数字を取り出し、全角は半角に、1桁なら <code>01</code> のようにゼロ埋めして「変更後」をプレビューする。「リネーム実行」までは実際のフォルダには何も起きない。' },
+    { by: 'logic', title: 'ファイルを振り分ける（PartitionFile）', flow: [['app', 'logic'], ['app', 'worker'], ['worker', 'dest']], shot: 'img/partition.png',
+      text: 'ファイル名の区切り文字（例 <code>_</code>）より前をキーに、選択中の別の行 → リファレンス候補 → 「フォルダを新規作成」がオンなら新しい名前、の順で振り分け先を決めて移す。',
+      note: '移動先にファイル名が重複したら、移動せずにスキップして、最後にまとめて知らせる' },
+    { by: 'app', title: 'フォルダをまとめて移す（MoveDir）', flow: [['app', 'dest']], shot: 'img/movedir.png',
+      text: '一覧で選んだフォルダを、格納元直下の最上位フォルダごと、または選んだフォルダだけ、格納先へ移す。同名があると、名前の末尾に <code>_Cnt番号_日時</code> を付けて上書きを避ける。',
+      note: '「削除」は確認のあと、ごみ箱に入れずに中身ごと消す' },
+    { by: 'worker', title: 'ファイルを別スレッドで移す（MoveFile）', flow: [['app', 'worker'], ['worker', 'dest']], shot: 'img/movefile.png',
+      text: 'MoveFile と PartitionFile は別スレッドで動くので、件数が多くても画面は固まらず、下の進捗バーが進む。同名があれば拡張子の前に <code>_Cnt番号_日時</code> を付ける。' },
+    { by: 'memory', title: '「復元」で1回分を戻す', flow: [['app', 'memory'], ['memory', 'dest']], shot: 'img/sortfile.png',
+      text: 'RenameDir と SortFileName（中のファイルを <code>000.拡張子</code> からの連番にする）は、リネームを1件ずつ記録しておき、「復元」で直前の1回分を逆の順に戻す。',
+      note: '記録はメモリ上だけで、アプリを閉じると消える。MoveDir・MoveFile・PartitionFile には復元はない' },
+    { by: 'app', title: '設定を保存・読込する', flow: [['app', 'json'], ['json', 'app']],
+      text: '「設定値保存」（<code>Ctrl+S</code>）で入力値を JSON に保存し、左のプルダウンで選ぶとすぐ読み込む。起動時は <code>FileArranger.json</code> を自動で読む。',
+      note: '読み込むと、タブの一覧はいったん空になる（リストアップし直す）' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖥️', title: '使い方', desc: '実際のウィンドウで、Common から PartitionFile までの6タブを1つずつ（全8ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '入力フォルダ → 一覧 → 新しい名前 → 移動・リネーム → 結果、別スレッド・復元・設定まで（全9ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '入口・画面・アプリ固有ロジック・共通部品 _Common・外部ライブラリの5層と、依存の向き（全7ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/FileArranger</code>（共通部品は <code>Essentials/_Common</code>）。画面のフォルダ名・ファイル名はすべて撮影用のダミーです。',
+});
+</script>
 </body>
 </html>

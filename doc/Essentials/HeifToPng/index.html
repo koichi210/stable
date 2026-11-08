@@ -3,38 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HeifToPng ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>HeifToPng — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>HeifToPng ドキュメント</h1>
-  <p class="lead">iPhone などで撮った <b>HEIF 画像</b>(.heic / .heif / .hif)を、フォルダごとまとめて <b>PNG</b> に変換するツール「HeifToPng」(C# / WPF)の使い方と仕組みを、Three.js の立体図で1歩ずつ解説します。<br>
-  画面のスクリーンショットは、このガイド用に作った<b>ダミーの写真フォルダ</b>(グラデーションの絵だけ)を使っています。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全7ステップ</div>
-      <div class="d">変換元を入れる → オプション → 変換開始・中止 → ログで結果を見る → できあがる PNG(向き・色・撮影情報)。実際の画面を3D空間に並べ、カメラが注目点へ寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / ブロックが流れるアニメ / 全9ステップ</div>
-      <div class="d">HEIF を集める → 作業員(並列)に配る → libheif で復号 → 撮影情報(GPS など)を消す → PNG に書く → 集計。WIC から Magick.NET に替えた理由の速さ比べも。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
-      <div class="d">画面・設定・変換・共通部品・外部の5層と、<code>MainWindow</code> / <code>HeifConverter</code> / <code>AppSettings</code> などの役割、スレッドのつなぎ方、失敗の扱い、テスト。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/HeifToPng</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'HeifToPng',
+  caption: 'iPhone などの HEIF 写真を、フォルダごとまとめて PNG にする',
+  lead: 'iPhone などで撮った <b>HEIF 画像</b>（<code>.heic</code> / <code>.heif</code> / <code>.hif</code>）を、フォルダごとまとめて <b>PNG</b> に変換する Windows 用ツールです（C# / WPF）。' +
+        'PNG は<b>元と同じフォルダに同じ名前</b>（拡張子だけ <code>.png</code>）で作り、<b>元の HEIF はそのまま残します</b>。' +
+        '向きと色は保ったまま、<b>撮影場所（GPS）などの撮影情報は PNG に入れません</b>。',
+  say: ['iPhone の写真を PNG で人に渡したい', 'HEIF が開けないソフトで写真を使いたい', '撮影場所を残さずに写真を渡したい', 'たくさんの写真をフォルダごと変換したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/start.png', title: 'HEIF→PNG 一括変換', cap: '実際の画面（ダミーの写真フォルダ）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: '変換したいフォルダやファイルを入れて、「変換開始」を押す人。' },
+    { id: 'ui', type: 'screen', label: '変換の画面', at: [-4.6, -2.8], img: 'img/start.png',
+      desc: '上に変換元のリスト、その下にオプションと「変換開始」「中止」、真ん中にログ、下にステータスバーとプログレスバー。' },
+    { id: 'settings', type: 'store', label: 'settings.json', sub: '前回の入力', at: [-4.6, 3.4],
+      desc: '変換元のリストと4つのオプションを、閉じるときに保存して次の起動で戻す。既定の場所は <code>%LOCALAPPDATA%\\HeifToPng\\</code>。' },
+    { id: 'app', type: 'main', label: 'HeifToPng', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。入力をまとめて、別のスレッドで <code>HeifConverter</code> に変換させる。画面は固まらない。' },
+    { id: 'heif', type: 'file', label: 'HEIF の写真', sub: '.heic / .heif / .hif', at: [0.8, -4.8],
+      desc: '変換元のフォルダの中にある写真。変換したあとも、そのまま残る。' },
+    { id: 'plan', type: 'code', label: 'HEIF を集める', sub: 'PlanJobs', at: [4.0, -3.2],
+      desc: '変換元をたどって、変換する写真の一覧を作る。HEIF 以外は外し、同じファイルは1回だけにする。' },
+    { id: 'workers', type: 'code', label: '作業員（並列）', at: [4.2, 0.8],
+      desc: '一覧を「並列数」（既定 4）の作業員に配る（<code>Parallel.ForEach</code>）。作業員は1枚ずつ、読み込みから書き出しまでを受け持つ。' },
+    { id: 'magick', type: 'code', label: 'Magick.NET', sub: 'libheif で読む', at: [8.4, -1.6],
+      desc: 'ImageMagick の .NET 版。中の libheif が HEIF を画素に戻し、PNG を書き出す。Windows の「HEIF 画像拡張機能」は要らない。' },
+    { id: 'png', type: 'file', label: 'PNG', sub: '同じフォルダ・同じ名前', at: [8.4, 3.0],
+      desc: '<code>IMG_0001.HEIC</code> → <code>IMG_0001.png</code>。向きと色のプロファイルはそのまま、撮影情報（GPS・EXIF・XMP）は入れない。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['app', 'settings'], ['app', 'plan'], ['heif', 'plan', true], ['plan', 'workers'],
+          ['workers', 'magick'], ['magick', 'png'], ['workers', 'app']],
+  steps: [
+    { by: 'user', title: '変換元とオプションを決める', flow: [['user', 'ui']], shot: 'img/start.png',
+      text: '「フォルダを追加…」「ファイルを追加…」かドラッグ＆ドロップで、フォルダとファイルを何件でも入れる。オプションは、サブフォルダも含める（既定オン）・同じ名前の PNG があれば上書き（既定オフ）・日時を元に合わせる（既定オン）・並列数（既定 4）。',
+      note: '「外す」「すべて外す」はリストから外すだけで、ファイル自体は消えない' },
+    { by: 'app', title: '「変換開始」で別スレッドに渡す', flow: [['ui', 'app'], ['app', 'plan']],
+      text: 'リストとオプションをまとめて、別のスレッドで変換を始める。画面は固まらず、ステータスバーとプログレスバーに進み具合が出る。' },
+    { by: 'plan', title: 'HEIF を集めて一覧にする', flow: [['heif', 'plan']],
+      text: 'サブフォルダをたどり、拡張子が <code>.heic</code> / <code>.heif</code> / <code>.hif</code> のものだけを集める。同じファイルが2回出てきたら1回だけ。読めないフォルダがあっても、ログに出して続ける。',
+      note: '<code>IMG_1.heic</code> と <code>IMG_1.heif</code> のように出来上がりの名前がぶつかるときは、片方だけ変換して、もう片方は「出力先が重なる」とログに出す' },
+    { by: 'workers', title: '作業員に配って、並列で変換する', flow: [['plan', 'workers']],
+      text: '一覧を並列数ぶんの作業員に配る。同じ名前の PNG がもうあって「上書き」がオフなら、何もしないで飛ばす。だから中止したあと、もう一度押すと続きから再開できる。',
+      note: '「中止」は、いま変換中のファイルが終わったところで止まる。まだ配っていない分は配らない' },
+    { by: 'magick', title: 'HEIF を読んで、撮影情報を消す', flow: [['workers', 'magick']],
+      text: 'libheif が圧縮された写真を画素に戻す。縦に撮った写真の回転もここで済む。そのあと、色のプロファイル（ICC）以外の撮影情報をすべて消す。',
+      note: '壊れている・中身が HEIF でないファイルは「画像として読めません」と失敗に数えて、次のファイルへ進む' },
+    { by: 'magick', title: 'PNG を書き出す', flow: [['magick', 'png']],
+      text: 'いったん <code>.png.tmp</code> に書き切ってから本当の名前に置き換えるので、途中で止まっても書きかけの PNG は残らない。「日時を元に合わせる」がオンなら、作成日時・更新日時を元の HEIF と同じにする。' },
+    { by: 'app', title: '結果をログに出す', flow: [['workers', 'app'], ['app', 'ui']], shot: 'img/done.png',
+      text: '終わると「対象・変換・スキップ（PNG あり）・失敗」の件数がログとステータスバーに出る。失敗したファイルは1件ずつパスと理由がログに出て、そのときだけ知らせのダイアログも出る。' },
+    { by: 'app', title: '前回の入力を覚えておく', flow: [['app', 'settings'], ['settings', 'app']],
+      text: '閉じるときに変換元のリストとオプションを <code>settings.json</code> に保存し、次の起動で戻す。ファイルが壊れていたら既定値で起動する。',
+      note: '変換中にウィンドウを閉じようとすると「中止して閉じますか？」と聞き、中止が終わってから閉じる' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: '変換元を入れる → オプション → 変換開始・中止 → ログで結果を見る → できあがる PNG（全7ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: 'HEIF を集める → 作業員に配る → libheif で復号 → 撮影情報を消す → PNG に書く → 集計。WIC から Magick.NET に替えた理由も（全9ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '画面・設定・変換・共通部品・外部の5層と、<code>MainWindow</code> / <code>HeifConverter</code> / <code>AppSettings</code> の役割（全8ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/HeifToPng</code>（共通部品は <code>Essentials/_Common</code>）。画面写真は、このガイド用に作った<b>ダミーの写真フォルダ</b>（グラデーションの絵だけ）を使っています。',
+});
+</script>
 </body>
 </html>

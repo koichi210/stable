@@ -3,37 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VsCodePets ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>VsCodePets — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>VsCodePets ドキュメント</h1>
-  <p class="lead">VS Code のパネルにペットを住まわせる拡張機能「vscode-pets」の改造版(Flying。TypeScript / VS Code 拡張)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。VS Code の実画面は撮れないため、<b>パネルの絵は「再現図」</b>(リポジトリ内のオリジナル画像を並べて作ったもの)です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 画像つき / 全9ステップ</div>
-      <div class="d">VSIX のビルドとインストール → ペットの追加(種類・色・名前)→ 秘書さん5人 → 掴む・卵・おしゃべりなどの操作 → コマンドと設定、の順に説明します。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子アニメ / 全11ステップ</div>
-      <div class="d">拡張の起動 → webview の HTML 生成 → 100ms ごとの tick → ペットの状態遷移 → GIF の切り替えと位置の更新、までを光の粒の流れで追います。メッセージと状態の保存も。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全10ステップ</div>
-      <div class="d">拡張側・共通・webview側・ペットクラス・画像アセットの5層に、実際のファイル名・クラス名を並べて説明します。今回の改造点(Flying・秘書さん追加)も。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/VsCodePets</code>(上流 tonybaloney/vscode-pets の MIT コードがベース。ペットの画像はすべてこのリポジトリで描いたオリジナル)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'VsCodePets',
+  caption: 'VS Code のパネルの中を、ペットが飛び回る',
+  lead: 'VS Code のパネルにペットを住まわせる拡張機能「vscode-pets」の改造版（<b>Flying</b>）です。' +
+        'ペットが<b>パネルの中を飛び回り</b>、掴んで動かしたり、卵を産んだり、時間帯に合わせておしゃべりしたりします。新しい種類として「秘書さん」5人を足しました。' +
+        '拡張側と webview 側（パネルの中の画面）は、メッセージだけでやり取りします。',
+  say: ['コーディング中にちょっと和みたい', 'ペットをパネルの中で飛び回らせたい', '秘書さんをエディタのそばに置きたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/panel.png', title: 'ペットのパネル', cap: '再現図（VS Code の実画面ではありません）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0],
+      desc: 'VSIX を入れて、コマンドでペットを増やしたり、パネルのペットを掴んだりする人。' },
+    { id: 'vscode', type: 'service', label: 'VS Code', sub: 'コマンド・設定', at: [-5, -3],
+      desc: 'コマンドパレットの「Pet Coding: 〜」と、設定 <code>vscode-pets.〇〇</code>（種類・色・サイズ・表示場所・テーマなど）。' },
+    { id: 'ws', type: 'store', label: 'workspaceState', sub: 'ペット一覧・テーマ', at: [-5.6, 3.4],
+      desc: '拡張が<b>ワークスペースごと</b>に覚えるもの。追加したペットの一覧（種類・色・名前）と、Change Theme で選んだテーマ。' },
+    { id: 'ext', type: 'main', label: 'VsCodePets', sub: '拡張側', at: [-1, 0],
+      desc: 'VS Code の拡張ホストで動く側（<code>extension.ts</code>）。コマンドを受けて webview に <code>postMessage</code> で頼み、100ms ごとに <code>tick</code> を送る「心臓」も持つ。' },
+    { id: 'webview', type: 'code', label: 'webview 側', sub: 'main.ts', at: [3.4, -3.4],
+      desc: 'パネルの中の画面（<code>petPanelApp</code>）。ペットを作り、tick ごとに全員を1コマ進め、掴む・卵・おしゃべりも受け持つ。' },
+    { id: 'state', type: 'store', label: 'webview の状態', sub: 'setState / getState', at: [2.4, 3.6],
+      desc: '毎 tick 保存する、全ペットの名前・種類・色・いまの状態・友だち・位置。webview が作り直されたらここから復元する。' },
+    { id: 'pets', type: 'code', label: 'ペットのクラス', sub: 'Secretary ほか', at: [5.6, 0],
+      desc: '種類ごとのクラス（<code>new Secretary(...)</code> など）。いまの状態を持ち、1コマごとに「続く / 完了 / 中断」を返して、完了したら次の状態を抽選する。' },
+    { id: 'panel', type: 'screen', label: 'ペットのパネル', sub: '再現図', at: [8.4, -3.2], img: 'img/panel.png',
+      desc: 'エクスプローラーの「VS Code ペット」欄（既定）か、独立した Webview パネル。絵は再現図で、VS Code の実画面ではない。' },
+    { id: 'media', type: 'file', label: 'GIF 画像', sub: 'media/<種類>/<色>', at: [8.4, 3.2],
+      desc: '動作ごとの GIF（8コマ・8fps）と背景。画像はすべてこのリポジトリで描いたオリジナル。' },
+  ],
+  links: [['user', 'vscode'], ['vscode', 'ext'], ['ext', 'ws'], ['ext', 'webview'], ['webview', 'state'],
+          ['webview', 'pets'], ['pets', 'media'], ['media', 'panel'], ['pets', 'panel']],
+  steps: [
+    { by: 'user', title: 'VSIX を作って入れる', flow: [['user', 'vscode']],
+      text: 'Marketplace には出さず、<code>npm run compile</code> → <code>vsce package</code> で VSIX を作り、<code>code --install-extension</code> で手元の VS Code に入れる（Node.js 20 以上）。表示名は vscode-pets (Flying)。',
+      note: '上流の vscode-pets と同時には入れられない（コマンド ID が同じで衝突する）。上流版はアンインストールか無効化する' },
+    { by: 'ext', title: '拡張が起動する', flow: [['vscode', 'ext']],
+      text: '<code>activate()</code> がコマンドを登録し、ステータスバーに「Spawn」アイコンを出す。設定（<code>petType</code>・<code>petColor</code>・<code>petSize</code>）を読み、100ms ごとの tick を始める。' },
+    { by: 'ext', title: 'webview の HTML を作る', flow: [['ext', 'webview']],
+      text: '<code>_getHtmlForWebview</code> が HTML を文字列で組み立てる。スクリプトは毎回変わる nonce つきのものだけ許可し、読めるのは <code>media</code> フォルダだけ。最後に <code>petPanelApp</code> が動き出す。' },
+    { by: 'user', title: 'ペットを追加する', flow: [['user', 'vscode'], ['vscode', 'ext'], ['ext', 'webview'], ['webview', 'pets'], ['ext', 'ws']], shot: 'img/species.png',
+      text: '「Pet Coding: Spawn Additional Pet」で、種類（16種）→ 色 → 名前を選ぶ。webview がペットのクラスを作ってパネルに出し、拡張がペット一覧を <code>workspaceState</code> に保存する。' },
+    { by: 'ext', title: '100ms ごとに1コマ進める', flow: [['ext', 'webview'], ['webview', 'pets']],
+      text: '拡張が 100ms ごとに <code>tick</code> を送り、webview が全ペットを1コマ進める（友だち探し → 動き → ペット同士の回避 → 卵 → おしゃべり → 状態の保存）。',
+      note: 'パネル表示モードでは、パネルが見えていない間は tick を送らないので、ペットは止まる' },
+    { by: 'pets', title: '飛ぶ・ホバリング・降りる', flow: [['pets', 'media'], ['media', 'panel'], ['pets', 'panel']], shot: 'img/states.png',
+      text: '地上の動きが終わるたびに 80% で飛び立ち、4秒ホバリング → 70% でもう一度飛ぶ／30% で真下へ降りる。絵は <code>&lt;img&gt;</code> の GIF を差し替えるだけで、位置は <code>style.left</code> / <code>style.bottom</code> で動かす。' },
+    { by: 'webview', title: '掴む・卵・おしゃべり', flow: [['panel', 'webview'], ['webview', 'pets']], shot: 'img/panel.png',
+      text: '左ボタンで掴んで動かせる（空中で離すと降りてくる）。ときどき上端まで飛んで 🥚 か 💩 を落とし、約10秒に1回、時間帯に合ったひとことを吹き出しで話す。',
+      note: '卵と 💩 は保存されないので、パネルを開き直すと消える' },
+    { by: 'webview', title: '保存して、開き直しても戻す', flow: [['webview', 'state'], ['state', 'webview'], ['ext', 'ws']],
+      text: 'webview は毎 tick、全ペットの名前・種類・色・状態・位置を <code>setState</code> で保存し、作り直されたら <code>getState()</code> から全員を復元する。友だち関係は名前で結び直す。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: 'VSIX のインストール → ペットの追加 → 秘書さん5人 → 掴む・卵・おしゃべり → コマンドと設定（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '起動 → webview の HTML → 100ms の tick → 状態遷移 → GIF の切り替えを光の粒で追う（全11ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: '拡張側・共通・webview 側・ペットクラス・画像の5層と、今回の改造点（全10ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/VsCodePets</code>（上流 tonybaloney/vscode-pets の MIT コードがベース。ペットの画像はすべてこのリポジトリで描いたオリジナル）。VS Code の実画面は撮れないため、<b>パネルの絵は「再現図」</b>（リポジトリ内のオリジナル画像を並べて作ったもの）です。',
+});
+</script>
 </body>
 </html>

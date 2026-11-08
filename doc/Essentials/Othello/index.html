@@ -3,38 +3,85 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Othello ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>Othello — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>Othello ドキュメント</h1>
-  <p class="lead">オセロ(人対人・人対COM・COM対COM、一手戻す/進める)を遊べる Windows 用ツール(C# / WPF / .NET Framework)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真は対局の盤面だけで、個人情報は含みません。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
-      <div class="d">実際の画面を3D空間に並べて、石の置き方・8方向の挟み・COM対戦・一手戻す/進める・持ち時間・棋譜の順に、カメラが寄りながら説明します。石が裏返る3Dの実演つき。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 3Dの盤 / 粒子アニメ / 全11ステップ</div>
-      <div class="d">クリック → マス → 8方向の反転判定 → 手番交代/パス/終局 → 履歴 → 再描画を、3Dの盤で石が裏返る様子と光の粒で追います。COMの評価、一手戻す(履歴の再生)、棋譜も。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全10ステップ</div>
-      <div class="d">UI層・描画層・ルール層・共通部品・OS の5層に、実際のクラス名・ファイル名を並べて、責務と依存の向き(GameMaster は誰も呼ばない)を説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/Othello</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code>、盤の3D部品は <code>board3d.js</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'Othello',
+  caption: 'クリックでもCOMでも棋譜でも、同じ入口から盤が変わるオセロ',
+  lead: '黒と白が交互に石を置き、<b>挟んだ相手の石を裏返す</b>オセロを遊べる Windows 用ツールです。' +
+        '人 vs 人・人 vs COM・COM vs 人・COM vs COM の4つの対戦モードと、3段階の COM レベル、<b>一手戻す・一手進める</b>、持ち時間、棋譜の保存と読込があります。' +
+        '盤とルールは <code>GameMaster</code> が1か所で持ち、画面は「いつ何を呼ぶか」を決めるだけです。',
+  say: ['息抜きに COM と1局打ちたい', 'COM 同士の対局を眺めたい', '一手戻して別の手を試したい', '棋譜を残して並べ直したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/midgame.png', title: '対局の途中', cap: '実際の画面（対局の盤面だけ）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '遊ぶ人', at: [-8.5, 0], desc: '対戦モードを選び、灰色の小円があるマスをクリックして石を置く人。' },
+    { id: 'ui', type: 'screen', label: '盤の画面', sub: 'メニュー・状態表示', at: [-4.6, -3], img: 'img/midgame.png',
+      desc: '緑の 8x8 の盤と、メニュー（ゲーム・対戦モード・COMレベル・持ち時間・棋譜）、「黒の番 (黒:2 白:2)」のような状態表示。盤は常に正方形のまま拡大される。' },
+    { id: 'app', type: 'main', label: 'Othello', sub: 'MainWindow', at: [-0.8, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。クリック・メニュー・タイマー・持ち時間を受け持ち、盤の状態は持たない。' },
+    { id: 'gm', type: 'code', label: 'GameMaster', sub: '盤・ルール・履歴', at: [3.4, -0.4],
+      desc: '盤の状態とルールのすべて。クリック・COM・棋譜の読込は、どれも同じ入口 <code>TryPut(x, y)</code> を通って盤を変える。画面のことは知らない。' },
+    { id: 'table', type: 'data', label: '盤と手番', sub: 'Table・CurrentTurn', at: [7.8, -3.4],
+      desc: '<code>Table[y, x]</code>（黒・白・空き）と、今の手番 <code>CurrentTurn</code>、終局フラグ <code>IsGameEnd</code>。' },
+    { id: 'hist', type: 'store', label: 'History', sub: '全手の履歴・TurnCount', at: [7.8, 1.2],
+      desc: '打った手（<code>KifuMove</code> = X, Y, 色）の一覧と、盤にいま何手目まで反映しているか（<code>TurnCount</code>）。一手戻す・進める・棋譜の元になる。' },
+    { id: 'com', type: 'code', label: 'ComPlayer', sub: 'COM の1手', at: [2.6, -4.4],
+      desc: '状態を持たない static クラス。盤を受け取って1手を返すだけ。「もし置いたら」は <code>Clone</code> した盤で試すので、本物の盤は変わらない。' },
+    { id: 'render', type: 'code', label: 'BoardRenderer', sub: '盤を絵にする', at: [-4.6, 3.4],
+      desc: '盤を <code>System.Drawing.Bitmap</code> に描く（緑の下地・罫線・石・置ける場所の灰色の小円）。<code>BoardImage</code> が WPF の画像に変える。ルールは持たない。' },
+    { id: 'kifu', type: 'code', label: 'Kifu', sub: '棋譜テキスト', at: [3.4, 4.4],
+      desc: '<code>History</code> とテキスト（「 7 : F.3 黒」の1手1行）を相互に変換する static クラス。ファイルの読み書きとダイアログは <code>MainWindow</code> 側。' },
+    { id: 'txt', type: 'file', label: '棋譜ファイル', sub: 'Othello_kifu.txt', at: [-0.8, 5.2],
+      desc: '棋譜を保存したテキストファイル（既定名 <code>Othello_kifu.txt</code>）。戻した手も、進め直せる間は含まれる。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['app', 'gm'], ['gm', 'table'], ['gm', 'hist'], ['app', 'com'], ['com', 'gm'],
+          ['app', 'render'], ['render', 'ui'], ['app', 'kifu'], ['kifu', 'gm'], ['app', 'txt']],
+  steps: [
+    { by: 'user', title: '対戦モードを選んで、石を置く', flow: [['user', 'ui'], ['ui', 'app']], shot: 'img/start.png',
+      text: 'メニュー「対戦モード」で人と COM の組み合わせを選ぶ。灰色の小円があるマスをクリックすると、そこに石を置ける。',
+      note: '「対戦モード」「持ち時間」を選び直すと、今の対局は確認なしで新しくなる' },
+    { by: 'app', title: 'クリックをマスに直して TryPut へ', flow: [['app', 'gm']],
+      text: '押したボタンと同じボタンを離したときだけクリックとして扱う。位置を盤の画像のピクセルに直し、<code>BoardRenderer.TryGetCell</code> でマスを求めて <code>GameMaster.TryPut</code> を呼ぶ。',
+      note: '開始待ち・時間切れ・終局・COM の手番のあいだは、クリックしても何も起きない' },
+    { by: 'gm', title: '8方向を調べて、挟んだ石を裏返す', flow: [['gm', 'table']],
+      text: '<code>CanPut</code> が縦・横・斜めの8方向を1つずつ調べ、挟めた方向の石を <code>ApplyMove</code> が自分の色に書き換える。置けないマスなら盤も手番もそのまま。' },
+    { by: 'gm', title: '手番交代・パス・終局を決めて、履歴に積む', flow: [['gm', 'table'], ['gm', 'hist']], shot: 'img/end.png',
+      text: '<code>AdvanceTurn</code> が、相手が置けるなら交代、相手だけ置けないならパス（同じ色の番が続く）、どちらも置けないなら終局にする。打てた手は <code>History</code> に足して <code>TurnCount</code> を進める。' },
+    { by: 'app', title: '盤をまるごと描き直す', flow: [['app', 'render'], ['render', 'ui']], shot: 'img/midgame.png',
+      text: '盤が変わるたびに <code>RedrawBoard</code> が全体を描き直す（差分更新はしない）。続けて状態表示・持ち時間・「一手戻す/進める」メニューの有効/無効も更新する。' },
+    { by: 'com', title: 'COM の番なら 150ms 後に1手', flow: [['app', 'com'], ['com', 'gm']], shot: 'img/com.png',
+      text: '次が COM の番ならタイマー（150ms）を始め、<code>ComPlayer.TryGetMove</code> が選んだ手を、人と同じ <code>TryPut</code> に渡す。最初の3手はランダム、そのあとはレベルごとに並べ替えて「角 &gt; 無難 &gt; 星 &gt; 次星 &gt; 角を取られる手」の順に選ぶ。' },
+    { by: 'gm', title: '一手戻す・進める（履歴の再生）', flow: [['app', 'gm'], ['hist', 'gm']],
+      text: '裏返した石を逆算せず、初期配置から <code>History</code> を指定の手数まで <code>ApplyMove</code> し直す。戻した状態から別の手を打つと、その先の履歴は捨てられる。',
+      note: '時間切れで終わった対局は、戻して続けることはできない' },
+    { by: 'kifu', title: '棋譜を保存・読込する', flow: [['app', 'kifu'], ['kifu', 'app'], ['app', 'txt']],
+      text: '<code>Kifu.ToText</code> が「 7 : F.3 黒」の1手1行に直し、<code>MainWindow</code> がテキストファイルへ書く。読込は <code>TryPut</code> を1手ずつ呼んで、最初から再生する。',
+      note: '置けない手があればそこで打ち切る。読み込んだ直後は「開始」を押すまで COM も人も打たず、持ち時間も減らない' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: '実際の画面で、石の置き方・COM 対戦・一手戻す/進める・持ち時間・棋譜を順に（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: 'クリック → 8方向の反転判定 → 手番交代 → 履歴 → 再描画を、3D の盤と光の粒で追う（全11ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: 'UI層・描画層・ルール層・共通部品・OS の5層と、依存の向き（全10ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/Othello</code>（共通部品は <code>Essentials/_Common</code>）。画面写真は対局の盤面だけで、個人情報は含みません。',
+});
+</script>
 </body>
 </html>

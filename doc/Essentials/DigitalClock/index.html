@@ -3,39 +3,74 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DigitalClock ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>DigitalClock — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>DigitalClock ドキュメント</h1>
-  <p class="lead">時刻だけを表示する、小さなデジタル時計「DigitalClock」(C# / WPF / .NET Framework)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
-  最前面・半透明の小さなウィンドウに <code>HH:mm:ss</code> を出すだけのツールで、ドラッグで好きな場所へ動かせます。画面のスクリーンショットは、このガイド用に撮った時計の窓と見本テキストだけです。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全7ステップ</div>
-      <div class="d">起動 → 時刻が進む → ドラッグで移動 → 半透明で他のウィンドウに重ねる → 位置を覚える。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒が流れるアニメ / 全7ステップ</div>
-      <div class="d">500msごとのタイマー → 時刻の整形 → 画面。起動時の位置の復元(画面外なら捨てる)、半透明化のWin32の仕掛け、ドラッグ移動、終了時の保存まで。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / クラス構成の3D図 / 全6ステップ</div>
-      <div class="d"><code>MainWindow</code> / <code>Logic</code> / <code>WindowPlacement</code> と、共通部品 <code>JsonFileStorage</code> / <code>AtomicFile</code>、user32.dll の関係。実際のクラス・ファイル・関数名で解説します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/DigitalClock</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'DigitalClock',
+  caption: '最前面・半透明の小さな窓に、時刻だけを出しておく',
+  lead: '時刻 <code>HH:mm:ss</code> だけを出す、小さなデジタル時計です（C# / WPF）。' +
+        'ウィンドウは<b>いつも最前面</b>・<b>半透明</b>・<b>大きさ固定</b>で、時刻の部分をドラッグして好きな場所へ動かせます。' +
+        '閉じるときに位置を覚えて、次に起動したときも同じ場所に出ます。設定画面やボタンはありません。',
+  say: ['作業のじゃまにならない隅に時刻を出しておきたい', '秒まで見たい', '次に起動したときも同じ場所に出てほしい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/1-start.png', title: 'Clock', cap: '実際の時計の窓（拡大して表示）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.5, 0], desc: '時計を見て、じゃまなら時刻の部分をドラッグして動かす人。' },
+    { id: 'win', type: 'screen', label: '時計の窓', sub: 'HH:mm:ss', at: [-4.4, -2.8], img: 'img/1-start.png',
+      desc: 'タイトルが <code>Clock</code> の小さなツールウィンドウ。最前面・半透明・大きさ固定で、閉じるボタンだけがある。' },
+    { id: 'json', type: 'store', label: '位置の保存', sub: 'DigitalClock.json', at: [-4.4, 3.4],
+      desc: 'ウィンドウの左上の位置（<code>Left</code> / <code>Top</code>）だけを入れた JSON。場所は <code>%LOCALAPPDATA%\\DigitalClock\\</code>。' },
+    { id: 'app', type: 'main', label: 'DigitalClock', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。起動時に位置を戻し、タイマーで時刻を書き換え、閉じるときに位置を保存する。' },
+    { id: 'timer', type: 'code', label: 'タイマー', sub: '0.5 秒ごと', at: [4.2, -3.6],
+      desc: 'WPF の <code>DispatcherTimer</code>（500 ミリ秒）。画面のスレッドで動くので、表示をそのまま書き換えられる。' },
+    { id: 'logic', type: 'code', label: 'Logic', at: [4.4, 0.4],
+      desc: '画面に触らない処理。<code>FormatTime</code> で時刻を <code>HH:mm:ss</code> にし、<code>IsOnScreen</code> で保存位置が画面の中かを確かめる。' },
+    { id: 'now', type: 'os', label: 'パソコンの時計', sub: 'DateTime.Now', at: [8.8, 0.4],
+      desc: 'いまの時刻の出どころ。DigitalClock の入力はこれと設定ファイル1個だけ。' },
+    { id: 'user32', type: 'os', label: 'user32.dll', sub: '半透明にする', at: [3.6, 4.4],
+      desc: 'Windows の関数。ウィンドウを「レイヤードウィンドウ」にして、透明度 128（0〜255 の半分）を設定する。' },
+  ],
+  links: [['user', 'win'], ['win', 'app'], ['app', 'json'], ['timer', 'app'], ['app', 'logic'], ['now', 'logic'], ['app', 'user32']],
+  steps: [
+    { by: 'app', title: '起動: 前の位置を読み戻す', flow: [['json', 'app'], ['app', 'logic']],
+      text: '<code>DigitalClock.json</code> から前回の左上の位置を読み、全部のモニターを合わせた範囲の中にあるかを確かめてから使う。',
+      note: '初回・ファイルが壊れている・前の位置が画面の外（モニターを外したあとなど）のときは、初期位置 (100, 100) から始まる' },
+    { by: 'app', title: '起動: 最前面・半透明にする', flow: [['app', 'user32'], ['app', 'win']], shot: 'img/3-overlay.png',
+      text: 'ウィンドウは最前面に固定。タイトルバー付きのまま半透明にするため、<code>user32.dll</code> でレイヤードウィンドウにして透明度 128 にする。後ろの文字が透けて見える。' },
+    { by: 'timer', title: '0.5 秒ごとに知らせる', flow: [['timer', 'app']],
+      text: '500 ミリ秒ごとに表示を書き換える。1秒ちょうどでなく半秒ごとなので、秒が変わってから表示が変わるまでの遅れは最大 0.5 秒。起動したときにも1回すぐ表示する。' },
+    { by: 'logic', title: '時刻を HH:mm:ss にして窓へ', flow: [['now', 'logic'], ['logic', 'app'], ['app', 'win']], shot: 'img/2-tick.png',
+      text: 'いまの時刻を 24 時間・2桁のゼロ埋め（例 <code>07:14:00</code>）の文字にして、窓の時刻の部分に入れる。' },
+    { by: 'user', title: '時刻の部分をドラッグして動かす', flow: [['user', 'win'], ['win', 'app']], shot: 'img/3-overlay.png',
+      text: '時刻の文字を左ボタンで押したまま動かすと、ウィンドウごと動く（WPF の <code>DragMove</code>）。マウスを重ねると、そのことがツールチップに出る。動かした位置は、この時点では保存しない。' },
+    { by: 'app', title: '閉じるときに位置を保存する', flow: [['app', 'json']],
+      text: 'タイマーを止めて、いまの左上の位置を JSON に書く。いったん <code>.tmp</code> に書き切ってから置き換えるので、途中で落ちても前のファイルは壊れない。大きさは文字で決まるので保存しない。',
+      note: '保存に失敗しても（書き込めない・権限がない）、終了は止めない' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: '起動 → 時刻が進む → ドラッグで移動 → 半透明で重ねる → 位置を覚える（全7ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '500ms ごとのタイマー → 時刻の整形 → 画面。位置の復元、半透明化の仕掛け、終了時の保存まで（全7ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '<code>MainWindow</code> / <code>Logic</code> / <code>WindowPlacement</code> と共通部品、<code>user32.dll</code> の関係（全6ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/DigitalClock</code>（共通部品は <code>Essentials/_Common</code>）。画面写真は、このガイド用に撮った時計の窓と見本テキストだけです。',
+});
+</script>
 </body>
 </html>

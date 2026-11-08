@@ -3,39 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OthelloMfc ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>OthelloMfc — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>OthelloMfc ドキュメント</h1>
-  <p class="lead">オセロ(C++ / MFC版)「OthelloMfc」の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
-  人 vs COM・COM vs COM などで遊べる、ダイアログベースのオセロです。盤面のスクリーンショットは、このガイド用に実際に遊んだ画面です(個人情報は写っていません)。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全9ステップ</div>
-      <div class="d">メニューの見かた → 置ける場所の点 → クリックで打つ → 手番・スコア・持ち時間 → 棋譜と一手戻す → 終局。実際の画面を3D空間に並べ、ステップごとにカメラが注目点へ寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 石の裏返しとCOM思考のアニメ / 全8ステップ</div>
-      <div class="d">クリック → 着手判定(8方向) → 石を置いて裏返す → 手番交代・パス・終局 → COMの思考(候補手の評価と優先度) → 棋譜と一手戻す/送る。盤の上で石が実際に動きます。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / クラス構成の3D図 / 全8ステップ</div>
-      <div class="d">画面・進行・ルール・外部の層と、<code>OthelloApp</code> / <code>OthelloDlg</code> / <code>GameManager</code> / <code>Board</code> / <code>ComPlayer</code> の責務と依存関係。MFCのメッセージマップ、タイマ、描画も。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/OthelloMfc/Source</code>(実行ファイルは <code>Essentials/OthelloMfc/Release</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'OthelloMfc',
+  caption: '1つのダイアログで遊ぶ C++ / MFC 版のオセロ',
+  lead: '1つのダイアログに盤を描き、メニューで操作するオセロです（C++ / MFC）。' +
+        '起動すると<b>人（黒） vs COM（白）</b>・COMレベル3で始まり、プレイモード・COMレベル・制限時間を選べます。' +
+        '1手ごとに<b>裏返した数（flips）まで棋譜に残す</b>ので、一手戻す・送るは盤全体を保存せずにできます。',
+  say: ['C++ / MFC 版のオセロで遊びたい', 'COM 同士の対局を見たい', '持ち時間つきで対局したい', '棋譜を保存して読み直したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/2-playing.png', title: '対局の途中', cap: '実際の画面（このガイド用に遊んだ盤面）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '遊ぶ人', at: [-8.5, 0], desc: '置ける場所の点があるマスをクリックして打つ人。' },
+    { id: 'dlg', type: 'screen', label: '対局ダイアログ', sub: '盤・メニュー', at: [-4.6, -2.8], img: 'img/2-playing.png',
+      desc: '8×8 の盤（列 A〜H・行 1〜8）と、右側の手番・石数・残り時間。メニューは ゲーム / 設定 / 操作 / ヘルプ。盤の大きさはウィンドウに合わせて変わる。' },
+    { id: 'app', type: 'main', label: 'OthelloMfc', sub: 'OthelloDlg', at: [-0.6, 0],
+      desc: '画面と操作のすべてを受け持つ <code>OthelloDlg</code>（<code>CDialog</code> 継承）。ルールの判断は持たず、<code>GameManager</code> と <code>ComPlayer</code> に聞いて、結果を画面に出す。' },
+    { id: 'gm', type: 'code', label: 'GameManager', sub: '対局の進行・棋譜', at: [3.4, -0.2],
+      desc: '今の対局の状態（盤・手番・手数・プレイモード・COMレベル）と棋譜を1か所にまとめたクラス。画面の都合は知らない。' },
+    { id: 'board', type: 'data', label: 'Board', sub: '盤 8×8 とルール', at: [7.8, -3.2],
+      desc: '盤面（<code>Stone cells_[8][8]</code>）と、置く・裏返す・戻すルールだけを持つ。MFC にも画面にも依存しない（座標用の <code>CPoint</code> と STL だけ）。' },
+    { id: 'kifu', type: 'store', label: '棋譜 kifu_', sub: '{ 座標, 色, flips }', at: [7.8, 1.6],
+      desc: '1手ぶんの <code>KifuRecord</code> の配列。裏返した数（<code>FlipCounts</code>）も持つので、戻す・送るに使える。' },
+    { id: 'com', type: 'code', label: 'ComPlayer', sub: 'Think', at: [2.6, -4.4],
+      desc: '入口は <code>Think(board, color, level, move_count, result)</code> だけ。盤面をコピーして考え、打つ座標を返す。' },
+    { id: 'timer', type: 'os', label: 'Win32 タイマ', sub: 'COM 10ms・持ち時間 100ms', at: [-4.6, 3.4],
+      desc: '<code>SetTimer</code> / <code>WM_TIMER</code>。COM 用（10ms）と、黒・白の持ち時間用（100ms）。<code>OnTimer</code> で振り分ける。' },
+    { id: 'rkf', type: 'file', label: '棋譜ファイル', sub: '.rkf', at: [3.4, 4.4],
+      desc: '「手番号 : 列.行 色」（例 <code>3 : C.4 黒</code>）のテキスト。<code>GameManager::SaveKifu</code> が書き、<code>LoadKifu</code> が読む。' },
+  ],
+  links: [['user', 'dlg'], ['dlg', 'app'], ['app', 'gm'], ['gm', 'board'], ['gm', 'kifu'], ['app', 'com'], ['com', 'gm'],
+          ['timer', 'app'], ['gm', 'rkf']],
+  steps: [
+    { by: 'user', title: '点のあるマスをクリックして打つ', flow: [['user', 'dlg'], ['dlg', 'app']], shot: 'img/1-start.png',
+      text: '置ける場所には小さな点が出る（人の番は青、COM の番は赤）。点のマスをクリックすると打てて、最初の1手でゲームが始まる。',
+      note: '押したマスと離したマスが違うときは打たない。COM の番のクリックは無視される' },
+    { by: 'app', title: 'マス番号に直して PlayMove へ', flow: [['app', 'gm']],
+      text: '<code>OnLButtonUp</code> が <code>HitTestCell</code> で画面の座標をマス番号（1始まり。列は A=1〜H=8）に直し、<code>Board::CanPut</code> で打てるか確かめてから <code>PlayMove</code> を呼ぶ。' },
+    { by: 'gm', title: '8方向を調べて、置いて裏返す', flow: [['gm', 'board']],
+      text: '<code>GetFlips</code> が8方向それぞれの裏返る数（<code>FlipCounts</code>）を数え、<code>Board::Put</code> が石を置いて、その数だけ自分の色にする。' },
+    { by: 'gm', title: '棋譜に flips ごと記録する', flow: [['gm', 'kifu']],
+      text: '<code>kifu_</code> に <code>{ 置いた座標, 色, flips }</code> を残して手数を進める。裏返した数を持っているので、戻すときに盤全体を保存しておかなくていい。' },
+    { by: 'app', title: '次の手番を決めて、描き直す', flow: [['gm', 'app'], ['app', 'dlg']], shot: 'img/2-playing.png',
+      text: '<code>GetNextTurn</code> が「相手が置ける → 相手の番」「相手だけ置けない → パス（同じ人がもう一度）」「どちらも置けない → 終局」の順で決める。<code>OnPaint</code> が盤・石・置ける場所の点を描き直す。' },
+    { by: 'com', title: 'COM の番は 10ms のタイマで考える', flow: [['timer', 'app'], ['app', 'com'], ['com', 'gm']],
+      text: 'タイマで <code>PlayComTurn</code> が呼ばれ、<code>ComPlayer::Think</code> が打つ座標を返す。あとは人と同じ <code>PlayMove</code>。手数2以下の序盤はランダム、そのあとは「角 &gt; 無難 &gt; 星 &gt; 角の隣 &gt; 角を与える手」の順に選ぶ。' },
+    { by: 'app', title: '持ち時間と終局', flow: [['timer', 'app'], ['app', 'dlg']], shot: 'img/5-end-dialog.png',
+      text: '制限時間を選ぶと、手番の側だけ 100ms ごとに減る。どちらも置けなくなると、石数のダイアログ（例「黒：42　白：22 ゲーム終了」）を出して終局。',
+      note: 'どちらかが 00:00 になるとタイムアウト負け。制限時間は対局中は変えられない' },
+    { by: 'gm', title: '棋譜の表示・保存と、一手戻す/送る', flow: [['kifu', 'gm'], ['gm', 'rkf']], shot: 'img/4-kifu.png',
+      text: '棋譜は「操作 → 棋譜」から表示・保存（<code>.rkf</code>）・読み込み。一手戻すは <code>Board::Undo</code> が置いた石を消し、flips ぶんの石を相手の色へ戻す。戻した先から別の手を打つと、その先の棋譜は捨てられる。',
+      note: '読み込みは、打てない手が出たら失敗する。戻す・送るを使うと自動で一時停止になり、終局後は使えない' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: '実際の画面で、メニュー → 置ける場所 → 打つ → 手番とスコア → 棋譜 → 終局（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '着手判定（8方向）・裏返し・手番交代・COM の思考・棋譜を、盤の上で石を動かして追う（全8ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '<code>OthelloApp</code> / <code>OthelloDlg</code> / <code>GameManager</code> / <code>Board</code> / <code>ComPlayer</code> の責務と依存関係（全8ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/OthelloMfc/Source</code>（実行ファイルは <code>Essentials/OthelloMfc/Release</code>）。盤面のスクリーンショットは、このガイド用に実際に遊んだ画面です（個人情報は写っていません）。',
+});
+</script>
 </body>
 </html>

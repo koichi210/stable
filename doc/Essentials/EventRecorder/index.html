@@ -3,37 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EventRecorder ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>EventRecorder — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>EventRecorder ドキュメント</h1>
-  <p class="lead">マウス・キーボード操作を「記録」して「再生」する Windows 用ツール(C# / WPF / .NET Framework 4.8)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(ファイル名・メモ・座標)は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
-      <div class="d">実際の画面を3D空間に並べて、記録 → 編集 → 保存 → 再生 → プレイリストの順に、カメラが寄りながら手順を説明します。ホットキーや最小化などの便利機能も。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
-      <div class="d">入力フック → イベント → 行データ → JSONファイル → 再生 → 入力の再送信、までを光の粒の流れで追います。保存先の決まり方や、停止・ロック時の安全装置も。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
-      <div class="d">UI層・ルール層・データ層・共通部品(_Common)・OS の5層に、実際のクラス名・ファイル名を並べて、責務と依存の向きを説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/EventRecorder</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'EventRecorder',
+  caption: 'マウス・キーボードの操作を記録して、あとから同じ操作を自動で再生する',
+  lead: 'マウスのクリック・ホイール・キー入力を<b>記録</b>して、あとから同じ操作を<b>自動で再生</b>する Windows 用ツールです（C# / WPF / .NET Framework 4.8）。' +
+        '記録した操作は表に1行ずつ並び、そのまま書き換えて直せます。保存したファイルを<b>プレイリスト</b>に並べて、順番に再生することもできます。',
+  say: ['単調な繰り返し操作を自動にしたい', '同じクリックの手順を何回も流したい', '記録した操作を少しだけ直して使い回したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/main.png', title: '起動直後（レコードモード）', cap: '実際の画面（ファイル名・メモ・座標はダミー）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: 'F1 で記録を始めて、普段どおりにマウス・キーボードを操作する人。' },
+    { id: 'hook', type: 'os', label: '入力フック', sub: 'GlobalHook', at: [-4.6, -3.4],
+      desc: 'Windows の低レベルフック（<code>SetWindowsHookEx</code>）。他のアプリへの入力も、横取りせずに覗く。実装は <code>_Common/GlobalHook.cs</code>。キーボードはアプリ起動中ずっと、マウスは記録中だけ有効。' },
+    { id: 'grid', type: 'screen', label: 'レコード表', sub: '1行＝1操作', at: [-4.6, 3.4], img: 'img/recording.png',
+      desc: '記録した操作が1行ずつ並ぶ表。<code>Event</code>（種類）・<code>Detail</code>（座標やキー）・<code>備考</code>。セルを書き換えて直せる。' },
+    { id: 'app', type: 'main', label: 'EventRecorder', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。フック・入力送信・JSON 保存と、ルール（<code>EventRules</code>）をつなぐ司令塔。' },
+    { id: 'guard', type: 'code', label: '安全装置', sub: 'SessionGuard', at: [8.6, 4.4],
+      desc: '画面ロック・ユーザー切替・リモート切断を「止める」と判定して、記録・再生を止める。解除後はキーボードフックを張り直す。' },
+    { id: 'json', type: 'store', label: 'プロファイル', sub: 'JSON ファイル', at: [0, 4.6],
+      desc: '記録データ・ループ数・プレイリスト・モード・最小化チェックをまとめた JSON。既定の置き場は <code>%LOCALAPPDATA%\\EventRecorder\\</code>。' },
+    { id: 'play', type: 'code', label: '再生スレッド', sub: 'PlayRowsCore', at: [4.4, -3.4],
+      desc: '画面とは別のスレッド。表をコピーした行を1つずつ、待つ → 入力を作って送る、を繰り返す。' },
+    { id: 'playlist', type: 'data', label: 'プレイリスト', sub: 'ファイル × 回数', at: [4.4, 3.4],
+      desc: '「どのプロファイルを・何回」再生するかを並べた表。「実行」にチェックした行だけを、上から順に再生する。' },
+    { id: 'win', type: 'os', label: '他のアプリ', sub: 'SendInput', at: [8.6, -1],
+      desc: '再生の相手。<code>InputSimulator</code> が <code>SendInput</code> でクリック・ホイール・キーを送り直す。' },
+  ],
+  links: [['user', 'hook'], ['hook', 'app'], ['app', 'grid'], ['user', 'grid'], ['app', 'json'], ['app', 'play'], ['play', 'win'],
+          ['app', 'playlist'], ['json', 'playlist'], ['guard', 'play']],
+  steps: [
+    { by: 'user', title: 'F1 で記録を始める', flow: [['user', 'hook']], shot: 'img/main.png',
+      text: '準備ができたら F1（既定）で記録開始。普通に操作して、もう一度 F1 で止める。クリック・ホイール・キーの押下と離上が残り、カーソルの移動そのものは残らない。',
+      note: '「記録」ボタンでも始められるが、ボタンを押したクリック自体が記録に混ざる。ホットキーが基本' },
+    { by: 'hook', title: '操作を拾って「行」にする', flow: [['hook', 'app']],
+      text: '1つの操作を <code>[Type, X, Y, Key, Wait, Delta]</code> の行にして溜める。前の操作からの間隔は、待つだけの <code>WAIT_MS</code> 行として自動で挟む。F1 や再生キーは記録に入らない。' },
+    { by: 'app', title: '150ms ごとに表へ足す', flow: [['app', 'grid']], shot: 'img/recording.png',
+      text: 'フックの受け口は溜めるだけにして、150ms ごとのタイマーでまとめて表に追加する。最新の行は黄色くなり、自動でスクロールする。記録を始めても前の行は消さない（追記）。' },
+    { by: 'user', title: '表で確認して直す', flow: [['user', 'grid']],
+      text: '<code>Detail</code> を直接書き換えられる。右クリックで行の追加・削除や WAIT 時間の一括変更、<code>Ctrl+Z</code> / <code>Ctrl+Y</code> で戻す・やり直す、<code>Ctrl+F</code> / <code>Ctrl+H</code> で検索・置換。',
+      note: '再生できない値（座標が数字でないなど）の行はピンクになり、ツールチップに理由が出る' },
+    { by: 'app', title: 'プロファイルとして保存する', flow: [['app', 'json']],
+      text: '<code>Ctrl+S</code> で、記録データ・ループ数・プレイリスト・モード・最小化チェックを1つの JSON に保存。一時ファイルに書き切ってから置き換えるので、保存中に落ちても元のファイルは壊れない。' },
+    { by: 'play', title: '再生する（変換キー）', flow: [['app', 'play'], ['play', 'win']],
+      text: '再生ボタンか変換キー（既定）で再生。表をコピーして別スレッドで1行ずつ進め、<code>WAIT_MS</code> は待ち、操作は <code>SendInput</code> で送り直す。終わるとマウスカーソルは再生前の位置に戻る。',
+      note: '再生は座標へのクリックの送り直し。ウィンドウの位置や解像度が記録時と違うと、別の場所をクリックする' },
+    { by: 'playlist', title: 'プレイリストで順番に再生する', flow: [['json', 'playlist'], ['playlist', 'play'], ['play', 'win']], shot: 'img/playing.png',
+      text: '上段を「プレイバック」にすると、チェックした行のファイルを上から読み込み、その行のループ数だけ再生する。下のループ数は、プレイリスト全体を何周するか。',
+      note: '再生できない行が1つでもあると、プレイリスト全体を止める。ファイルが見つからない行はピンク' },
+    { by: 'guard', title: '止める・ロックで止まる', flow: [['app', 'play'], ['guard', 'play']],
+      text: 'もう一度ボタンかホットキーで停止。長い待ちの途中でも 50ms ごとに確認するので、すぐ止まる。途中で止めたときは、押しっぱなしのキー・ボタンも離す。',
+      note: '画面ロック・ユーザー切替・リモート切断をすると、記録・再生は自動で止まる' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: '実際の画面で、記録 → 編集 → 保存 → 再生 → プレイリストを1歩ずつ（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '入力フック → 行データ → JSON → 再生 → 入力の送り直しを、光の粒で追う（全10ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: 'UI・ルール・データ・共通部品・OS の5層と、依存の向き（全8ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/EventRecorder</code>（共通部品は <code>Essentials/_Common</code>）。画面写真の中身（ファイル名・メモ・座標）はすべてダミーです。',
+});
+</script>
 </body>
 </html>

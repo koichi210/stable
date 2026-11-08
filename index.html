@@ -4,26 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>stable</title>
-<link rel="stylesheet" href="doc/line-bot-mirai/lib/guide.css">
+<meta name="description" content="よく使うツールと試作ゲームの置き場。魔法陣の円を選ぶと、それぞれの説明ページへ移ります。">
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="portal/catalog.js"></script>
+<script src="portal/magic.js"></script>
 </head>
-<body>
-<div class="gg-hub">
-  <h1>stable</h1>
-  <p class="lead">よく使うメジャーなツールの置き場。<br>
-  ツールやドキュメントが増えたら、ここにカードを足していきます。</p>
+<body class="mg-top">
+<div id="mg-stage"></div>
 
-  <div class="gg-grid">
-    <a class="gg-card" href="doc/">
-      <div class="t">📚 doc</div>
-      <div class="tech">3D図解ドキュメント集</div>
-      <div class="d">LINEボットや試作ゲームの仕組みを、立体図で解説したドキュメント。</div>
-    </a>
-    <a class="gg-card" href="download/">
-      <div class="t">💾 download</div>
-      <div class="tech">Windows ツール / Release フォルダへのリンク集</div>
-      <div class="d">ふだん使っているツールの、exe が入っている Release フォルダへのリンク集。</div>
-    </a>
-  </div>
+<header class="mg-top-head">
+  <h1>stable</h1>
+  <p>よく使うツールと試作ゲームの置き場。<br>円を選ぶと、それぞれの説明ページへ移ります。</p>
+</header>
+<div id="mg-legend" aria-label="色の意味"></div>
+<div class="mg-top-tools">
+  <button type="button" class="mg-btn" id="mg-home" title="全体が見える位置に戻す">⟲ 全体表示</button>
+  <button type="button" class="mg-btn" id="mg-list-toggle" title="文字の一覧で選ぶ">☰ 一覧</button>
 </div>
+<aside id="mg-info" aria-live="polite"></aside>
+<nav id="mg-list" aria-label="ツール一覧"></nav>
+<div class="mg-hint">ドラッグ：傾ける ／ ホイール：ズーム ／ クリック：開く</div>
+
+<script src="portal/top.js"></script>
 </body>
 </html>

@@ -3,38 +3,73 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cheetos ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>Cheetos — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p style="margin:0 0 10px"><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>Cheetos ドキュメント</h1>
-  <p class="lead">画面(全画面・モニター・ウィンドウ)を決めた間隔で連続キャプチャして保存し、撮った画像を切り取り・回転・縦横の振り分け・結合・集約で仕上げる Windows 用ツール(C# / WPF / .NET Framework 4.0 Client・x64)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小、矢印キー(←→)でステップ送りができます。画面写真は<b>アプリの設定画面だけ</b>で、撮影した画像(自分の画面)は一切載せていません。写っているパス・ファイル名・画像は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎞️ 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全14ステップ</div>
-      <div class="d">CaptureWindow タブで「保存先・撮る対象・待ち時間・繰り返し数」を決めて連続キャプチャ。そのあと PictTrim / Rotation / DistOrient / PictMerge / FileCollect の各タブで画像を仕上げる流れを、実際の画面を3D空間に並べてカメラが寄りながら説明します。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子・ブロックのアニメ / 全13ステップ</div>
-      <div class="d">設定 → UIスレッドで値を読み取り → 専用の撮影スレッド → (マウス移動・待機・撮影) × 行 × 繰り返し → PNGファイル。そのあと「バックアップ → 加工 → 上書き」の共通パターンで各タブが画像を処理していく様子を、光の粒の流れで追います。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全11ステップ</div>
-      <div class="d">画面・加工ロジック・共通部品(_Common)・OS/外部・テストの層に、<code>MainWindow</code>(partial 6ファイル) / <code>CaptWindow</code> / <code>PicEdit</code> / <code>PictMerge</code> / <code>Rotation</code> / <code>Logic</code> などの実際のクラス・ファイルを並べて、責務と依存の向きを説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/Cheetos</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'Cheetos',
+  caption: '決めた間隔で画面を撮りためて、撮った画像をまとめて仕上げる',
+  lead: '画面（全画面・今のモニター・今のウィンドウ）を、決めた間隔で<b>連続キャプチャ</b>して PNG で保存する Windows 用ツールです。' +
+        '撮ったあとは、同じアプリの加工タブで<b>切り取り・回転・縦横の振り分け・結合・集約</b>までできます。加工する前に元の画像は <code>Bk_</code> フォルダへ退避されます。',
+  say: ['手順書用に画面を撮りためたい', '一定間隔で画面の変化を記録したい', '撮った画像の余白を一括で切りたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/1-cap.png', title: 'CaptureWindow タブ', cap: '実際の画面（パス・名前はダミー）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.5, 0], desc: '撮り方を決めて「Capture」を押す人。' },
+    { id: 'ui', type: 'screen', label: 'CaptureWindow タブ', sub: '設定', at: [-4.6, -2.8], img: 'img/1-cap.png',
+      desc: '保存先・ファイル名の接頭辞・撮る対象・待ち時間・繰り返し数と、「撮影の手順」の表を入れる画面。' },
+    { id: 'app', type: 'main', label: 'Cheetos', at: [0, 0], desc: 'C# / WPF の画面（<code>MainWindow</code>）。値を読み取って撮影スレッドを起こし、加工タブも持つ。' },
+    { id: 'thread', type: 'code', label: '撮影スレッド', sub: 'CaptWindow', at: [4.2, -3.2],
+      desc: '画面とは別のスレッド。表の行ごとに「マウス移動 → 待機 → 撮影」を繰り返す。画面が固まらないので「中断」がすぐ効く。' },
+    { id: 'win', type: 'os', label: 'Windows の画面', sub: 'マウス・ウィンドウ', at: [8.6, -3.2], desc: '撮る相手。マウスを動かしたり、全画面・モニター・ウィンドウ単位で撮る。' },
+    { id: 'png', type: 'file', label: 'PNG ファイル', sub: '接頭辞＋時刻＋番号', at: [8.6, 0.8], desc: '保存先フォルダに並ぶ撮影結果。' },
+    { id: 'edit', type: 'code', label: '加工タブ', sub: 'Trim / Rotation / Merge …', at: [4.2, 3.6],
+      desc: 'PictTrim（切り取り）・Rotation（回転）・DistOrient（縦横の振り分け）・PictMerge（結合）・FileCollect（集約）。重い処理は <code>BackgroundWorker</code> で動く。' },
+    { id: 'bk', type: 'store', label: 'Bk_ フォルダ', sub: '元画像の退避', at: [8.6, 4.4], desc: '加工の前に元の画像をコピーしておく場所（<code>Bk_Trim</code> / <code>Bk_Rotate</code> / <code>Bk_Merge</code> など）。' },
+    { id: 'json', type: 'store', label: '設定 JSON', at: [-4.6, 3.4], desc: '画面の入力値を JSON で保存・復元する。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['app', 'thread'], ['thread', 'win'], ['thread', 'png', true], ['app', 'edit'], ['edit', 'png'], ['edit', 'bk'], ['app', 'json']],
+  steps: [
+    { by: 'user', title: '撮り方を決める', flow: [['user', 'ui']], shot: 'img/1-cap.png',
+      text: '保存先と接頭辞、撮る対象（全画面／今のモニター／今のウィンドウ）、待ち時間、繰り返し数を入れる。表には「どこへマウスを動かして、撮るか」を1行ずつ書く。' },
+    { by: 'app', title: '「Capture」で値を撮影スレッドへ渡す', flow: [['ui', 'app'], ['app', 'thread']],
+      text: '押した瞬間に画面の値をまとめて読み取り、表は行ごとのコピーにして、新しいスレッドに渡す。撮影スレッドは画面のコントロールに直接さわらない。',
+      note: '繰り返し数が数字でなければ、メッセージを出して始めない' },
+    { by: 'thread', title: '動かす → 待つ → 撮る', flow: [['thread', 'win'], ['win', 'thread']],
+      text: '表の1行ごとに、マウスを動かし、決めた時間だけ待ってから撮る。これを行の数 × 繰り返し数ぶん回す。' },
+    { by: 'thread', title: 'PNG で保存して、進み具合を画面へ', flow: [['thread', 'png'], ['thread', 'app']], shot: 'img/2-run.png',
+      text: 'ファイル名は「保存先＋接頭辞＋押した時刻＋ループ番号（4桁）＋撮影番号」。名前順に並べると「ループ順 → 撮影順」になる。何枚目かは画面スレッドに頼んで表示してもらう。',
+      note: '同じ名前のファイルがあると、撮影時に黙って上書きされる。接頭辞や時刻で分けておく' },
+    { by: 'edit', title: '撮った画像を仕上げる', flow: [['png', 'edit']], shot: 'img/3-trim.png',
+      text: '加工タブでフォルダの画像を選び、切り取り・回転・縦横の振り分け・2枚の結合・1か所への集約をする。' },
+    { by: 'edit', title: '元を退避してから上書き', flow: [['edit', 'bk'], ['edit', 'png']], shot: 'img/9-merge.png',
+      text: '切り取り・回転・結合は「元を Bk_ フォルダへコピー → 加工 → 同じ場所に上書き」の順で、1枚ずつ別スレッドで回す。振り分け（DistOrient）と集約（FileCollect）はコピーせずにファイルを移動する。',
+      note: 'Bk_ へのコピーも上書きなので、同じ画像を2回加工すると最初の元画像は残らない' },
+    { by: 'app', title: '設定を保存・復元する', flow: [['app', 'json'], ['json', 'app']],
+      text: '入力した値は JSON に保存でき、次に開いたときに戻せる。撮る手順の表も一緒に残る。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎞️', title: '使い方', desc: '実際の画面で、設定 → 実行 → 仕上げを1歩ずつ（全14ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '撮影スレッドと加工の共通パターンを、光の粒で追う（全13ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: '画面・加工ロジック・共通部品・テストの層と、依存の向き（全11ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/Cheetos</code>。画面写真はアプリの設定画面だけで、撮影した画像（自分の画面）は載せていません。写っているパス・ファイル名はすべてダミーです。',
+});
+</script>
 </body>
 </html>

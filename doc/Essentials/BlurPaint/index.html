@@ -3,37 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BlurPaint ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>BlurPaint — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>BlurPaint ドキュメント</h1>
-  <p class="lead">スクリーンショットに矢印・枠・文字・番号・蛍光ペン・<b>ぼかし／モザイク</b>の注釈を入れる、ブラウザだけで動く軽量ペイントエディタ(HTML / CSS / JavaScript・依存なし)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(画像・文字・番号)は<b>すべて自作のダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
-      <div class="d">実際の画面を3D空間に並べて、画像を入れる → 注釈を描く → ぼかす → 選択・変形 → トリミング → コピー/保存の順に、カメラが寄りながら手順を説明します。ショートカット一覧も。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
-      <div class="d">貼り付け・ドロップ → ベース画像 → 注釈オブジェクト → 履歴 → 合成描画 → PNG/JPEG/WebP の書き出し、までを光の粒の流れで追います。ぼかしの計算やトリミングの仕組みも。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
-      <div class="d">画面・入力操作・状態と履歴・描画・ブラウザ API の5層に、実際の関数名・状態名を並べて、1本の app.js の責務と依存の向きを説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/BlurPaint</code>(<code>index.html</code> / <code>style.css</code> / <code>app.js</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'BlurPaint',
+  caption: '貼った画像に注釈とぼかしを重ねて、1枚に合成して書き出す',
+  lead: 'スクリーンショットに矢印・枠・文字・番号・蛍光ペン・<b>ぼかし／モザイク</b>を入れる、ブラウザだけで動く軽量のペイントエディタです（HTML / CSS / JavaScript、依存なし）。' +
+        'インストール・ビルド・外部通信はありません。データは<b>「ベース画像 + 注釈の配列」</b>で持ち、画面と書き出しのときだけ1枚に合成するので、描いたあとから移動・変形・削除ができます。',
+  say: ['スクショの個人情報をぼかしたい', '手順書の画面に矢印と番号を入れたい', 'インストールなしでさっと注釈したい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/annotated.png', title: '注釈を入れた状態', cap: '実際の画面（画像・文字・番号はすべてダミー）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-9, 2.4], desc: 'Win + Shift + S で撮った画像を貼り、注釈を入れてコピーか保存する人。' },
+    { id: 'src', type: 'os', label: '画像の入口', sub: '貼り付け・ドロップ・開く', at: [-7.6, -2.8],
+      desc: '画像の入口は4つ（<code>Ctrl+V</code>・「貼り付け」ボタン・ドラッグ&amp;ドロップ・「開く」）。どれも最後は同じ <code>loadBlob</code> に入る。' },
+    { id: 'ui', type: 'screen', label: 'エディタ画面', sub: 'ツール・プロパティバー', at: [-4.6, 1.0], img: 'img/annotated.png',
+      desc: '上段バー（開く・貼り付け・元に戻す・ズーム・コピー・保存）、11個のツール、選んだツールに関係する設定だけが出るプロパティバー、描画面の canvas。' },
+    { id: 'app', type: 'main', label: 'BlurPaint', sub: 'app.js', at: [0, -1.4],
+      desc: 'ビルド不要の <code>app.js</code>（1本の即時関数）。マウス・キー・貼り付けを受けて <code>state</code>・履歴・設定を書き換え、画面への反映は再描画に任せる。' },
+    { id: 'base', type: 'data', label: 'ベース画像', sub: 'state.base', at: [4.4, -4.8],
+      desc: '読み込んだ画像を、同じ大きさの canvas に描き写したもの。編集で元の画像データには触らない。' },
+    { id: 'objs', type: 'data', label: '注釈の配列', sub: 'state.objects', at: [4.0, 0.2],
+      desc: '矢印・枠・文字・番号・蛍光ペン・ぼかし範囲などを、ただのオブジェクト（<code>{ type: "rect", x, y, w, h, … }</code>）で並べた配列。<b>配列の順 = 重なり順</b>。' },
+    { id: 'hist', type: 'store', label: '履歴', sub: 'スナップショット 最大100件', at: [4.0, 4.6],
+      desc: '「操作後の状態」のスナップショット（ベース画像の参照 + 図形の複製）の配列。<code>Ctrl+Z</code> / <code>Ctrl+Y</code> で行き来する。' },
+    { id: 'settings', type: 'store', label: '設定', sub: 'localStorage', at: [-4.4, 5.0],
+      desc: '次に描く図形の既定値（ツール・色・太さ・保存形式など）。保存するのは設定値だけで、画像・図形は保存しない。' },
+    { id: 'draw', type: 'code', label: 'drawScene', sub: '1枚に合成', at: [8.2, -1.8],
+      desc: 'クリア → ベース画像 → 注釈を配列の順に描く。画面のときだけ点線枠・ハンドル・トリミングの暗がりを足す。書き出しも同じ関数を使う。' },
+    { id: 'out', type: 'file', label: 'PNG / JPEG / WebP', sub: 'コピー・保存', at: [8.2, 3.2],
+      desc: 'コピーは常に PNG でクリップボードへ。保存は選んだ形式でファイルへ（既定名は <code>元の名前_edit.png</code> か <code>image_日付_時刻.png</code>）。' },
+  ],
+  links: [['user', 'ui'], ['user', 'src'], ['src', 'app'], ['ui', 'app'], ['app', 'base'], ['app', 'objs'], ['app', 'hist'], ['app', 'settings'],
+          ['base', 'draw'], ['objs', 'draw'], ['draw', 'out']],
+  steps: [
+    { by: 'user', title: '画像を入れる', flow: [['user', 'src'], ['src', 'app']], shot: 'img/main.png',
+      text: '<code>Ctrl+V</code>・「貼り付け」・ドロップ・「開く」（<code>Ctrl+O</code>）のどれかで画像を入れる。PNG / JPEG / WebP / BMP / GIF / ICO / SVG / AVIF を読める。',
+      note: '「貼り付け」ボタンはブラウザの許可が要ることがある。うまくいかなければ Ctrl+V を使う' },
+    { by: 'app', title: 'ベース画像になる', flow: [['app', 'base'], ['app', 'hist']],
+      text: '画像と同じ大きさの canvas に描き写して <code>state.base</code> にし、履歴に1件積む。「今の画像に重ねる」にしていれば、図形の1つとして中央に置く。' },
+    { by: 'user', title: '注釈を描く', flow: [['user', 'ui'], ['ui', 'app'], ['app', 'objs']], shot: 'img/annotated.png',
+      text: 'ツールを選んで画像の上をドラッグ（番号・文字はクリック）。設定の今の値（色・太さ・縁取り・影…）をコピーした図形を作り、離したときに <code>state.objects</code> に足す。',
+      note: '3px 未満のドラッグでは図形を作らない' },
+    { by: 'draw', title: 'ぼかし・モザイクで隠す', flow: [['objs', 'draw'], ['base', 'draw']],
+      text: 'ぼかし範囲も注釈の1つ。描くときに「それより前に描いた内容」を入力にして、範囲の中だけをぼかし（またはブロック化）で置き換える。あとから描いた矢印・文字は隠れない。',
+      note: 'ぼかしは弱いと文字が読めてしまうことがある。確実に隠すならモザイク（強さ大きめ）を使う' },
+    { by: 'app', title: '選択・変形して、履歴に積む', flow: [['ui', 'app'], ['app', 'objs'], ['app', 'settings'], ['app', 'hist']], shot: 'img/selected.png',
+      text: '選択ツールで移動・拡大縮小・削除・複製。プロパティバーで色や方式を変えると、選択中の図形と、次に描く図形の既定値の両方に反映される。操作のたびに「操作後の状態」を履歴に積む。' },
+    { by: 'draw', title: '1枚に合成して画面へ', flow: [['base', 'draw'], ['objs', 'draw'], ['draw', 'ui']],
+      text: '再描画は1フレームに1回にまとめ、<code>drawScene</code> がベース画像 → 注釈の順に重ねる。拡大縮小は CSS の大きさだけで変えるので、書き出しの画質は変わらない。' },
+    { by: 'app', title: 'トリミングする', flow: [['app', 'base'], ['app', 'objs'], ['app', 'hist']], shot: 'img/crop.png',
+      text: '残したい範囲をドラッグして <code>Enter</code> で確定。新しい canvas に切り抜き、すべての図形も同じだけずらす。元の画像は履歴に残るので <code>Ctrl+Z</code> で戻せる。' },
+    { by: 'draw', title: 'コピー・保存する', flow: [['draw', 'out']],
+      text: '別の canvas に、点線枠やハンドルを入れずに合成して書き出す。コピーは常に PNG、保存は PNG / JPEG / WebP（JPEG は透明部分を白で塗る）。',
+      note: '編集中の図形は保存されない。閉じる前にコピーか保存を' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: '実際の画面で、画像を入れる → 注釈 → ぼかし → 選択・変形 → トリミング → コピー/保存（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '貼り付け → ベース画像 → 注釈 → 履歴 → 合成描画 → 書き出しを、光の粒で追う（全10ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: '画面・入力操作・状態と履歴・描画・ブラウザ API の5層と、1本の <code>app.js</code> の責務（全8ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/BlurPaint</code>（<code>index.html</code> / <code>style.css</code> / <code>app.js</code>）。画面写真の中身（画像・文字・番号）はすべて自作のダミーです。',
+});
+</script>
 </body>
 </html>

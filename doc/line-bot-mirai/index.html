@@ -3,42 +3,89 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>line-bot-mirai ドキュメント</title>
-<link rel="stylesheet" href="lib/guide.css">
+<title>line-bot-mirai — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../portal/catalog.js"></script>
+<script src="../../portal/magic.js"></script>
+<script src="../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>line-bot-mirai ドキュメント</h1>
-  <p class="lead">LINEボット「ミライ」の構成と、立ち上げるときに触るサイトのまとめ。<br>
-  掲載しているURL・ID・キーの値は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="architecture-3d.html">
-      <div class="t">🧩 アーキテクチャ3D図解</div>
-      <div class="tech">Three.js / 全17ステップ</div>
-      <div class="d">動いているときの構成（ランタイム編 STEP 1-8）と、どのサイトで何を設定するか（セットアップ編 STEP 9-17）を、回して見られる立体図で解説。</div>
-    </a>
-    <a class="gg-card" href="https://github.com/koichi210/stable/blob/main/doc/line-bot-mirai/ARCHITECTURE.md">
-      <div class="t">📄 ARCHITECTURE.md</div>
-      <div class="tech">Markdown / mermaid</div>
-      <div class="d">同じ構成を mermaid の構成図とシーケンス図で。GitHub上でそのまま図として読める文章版。</div>
-    </a>
-    <a class="gg-card" href="https://github.com/koichi210/stable/blob/main/doc/line-bot-mirai/usecase-announcement.md">
-      <div class="t">📄 usecase-announcement.md</div>
-      <div class="tech">Markdown / mermaid</div>
-      <div class="d">アナウンス（グループへの一斉告知）機能のユースケース。登録から送信までを1本のシーケンス図で。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:20px">PDF版:
-    <a href="ARCHITECTURE.pdf">ARCHITECTURE.pdf</a> /
-    <a href="usecase-announcement.pdf">usecase-announcement.pdf</a>
-  </p>
-
-  <p class="lead" style="margin-top:28px">
-    3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は
-    GameGuide から持ってきたコピー。フレームワーク側を直したときは手で同期する。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../',
+  id: 'line-bot-mirai',
+  caption: 'LINE で話しかけると Vercel のサーバが答え、予約した時刻にはお知らせを届ける',
+  lead: 'LINE ボット「ミライ」は、天気・予定・リマインド・メモ・アナウンスなどを受け持つボットです。' +
+        '自前のサーバーは持たず、<b>Vercel</b>（処理）・<b>Upstash Redis</b>（保存）・<b>cron-job.org</b>（1分おきの時計）など、よそのサービスの無料枠を組み合わせて動いています。',
+  say: ['「天気 〇〇市」と聞いて、天気予報を返してほしい', '決めた時刻にリマインドを届けてほしい', 'グループに、日時を決めてお知らせを流したい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'user', type: 'person', label: 'ユーザー', at: [-9, -1],
+      desc: 'LINE アプリから話しかける人。リッチメニューのタイルや、LINE の中で開く LIFF フォームからも操作できる。' },
+    { id: 'admin', type: 'person', label: '管理者', at: [-9, 3.5],
+      desc: '環境変数 <code>ADMIN_USER_ID</code> と同じ userId の人。アナウンスの登録や、リマインダーの利用許可ができる。コードを直して GitHub に push する人でもある。' },
+    { id: 'line', type: 'service', label: 'LINE Platform', at: [-4.5, -1],
+      desc: 'メッセージを中継する。受け取ったメッセージを <code>POST /webhook</code> で Vercel へ送り、ボットの返事をユーザーに表示する。' },
+    { id: 'group', type: 'screen', label: '宛先グループ', sub: 'みんなが見る画面', at: [-4.5, -5],
+      desc: 'アナウンスが届く LINE グループ。管理者がグループの中で「このグループに登録」すると送信先になる。' },
+    { id: 'bot', type: 'main', label: 'line-bot-mirai', sub: 'Vercel · api/index.js', at: [0, -1],
+      desc: 'Vercel で動く Node.js + Express の本体（<code>api/index.js</code>）。全リクエストを受けて、コマンドを判定して返事をする。リクエストが来た時だけ起きて、返したら全部忘れる。' },
+    { id: 'libs', type: 'code', label: 'lib/*.js', sub: '機能ごとの処理', at: [4.5, -4.5],
+      desc: '天気・予定・リマインド・メモ・アナウンスなど、機能ごとの処理。返す文字列を作って本体に戻す。' },
+    { id: 'ext', type: 'service', label: '外部API', sub: '地図・天気・予定', at: [9, -4.5],
+      desc: '住所→緯度経度（OpenStreetMap Nominatim）、天気予報（Open-Meteo）、予定（Google Calendar API）。' },
+    { id: 'redis', type: 'store', label: 'Upstash Redis', at: [5, 1.5],
+      desc: '覚えておくものを置く唯一の場所。地域設定・リマインド・メモ・カレンダーID・送信先グループ・予約中のアナウンスなど。' },
+    { id: 'cron', type: 'service', label: 'cron-job.org', sub: '1分おき', at: [1, 4.5],
+      desc: '1分おきに <code>GET /cron/reminder</code> を叩く外部の時計。時間になったかどうかを判断するのは Vercel 側。' },
+    { id: 'github', type: 'service', label: 'GitHub', at: [-5.5, 4.5],
+      desc: 'ソースの置き場。push すると、連携している Vercel が自動でビルドしてデプロイする。' },
+  ],
+  links: [
+    ['user', 'line'], ['admin', 'line'], ['line', 'bot'], ['line', 'group'],
+    ['bot', 'libs'], ['libs', 'ext'], ['libs', 'redis'],
+    ['cron', 'bot'], ['admin', 'github'], ['github', 'bot'],
+  ],
+  steps: [
+    { by: 'user', title: 'ひとこと送る', flow: [['user', 'line'], ['line', 'bot']],
+      text: 'ユーザーが「天気 〇〇市」のように送ると、LINE Platform が <code>POST /webhook</code> で Vercel に届ける。最初に、LINE からの本物のリクエストかを署名で確かめる。' },
+    { by: 'bot', title: 'コマンドを振り分ける', flow: [['bot', 'libs']],
+      text: 'コマンドの一覧を上から順に試して、最初に当たった1つだけを実行する。当たった処理が lib/ の関数を呼び、戻ってきた文字列を返事にする。',
+      note: 'グループでは @メンションされた時だけ見て、通すのは「このグループに登録」だけ。どれにも当たらなければ「分からなかったよ〜」と返す' },
+    { by: 'libs', title: '覚えておくものは Upstash Redis へ', flow: [['libs', 'redis'], ['redis', 'libs']],
+      text: 'サーバーは毎回使い捨てなので、地域設定・リマインド・メモ・カレンダーID・アナウンスなどは全部 Upstash Redis に保存する。「地域登録」した住所は、次から「天気」だけで使われる。' },
+    { by: 'libs', title: '天気と予定は外に取りに行く', flow: [['libs', 'ext'], ['ext', 'libs']],
+      text: '天気は2段。Nominatim で住所を緯度経度に変えて、その座標で Open-Meteo の予報を取る。予定は Google Calendar API から、送った本人のカレンダーだけを読む。' },
+    { by: 'bot', title: '返事をする', flow: [['bot', 'line'], ['line', 'user']],
+      text: 'できた文字列を replyMessage で返し、LINE がユーザーに表示する。行きと帰りの1往復で1回分が終わる。',
+      note: '返信に使う replyToken はそのイベント1回だけ有効。あとで送るものは pushMessage を使う' },
+    { by: 'admin', title: 'アナウンスを予約する', flow: [['admin', 'line'], ['line', 'bot'], ['bot', 'libs'], ['libs', 'redis']],
+      text: '管理者がグループの中で「このグループに登録」すると、そのグループが送信先として保存される（グループごとに最初の1回）。あとは「アナウンス登録」で宛先グループ・日時・文言を保存する。',
+      note: '今から2分未満の日時は登録できない。アナウンス系は管理者だけが使える' },
+    { by: 'cron', title: '時間になったら届ける', flow: [['cron', 'bot'], ['bot', 'libs'], ['libs', 'redis'], ['bot', 'line'], ['line', 'group'], ['line', 'user']],
+      text: 'cron-job.org が1分おきに <code>GET /cron/reminder</code> を叩く。Vercel が今の日時と一致するリマインド・アナウンスを Redis から探し、pushMessage でユーザーや宛先グループへ送る。アナウンスは送れた分だけ消し、失敗した分は次の1分でまた送る。1回きりのリマインドも、送ったら消える。',
+      note: 'Vercel Hobby プランの自前の Cron は1日1回までなので、1分おきに叩く役だけ外のサービスを使っている' },
+    { by: 'admin', title: '直したら git push するだけ', flow: [['admin', 'github'], ['github', 'bot']],
+      text: '管理者がコードを直して GitHub に push すると、連携している Vercel が自動でビルド・デプロイする。次のメッセージから新しい処理で答える。' },
+  ],
+  pages: [
+    { href: 'architecture-3d.html', icon: '🧩', title: 'アーキテクチャ3D図解', desc: '動いているときの構成（ランタイム編 STEP 1-8）と、どのサイトで何を設定するか（セットアップ編 STEP 9-17）を、回して見られる立体図で（全17ステップ）' },
+    { href: 'https://github.com/koichi210/stable/blob/main/doc/line-bot-mirai/ARCHITECTURE.md', icon: '📄', title: 'ARCHITECTURE.md', desc: '同じ構成を mermaid の構成図とシーケンス図で。GitHub 上でそのまま図として読める文章版' },
+    { href: 'https://github.com/koichi210/stable/blob/main/doc/line-bot-mirai/usecase-announcement.md', icon: '📄', title: 'usecase-announcement.md', desc: 'アナウンス（グループへの一斉告知）機能のユースケース。登録から送信までを1本のシーケンス図で' },
+    { href: 'ARCHITECTURE.pdf', icon: '📕', title: 'ARCHITECTURE.pdf', desc: 'ARCHITECTURE.md の PDF 版' },
+    { href: 'usecase-announcement.pdf', icon: '📕', title: 'usecase-announcement.pdf', desc: 'usecase-announcement.md の PDF 版' },
+  ],
+  note: '掲載しているURL・ID・キーの値は<b>すべてダミー</b>です。3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は GameGuide から持ってきたコピーで、フレームワーク側を直したときは手で同期します。',
+});
+</script>
 </body>
 </html>

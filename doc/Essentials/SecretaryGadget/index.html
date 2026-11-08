@@ -3,37 +3,88 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SecretaryGadget ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>SecretaryGadget — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>SecretaryGadget(秘書さんガジェット) ドキュメント</h1>
-  <p class="lead">Outlook の新着メール・会議の開始前・Teams のメンションを、画面右下からせり上がってくる「秘書さん」の吹き出しで知らせる Windows 用の常駐ガジェット(C# / WPF / .NET 9)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(呼び名・差出人・件名・会議名・時刻)は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
-      <div class="d">起動 → 秘書さんを呼ぶ → トレイメニュー → スキン変更 → タイマー(ホイールで時間を回して設定 / 時間になったら通知)の順に、実際の画面を3D空間に並べて説明します。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子アニメ / 全11ステップ</div>
-      <div class="d">Outlook / Teams の見張り役 → お知らせキュー → 吹き出し表示までと、タイマー(入力 → TimerKeeper → timers.json → 期限の確認 → 通知)の流れを光の粒で追います。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全8ステップ</div>
-      <div class="d">UI層・お知らせ層・見張り役・保存層・OS の層に、実際のクラス名・ファイル名(App.Tray / App.Timer / Notice / SecretaryWindow / TimerDialog / TimerKeeper / WheelColumn ほか)を並べて、責務と依存の向きを説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/SecretaryGadget</code>。このPC専用で、<code>Release\SecretaryGadget.exe</code> から直接起動する作りです。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'SecretaryGadget',
+  caption: 'Outlook・Teams の新着やタイマーを、画面右下の秘書さんが吹き出しで知らせる',
+  lead: '従来版 Outlook の<b>新着メール・会議の開始前</b>と、Teams の<b>メンション</b>を、画面右下からせり上がってくるキャラクター（秘書さん）の吹き出しで知らせる Windows 用の常駐ガジェットです。' +
+        'ふだんはタスクトレイにだけいて、お知らせがあるときだけ出てきて、一定時間（既定 20 秒）で引っ込みます。<b>タイマー</b>もセットできます。' +
+        '秘書さんは画面キャプチャから除外されるので、画面共有やスクショには映りません。',
+  say: ['新着メールにすぐ気づきたい', '会議の開始前に知らせてほしい', 'Teams のメンションを見逃したくない', '「15分たったら教えて」をしたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/bubble-mail.png', title: '新着メールのお知らせ', cap: '実際の画面（差出人・件名はダミー）' },
+  nodes: [
+    { id: 'outlook', type: 'service', label: 'Outlook', sub: '従来版', at: [-8.8, -3.8],
+      desc: '新着メールと予定表を持っている相手。起動していなければ何もしない（勝手に起動させない）。' },
+    { id: 'teams', type: 'service', label: 'Teams', sub: '新しい Teams', at: [-8.0, 1.4],
+      desc: '右下に出す組み込みのポップアップと、画面の「メンション N 未読」を読む相手。Teams の通知データベースは読まない。' },
+    { id: 'ow', type: 'code', label: 'Outlook の見張り', sub: 'OutlookWatcher', at: [-4.6, -3.8],
+      desc: 'COM を触る専用スレッド1本で動く見張り役。既定20秒ごとに、見張りフォルダの新着メールと、もうすぐ始まる会議を探して <code>Notice</code>（お知らせ1件分）にする。' },
+    { id: 'tpw', type: 'code', label: 'Teams の見張り', sub: 'TeamsPopupWatcher', at: [-3.6, 1.2],
+      desc: 'ポップアップの文字を UI Automation で読み、<code>MentionFilter</code> が自分の姓（設定 <code>TeamsMentionKeywords</code>）を含むかでメンションと判定する。メンションの未読数は <code>TeamsMentionCounter</code> が数える。' },
+    { id: 'app', type: 'main', label: 'SecretaryGadget', sub: 'お知らせキュー', at: [0.4, 0.2],
+      desc: 'C# / WPF / .NET 9 の常駐アプリ。届いた <code>Notice</code> を設定でふるいにかけてキューに並べ（<code>Enqueue</code>）、1件ずつ秘書さんへ渡す（<code>ShowNext</code>）。' },
+    { id: 'os', type: 'os', label: 'Windows の状態', sub: 'ロック・全画面など', at: [6.8, -3.0],
+      desc: '<code>SHQueryUserNotificationState</code> で、画面ロック・全画面・プレゼン中などかを調べる。当てはまるあいだは吹き出しを出さない。' },
+    { id: 'win', type: 'screen', label: '秘書さんの吹き出し', sub: 'SecretaryWindow', at: [5.0, 0.4], img: 'img/bubble-mail.png',
+      desc: '枠なし・透明・最前面・フォーカスを奪わない窓。画面右下で絵がせり上がり、吹き出しを出す。画面キャプチャから除外される（「自動的に隠さない」の5分間だけ映る）。' },
+    { id: 'user', type: 'person', label: '使う人', at: [8.8, 3.4],
+      desc: '吹き出しを見てクリックしたり、トレイから秘書さんを呼んだり、タイマーをセットしたりする人。' },
+    { id: 'tray', type: 'screen', label: 'トレイのメニュー', sub: '左クリック・右クリック', at: [3.4, 4.6], img: 'img/menu-timer.png',
+      desc: '左クリックで「秘書さんを呼ぶ」、右クリックでメニュー（本日の予定・箱庭・株レーダー・タイマー・休憩・大きさ・スキン・設定・終了など）。' },
+    { id: 'timer', type: 'code', label: 'タイマー', sub: 'TimerDialog / TimerKeeper', at: [-2.4, 4.6],
+      desc: '<code>TimerDialog</code> で時刻を選び、<code>TimerKeeper</code> が期限の早い順に並べて <code>%LOCALAPPDATA%\\SecGad\\timers.json</code> に保存する。再起動しても残る。' },
+  ],
+  links: [['outlook', 'ow'], ['teams', 'tpw'], ['ow', 'app'], ['tpw', 'app'], ['app', 'os'], ['app', 'win'], ['win', 'user'],
+          ['user', 'tray'], ['tray', 'app'], ['tray', 'timer'], ['timer', 'app']],
+  steps: [
+    { by: 'app', title: '起動して、トレイに常駐する', flow: [['app', 'win']], shot: 'img/bubble-greeting.png',
+      text: '<code>Release\\SecretaryGadget.exe</code> を起動すると、タスクトレイに常駐して、時間帯に合ったあいさつを出す（おやすみ中は出さない）。二重起動はできない。',
+      note: '終了は必ずメニューの「終了」か <code>--exit</code> で。強制終了すると、隠していた本家 Teams の小窓が表示されなくなることがある（次回起動時に修復はする）' },
+    { by: 'ow', title: 'Outlook を見張る', flow: [['outlook', 'ow'], ['ow', 'app']],
+      text: '既定20秒ごとに、見張りフォルダ（既定は受信トレイ）の新着メールと、開始5分前（既定）の会議を探して <code>Notice</code> にする。起動より前のメール・既読のメールは除く。',
+      note: 'Outlook が起動していなければ何もしない（勝手に起動させない）' },
+    { by: 'tpw', title: 'Teams のメンションを拾う', flow: [['teams', 'tpw'], ['tpw', 'app']],
+      text: 'Teams が右下に出すポップアップの文字を UI Automation で読み、自分の姓（漢字・ひらがな・ローマ字など）を含むものをメンションとして <code>Notice</code> にする。本家の小窓は透明にして隠す。' },
+    { by: 'app', title: 'ふるいにかけて、キューに並べる', flow: [['ow', 'app'], ['tpw', 'app'], ['app', 'os'], ['os', 'app']],
+      text: '種類ごとの ON/OFF（<code>settings.json</code>）を見てからキューへ入れる。出す直前に Windows の状態を調べ、キューが4件以上なら1件にまとめる。',
+      note: 'プレゼン中・全画面・画面ロック中は出さず、解除後にまとめて出す。おやすみ中は捨て、休憩中は件数だけ数えておく' },
+    { by: 'win', title: '吹き出しで知らせる', flow: [['app', 'win'], ['win', 'user']], shot: 'img/bubble-mail.png',
+      text: '画面右下で絵がせり上がり、吹き出しが出る。既定20秒で引っ込む（マウスが上にある間は数えない）。吹き出しをクリックすると、引っ込めてからメールを開く・会議に参加する・Teams を前へ出す。' },
+    { by: 'user', title: '秘書さんを呼ぶ', flow: [['user', 'tray'], ['tray', 'app'], ['app', 'ow'], ['ow', 'outlook'], ['app', 'tpw'], ['app', 'win']], shot: 'img/bubble-call.png',
+      text: 'トレイアイコンを左クリックすると、その場でメールの未読・Teams のメンション未読・今日このあとの会議を読みにいき、1つの吹き出しにまとめる。',
+      note: 'Outlook が起動していなければ、その行は「Outlook が起動していないようです」になる' },
+    { by: 'timer', title: 'タイマーをセットする', flow: [['user', 'tray'], ['tray', 'timer']], shot: 'img/timer-clock.png',
+      text: 'メニュー「タイマー」→「タイマーをセット…」で、ドラムロールを回して「時刻」か「〇時間〇分後」を選ぶ。セット中のタイマーは <code>timers.json</code> に保存され、再起動しても残る。',
+      note: '過ぎた時刻を選ぶと翌日のその時刻になる。0時間0分後はセットできない' },
+    { by: 'timer', title: '時間になったら知らせる', flow: [['timer', 'app'], ['app', 'win'], ['win', 'user']], shot: 'img/bubble-timerdue.png',
+      text: '3秒ごとに期限を確かめ、時間になったものを「タイマーの時間です」の吹き出しにする。ほかの新着より先に出て、クリックされるまで消えない。おやすみ・休憩中でも出る。',
+      note: '確認は3秒ごとなので、最大で数秒遅れることがある' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: '起動 → 秘書さんを呼ぶ → トレイメニュー → タイマー → スキン変更を、実際の画面で（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '見張り役 → お知らせキュー → 吹き出しと、タイマーの流れを光の粒で追う（全11ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: 'UI層・お知らせ層・見張り役・保存層・OS の層と、実際のクラス名（全8ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/SecretaryGadget</code>。このPC専用で、<code>Release\\SecretaryGadget.exe</code> から直接起動する作りです。画面写真の中身（呼び名・差出人・件名・会議名・時刻）はすべてダミーです。',
+});
+</script>
 </body>
 </html>

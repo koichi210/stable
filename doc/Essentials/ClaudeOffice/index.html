@@ -3,37 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClaudeOffice ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>ClaudeOffice — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>ClaudeOffice ドキュメント</h1>
-  <p class="lead">Claude Code の会話を3Dの箱庭オフィスで見守るローカル専用ダッシュボード(Node.js + Three.js)の、使い方と仕組みを Three.js の立体図でステップ送りに解説します。<br>
-  3Dはドラッグで回転、ホイールで拡大縮小できます。画面写真の中身(プロジェクト名・会話)は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🎬 使い方</div>
-      <div class="tech">Three.js / 実画面の写真 / 全9ステップ</div>
-      <div class="d">実際の画面を3D空間に並べて、スキン3種・動作モード・席を立って歩き回る動き・詳細の窓と続きを送る欄・時間プレビュー・通知の順に、カメラが寄りながら説明します。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / 粒子アニメ / 全10ステップ</div>
-      <div class="d">Claude Code の会話記録・在席ファイル → server.js → /api/state → 画面のポーリング、と「続きを送る」(パイプ / claude --resume)・Stop フック通知の経路を光の粒で追います。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🏗️ 内部設計</div>
-      <div class="tech">Three.js / 層構造の3D図 / 全9ステップ</div>
-      <div class="d">app.js(buildSkin / ctx / frame)・world / makai / fancy・avatar・wander(通路グラフと状態機械)・spots・超軽量(applyUltra)の関係を、実際のファイル名・関数名で説明します。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/ClaudeOffice</code>(<code>server.js</code> と <code>public/</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'ClaudeOffice',
+  caption: 'Claude Code の会話を、3Dの箱庭オフィスの住人として見渡す',
+  lead: 'Claude Code の会話を、<b>3Dの箱庭オフィス</b>で見渡すローカル専用のダッシュボード（Node.js + Three.js）です。' +
+        '開いている会話1つにつき1人が机に座り、作業中・考え中・入力待ち・おやすみの様子をアニメーションで見せます。' +
+        'Claude Code が書く会話の記録を<b>読むだけ</b>で、待ち受けは <code>127.0.0.1</code> だけ（他のPCからはつながりません）。',
+  say: ['会話をいくつも並べて動かしている', 'どの会話が入力待ちか一目で知りたい', '返事が終わったら通知がほしい', '過去の会話を日付で振り返りたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/skin_default.png', title: '箱庭（教室）', cap: '実際の画面（プロジェクト名・会話はダミー）' },
+  nodes: [
+    { id: 'cc', type: 'service', label: 'Claude Code', sub: '会話の本体', at: [-8.6, 0],
+      desc: '会話をしている本体。ClaudeOffice からは記録を読むだけで、Claude Code 側に手を入れる必要はない（通知を使うときだけ Stop フックを1行足す）。' },
+    { id: 'logs', type: 'data', label: '会話の記録', sub: '*.jsonl・sessions', at: [-5, -3.4],
+      desc: '<code>projects/&lt;フォルダ&gt;/&lt;会話ID&gt;.jsonl</code>（1行1イベントの会話の記録）と、いま開いている会話の在席ファイル <code>sessions/&lt;pid&gt;.json</code>。' },
+    { id: 'chat', type: 'code', label: '続きを送る', sub: 'chatPipe / chatResume', at: [-3.6, 1.4],
+      desc: '箱庭から会話の続きを送る処理。開いている会話には受信口（名前付きパイプ）へ、閉じた会話には <code>claude -p --resume</code> を子プロセスで起動して送る。' },
+    { id: 'vscode', type: 'service', label: 'VS Code', sub: 'グループ・開き直し', at: [-6.2, 4.8],
+      desc: 'VS Code の状態ファイル（<code>state.vscdb</code>）を読み取り専用で見て、グループ・アーカイブ済みを知る。ダブルクリックで、VS Code の Claude Code で会話を開き直す。' },
+    { id: 'app', type: 'main', label: 'ClaudeOffice', sub: 'server.js', at: [0, 0],
+      desc: 'Node.js のサーバー（npm パッケージなし）。記録を読んで会話ごとの要約にまとめ、<code>/api/state</code> で画面へ返す。外へ送るのは使用率（5時間/週）の問い合わせだけ。' },
+    { id: 'archive', type: 'store', label: 'archive.json', sub: '要約の保存', at: [0.8, -4.6],
+      desc: '<code>%LOCALAPPDATA%\\ClaudeOffice\\archive.json</code>。会話の記録が消えても本棚の本（履歴）が残るように、要約を保存しておく。' },
+    { id: 'toast', type: 'os', label: 'Windows の通知', sub: 'トースト', at: [1.2, 4.6],
+      desc: '返事が終わったときに出すトースト。PowerShell で出し、押すとその会話の詳細が箱庭で開く。' },
+    { id: 'screen', type: 'screen', label: '箱庭の画面', sub: '127.0.0.1:8765', at: [4.6, -2.2], img: 'img/skin_default.png',
+      desc: 'ブラウザで開く画面（<code>public/</code>）。左上に時計と使用率、右に在席・グループ・履歴、下に日別タイムライン、真ん中に箱庭。' },
+    { id: 'user', type: 'person', label: '使う人', at: [8.6, 1.4],
+      desc: '箱庭を眺めて、人をクリックして詳細を見たり、続きを送ったりする人。' },
+  ],
+  links: [['cc', 'logs'], ['logs', 'app'], ['app', 'archive'], ['app', 'screen'], ['screen', 'user'],
+          ['app', 'chat'], ['chat', 'cc'], ['app', 'vscode'], ['app', 'toast']],
+  steps: [
+    { by: 'cc', title: 'Claude Code が会話を書きのこす', flow: [['cc', 'logs']],
+      text: '会話の記録 <code>*.jsonl</code>（依頼・ツール呼び出し・返事・タイトル）と、いま開いている会話の在席ファイル <code>sessions/&lt;pid&gt;.json</code>。ClaudeOffice はこの2種類を読むだけ。' },
+    { by: 'app', title: '増えた分だけ読んで、要約する', flow: [['logs', 'app']],
+      text: '画面から呼ばれたときに <code>scan()</code> が動き（最短1.5秒おき）、前回読んだ位置から増えた分だけ読む。会話ごとにタイトル・依頼・ツール回数・最後のツールなどをまとめる。画面へ出す前に <code>mask()</code> でトークンやパスワードらしい文字列を伏せる。' },
+    { by: 'app', title: '要約を archive.json に残す', flow: [['app', 'archive']],
+      text: '会話の記録は Claude Code の側で既定30日ほどで消えるので、要約を <code>archive.json</code> に保存する（60秒ごと、変化があるときだけ）。記録が消えた会話も、本棚の本として残る。',
+      note: '要約しか残っていない会話は、再開も続きの送信もできない' },
+    { by: 'screen', title: '3秒ごとに取りにきて、席に座らせる', flow: [['screen', 'app'], ['app', 'screen']], shot: 'img/skin_default.png',
+      text: '画面が <code>/api/state</code> を3秒ごとに取り、開いている会話1つにつき1人を机に座らせる。様子は 作業中・考え中・入力待ち・おやすみ（30分以上入力なし）。頭上の吹き出しは、使っているツールと経過時間。',
+      note: '席は12。13人目以降は右パネルの一覧にだけ出る' },
+    { by: 'user', title: 'スキンと動作モードを選ぶ', flow: [['user', 'screen']], shot: 'img/skin_isekai.png',
+      text: '⚙️ から、スキン（🏫 教室・🍺 ルイーダの酒場・💀 魔界）と、動作モード（☀️ 標準・🍃 軽量・🪶 超軽量）を選べる。PC が重いときは軽量か超軽量へ。' },
+    { by: 'user', title: '詳細を見る・VS Code で開く', flow: [['user', 'screen'], ['screen', 'app'], ['app', 'vscode']], shot: 'img/detail.png',
+      text: '人の吹き出しか名札をクリックすると、詳細の窓（開始と最終の時刻・最初と最後の依頼・よく使ったツールなど）が開く。ダブルクリックで、VS Code の Claude Code でその会話を開き直す。',
+      note: 'ターミナルで開いている会話や、記録が消えた会話は VS Code で開けない' },
+    { by: 'chat', title: '箱庭から続きを送る', flow: [['screen', 'app'], ['app', 'chat'], ['chat', 'cc']], shot: 'img/detail.png',
+      text: '詳細の窓の「💬 続きを送る」は、すでにある会話の続き専用。開いている会話には、相手の作業を中断せず順番待ちで届ける。閉じた会話は続きから再開して、返事が画面へ流れてくる。',
+      note: '閉じた会話の再開は、ツールが確認なしで実行される（画面に警告が出る）。送れるのは同時に1会話だけ' },
+    { by: 'app', title: '返事が終わったら通知する', flow: [['cc', 'app'], ['app', 'toast']],
+      text: 'Claude Code の Stop フックに1行（<code>curl</code> で <code>/api/hook/stop</code> へ送る）を足しておくと、返事が終わるたびに「完了」か「質問（返事待ち）」かを判定して、Windows のトーストを出す。ON/OFF やおやすみ時間帯は <code>notify.json</code> に保存する。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: 'スキン3種・動作モード・歩き回る動き・詳細と続きを送る欄・時間プレビュー・通知を、実際の画面で（全9ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '会話の記録 → server.js → /api/state → 画面と、続きを送る経路・Stop フック通知を光の粒で追う（全10ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: 'app.js・world / makai・avatar・wander・spots・超軽量の関係を、実際のファイル名・関数名で（全9ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/ClaudeOffice</code>（<code>server.js</code> と <code>public/</code>）。画面写真の中身（プロジェクト名・会話）はすべてダミーです。',
+});
+</script>
 </body>
 </html>

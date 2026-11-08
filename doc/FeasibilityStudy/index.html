@@ -3,97 +3,113 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FeasibilityStudy ゲームの仕組み図解</title>
-<link rel="stylesheet" href="ArcanaExplosion/guide.css">
+<title>FeasibilityStudy — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../portal/catalog.js"></script>
+<script src="../../portal/magic.js"></script>
+<script src="../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>FeasibilityStudy ゲームの仕組み図解</h1>
-  <p class="lead">試作ゲームそれぞれの仕組みを、Three.js の立体図でステップごとに解説するページ集。<br>
-  ドラッグで回転、ホイールで拡大縮小、矢印キーでステップ送りができます。</p>
+<script>
+(function () {
+  // ゲームごとの説明（今までのハブの文から）。図解(game-guide) と 遊び方(tutorial) へのリンクを desc に添える
+  function links(dir, guide, design) {
+    var a = [];
+    if (guide) a.push('<a href="' + dir + '/game-guide.html">仕組み図解</a>');
+    if (design) a.push('<a href="' + dir + '/design.html">設計図</a>');
+    a.push('<a href="' + dir + '/tutorial.html">遊び方</a>');
+    return '<br><small>' + a.join(' ／ ') + '</small>';
+  }
 
-  <div class="gg-grid">
-    <a class="gg-card" href="ArcanaExplosion/game-guide.html">
-      <div class="t">ArcanaExplosion</div>
-      <div class="tech">トランプ52枚がキャラクターとアイテムに化けるカードバトル（Python＋Flask＋HTML/JS）</div>
-    </a>
-    <a class="gg-card" href="ArcanaExplosion/design.html">
-      <div class="t">ArcanaExplosion 設計図</div>
-      <div class="tech">アーキテクチャ・シーケンス図・ステートマシン図・ER図（Mermaid）。部屋・通信・ターン進行・データモデルの内部設計</div>
-    </a>
-    <a class="gg-card" href="ArcanaExplosion/tutorial.html">
-      <div class="t">ArcanaExplosion 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。カードの強さ・攻撃とダメージ・疲労と退場・技とアイテム・第三勢力の乱入・ネットワーク対戦まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="TrumpTriBattle/game-guide.html">
-      <div class="t">トランプ三戦場バトル</div>
-      <div class="tech">3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦（HTML/JS の1台版 ＋ Python・Flask のCPU/LAN版）</div>
-    </a>
-    <a class="gg-card" href="TrumpTriBattle/tutorial.html">
-      <div class="t">トランプ三戦場バトル 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。3つの戦場へのカードの出し方・勝ち負けの決まり方・1台版とサーバー版・CPU対戦・LAN対戦の始め方まで14ステップ</div>
-    </a>
-    <a class="gg-card" href="BrawlArena/game-guide.html">
-      <div class="t">BrawlArena</div>
-      <div class="tech">見下ろし視点で撃ち合う1対1のアリーナバトル（TypeScript＋Phaser 3＋Vite）</div>
-    </a>
-    <a class="gg-card" href="BrawlArena/tutorial.html">
-      <div class="t">BrawlArena 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。操作方法・遠距離と近接攻撃・壁と茂み・必殺技・キャラの育て方まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="kingdom-game/game-guide.html">
-      <div class="t">陣形と城壁（仮）</div>
-      <div class="tech">兵種の三すくみ×地形で戦う陣形バトル＋攻城戦＋国盗り（素のHTML/CSS/JavaScript・ビルド不要）</div>
-    </a>
-    <a class="gg-card" href="kingdom-game/tutorial.html">
-      <div class="t">陣形と城壁（仮） 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。配置とコスト・兵の相性・地形・攻城戦・国盗り編・CPU対戦まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="戦国守備戦/game-guide.html">
-      <div class="t">戦国守備戦</div>
-      <div class="tech">県ごとの軍で日本を取り合い、出撃すると将棋盤の合戦になる戦略ゲーム（TypeScript＋Phaser 3＋Vite）</div>
-    </a>
-    <a class="gg-card" href="戦国守備戦/tutorial.html">
-      <div class="t">戦国守備戦 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。将軍選択・出撃・じゃんけん合戦・アイテムカード・日本三國モード・LAN対戦の始め方まで、16ステップの立体図で</div>
-    </a>
-    <a class="gg-card" href="覇権戦国/game-guide.html">
-      <div class="t">覇権戦国</div>
-      <div class="tech">兵数を持った駒で戦う「将棋版」戦国バトル（開発初期）。HTML＋JavaScript 1ファイル＋Node(Express/ws)、Phaser＋TypeScript版を準備中</div>
-    </a>
-    <a class="gg-card" href="覇権戦国/tutorial.html">
-      <div class="t">覇権戦国 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。駒の動き・兵数と戦闘・相性・成り・能力・LAN対戦の始め方まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="名産鉄道/game-guide.html">
-      <div class="t">名産鉄道</div>
-      <div class="tech">47都道府県をサイコロで旅して名産品を集めるすごろく＋兵隊バトル（TypeScript＋Phaser3＋Vite、LAN対戦はNode＋ws）</div>
-    </a>
-    <a class="gg-card" href="名産鉄道/tutorial.html">
-      <div class="t">名産鉄道 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。サイコロと分かれ道・くじ・名産品と装備・兵隊バトル・領土と政策・LAN対戦まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="sodatemon/game-guide.html">
-      <div class="t">そだてもん</div>
-      <div class="tech">勉強クイズに答えて、キャラを育てて日本統一を目指す学習ゲーム（HTML1ファイル＋素の JavaScript、保存は localStorage）</div>
-    </a>
-    <a class="gg-card" href="sodatemon/tutorial.html">
-      <div class="t">そだてもん 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。クイズ・ガチャ・覚醒と合成・日本統一マップのバトル・セーブのしかたまで15ステップ</div>
-    </a>
-    <a class="gg-card" href="slime-nation/game-guide.html">
-      <div class="t">スライム建国記</div>
-      <div class="tech">六角形の地図を交渉と制圧で塗り替える国造りシミュレーション（HTML＋CSS＋JavaScript 1ファイル・サーバー不要）</div>
-    </a>
-    <a class="gg-card" href="slime-nation/tutorial.html">
-      <div class="t">スライム建国記 遊び方チュートリアル</div>
-      <div class="tech">はじめての人向け。1日の流れ・資源・交渉と制圧の成功率・施設と進化・2つの勢力と外交まで15ステップ</div>
-    </a>
-    <a class="gg-card" href="太平洋海戦/tutorial.html">
-      <div class="t">太平洋海戦 遊び方チュートリアル</div>
-      <div class="tech">六角形のマスで海軍・空軍・陸軍を動かして相手の王都を落とすターン制ストラテジー（TypeScript＋Phaser＋Vite）。はじめての人向けに、ユニット・資源と建造・領土・前線基地と王都・LAN対戦まで15ステップ</div>
-    </a>
-  </div>
-</div>
+  ToolPage.start({
+    root: '../../',
+    id: 'FeasibilityStudy',
+    caption: '試作ゲーム10本の、仕組み図解と遊び方チュートリアルの置き場',
+    lead: '試作ゲームそれぞれの<b>仕組み</b>を、Three.js の立体図でステップごとに解説するページ集です。' +
+          'ほとんどのゲームに、仕組みの<b>図解</b>と、はじめての人向けの<b>遊び方チュートリアル</b>があります。' +
+          '周りの円を選ぶと、そのゲームのページへ飛べます。',
+    say: ['どんな試作ゲームがあるか見たい', 'ゲームの中の仕組みを知りたい', 'はじめて遊ぶので、遊び方を知りたい'],
+    sayTitle: 'こんなときに',
+    nodes: [
+      { id: 'fs', type: 'main', label: 'FeasibilityStudy', sub: '試作ゲーム10本', at: [0, 0],
+        desc: '試作ゲームの置き場。ゲームごとに、仕組みの図解と遊び方チュートリアルを置いている。' },
+      { id: 'arcana', type: 'sigil', label: 'ArcanaExplosion', at: [-6, -5], href: 'ArcanaExplosion/game-guide.html',
+        desc: 'トランプ52枚がキャラクターとアイテムに化けるカードバトル（Python＋Flask＋HTML/JS）。' + links('ArcanaExplosion', true, true) },
+      { id: 'trump', type: 'sigil', label: 'トランプ三戦場バトル', at: [-9, -1], href: 'TrumpTriBattle/game-guide.html',
+        desc: '3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦（HTML/JS の1台版 ＋ Python・Flask のCPU/LAN版）。' + links('TrumpTriBattle', true) },
+      { id: 'haken', type: 'sigil', label: '覇権戦国', at: [-1.5, -5], href: '覇権戦国/game-guide.html',
+        desc: '兵数を持った駒で戦う「将棋版」戦国バトル（開発初期）。HTML＋JavaScript 1ファイル＋Node(Express/ws)、Phaser＋TypeScript版を準備中。' + links('覇権戦国', true) },
+      { id: 'shubi', type: 'sigil', label: '戦国守備戦', at: [6, -5], href: '戦国守備戦/game-guide.html',
+        desc: '県ごとの軍で日本を取り合い、出撃すると将棋盤の合戦になる戦略ゲーム（TypeScript＋Phaser 3＋Vite）。' + links('戦国守備戦', true) },
+      { id: 'kingdom', type: 'sigil', label: '陣形と城壁（仮）', at: [9, -1], href: 'kingdom-game/game-guide.html',
+        desc: '兵種の三すくみ×地形で戦う陣形バトル＋攻城戦＋国盗り（素のHTML/CSS/JavaScript・ビルド不要）。' + links('kingdom-game', true) },
+
+      { id: 'brawl', type: 'sigil', label: 'BrawlArena', at: [-5, 2], href: 'BrawlArena/game-guide.html',
+        desc: '見下ろし視点で撃ち合う1対1のアリーナバトル（TypeScript＋Phaser 3＋Vite）。' + links('BrawlArena', true) },
+      { id: 'sodate', type: 'sigil', label: 'そだてもん', at: [-8, 5], href: 'sodatemon/game-guide.html',
+        desc: '勉強クイズに答えて、キャラを育てて日本統一を目指す学習ゲーム（HTML1ファイル＋素の JavaScript、保存は localStorage）。' + links('sodatemon', true) },
+      { id: 'meisan', type: 'sigil', label: '名産鉄道', at: [1.5, 5], href: '名産鉄道/game-guide.html',
+        desc: '47都道府県をサイコロで旅して名産品を集めるすごろく＋兵隊バトル（TypeScript＋Phaser3＋Vite、LAN対戦はNode＋ws）。' + links('名産鉄道', true) },
+      { id: 'slime', type: 'sigil', label: 'スライム建国記', at: [5, 2], href: 'slime-nation/game-guide.html',
+        desc: '六角形の地図を交渉と制圧で塗り替える国造りシミュレーション（HTML＋CSS＋JavaScript 1ファイル・サーバー不要）。' + links('slime-nation', true) },
+      { id: 'pacific', type: 'sigil', label: '太平洋海戦', at: [8, 5], href: '太平洋海戦/tutorial.html',
+        desc: '六角形のマスで海軍・空軍・陸軍を動かして、相手の王都を落とすターン制ストラテジー（TypeScript＋Phaser＋Vite）。仕組み図解はまだ無く、遊び方チュートリアルだけ。' + links('太平洋海戦', false) },
+    ],
+    links: [
+      ['fs', 'arcana'], ['fs', 'trump'], ['fs', 'haken'], ['fs', 'shubi'], ['fs', 'kingdom'],
+      ['fs', 'brawl'], ['fs', 'sodate'], ['fs', 'meisan'], ['fs', 'slime'], ['fs', 'pacific'],
+    ],
+    steps: [
+      { by: 'fs', title: 'カードで戦う', flow: [['fs', 'arcana'], ['fs', 'trump']],
+        text: 'ArcanaExplosion は、トランプ52枚がキャラクターとアイテムに化けるカードバトル。トランプ三戦場バトル は、3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦。' },
+      { by: 'fs', title: '盤の上で、駒や兵を動かして戦う', flow: [['fs', 'haken'], ['fs', 'shubi'], ['fs', 'kingdom']],
+        text: '覇権戦国 は兵数を持った駒で戦う「将棋版」の戦国バトル（開発初期）。戦国守備戦 は県ごとの軍で日本を取り合い、出撃すると将棋盤の合戦になる。陣形と城壁（仮） は兵種の三すくみと地形で戦う陣形バトルに、攻城戦と国盗りが付く。' },
+      { by: 'fs', title: '六角形の地図を塗り替える', flow: [['fs', 'slime'], ['fs', 'pacific']],
+        text: 'スライム建国記 は、六角形の地図を交渉と制圧で塗り替える国造りシミュレーション。太平洋海戦 は、六角形のマスで海軍・空軍・陸軍を動かして相手の王都を落とすターン制ストラテジー。' },
+      { by: 'fs', title: '動かして撃ち合う', flow: [['fs', 'brawl']],
+        text: 'BrawlArena は、見下ろし視点で撃ち合う1対1のアリーナバトル。遠距離と近接の攻撃、壁と茂み、必殺技、キャラの育て方がある。' },
+      { by: 'fs', title: '旅する・育てる', flow: [['fs', 'meisan'], ['fs', 'sodate']],
+        text: '名産鉄道 は、47都道府県をサイコロで旅して名産品を集めるすごろくに、兵隊バトルが付く。そだてもん は、勉強クイズに答えてキャラを育て、日本統一を目指す学習ゲーム。' },
+      { by: 'fs', title: 'LAN・ネットワークで対戦できるもの', flow: [['fs', 'arcana'], ['fs', 'trump'], ['fs', 'haken'], ['fs', 'shubi'], ['fs', 'meisan'], ['fs', 'pacific']],
+        text: 'ArcanaExplosion・トランプ三戦場バトル・覇権戦国・戦国守備戦・名産鉄道・太平洋海戦は、遊び方チュートリアルに LAN（ネットワーク）対戦の始め方がある。' },
+      { by: 'fs', title: '図解と遊び方で、中を見る', focus: ['fs', 'arcana', 'trump', 'haken', 'shubi', 'kingdom', 'brawl', 'sodate', 'meisan', 'slime', 'pacific'],
+        text: '円を選ぶと、そのゲームの仕組み図解（game-guide）へ飛ぶ。右の「詳しく見る」には、はじめての人向けの遊び方チュートリアル（14〜16ステップ）もある。ArcanaExplosion には内部の設計図もある。',
+        note: '太平洋海戦は、まだ遊び方チュートリアルだけ（仕組み図解は無い）' },
+    ],
+    pages: [
+      { href: 'ArcanaExplosion/game-guide.html', icon: '🃏', title: 'ArcanaExplosion', desc: 'トランプ52枚がキャラクターとアイテムに化けるカードバトル（Python＋Flask＋HTML/JS）' },
+      { href: 'ArcanaExplosion/design.html', icon: '📐', title: 'ArcanaExplosion 設計図', desc: 'アーキテクチャ・シーケンス図・ステートマシン図・ER図（Mermaid）。部屋・通信・ターン進行・データモデルの内部設計' },
+      { href: 'ArcanaExplosion/tutorial.html', icon: '🎓', title: 'ArcanaExplosion 遊び方チュートリアル', desc: 'カードの強さ・攻撃とダメージ・疲労と退場・技とアイテム・第三勢力の乱入・ネットワーク対戦まで15ステップ' },
+      { href: 'TrumpTriBattle/game-guide.html', icon: '🂡', title: 'トランプ三戦場バトル', desc: '3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦（HTML/JS の1台版 ＋ Python・Flask のCPU/LAN版）' },
+      { href: 'TrumpTriBattle/tutorial.html', icon: '🎓', title: 'トランプ三戦場バトル 遊び方チュートリアル', desc: '3つの戦場へのカードの出し方・勝ち負けの決まり方・1台版とサーバー版・CPU対戦・LAN対戦の始め方まで14ステップ' },
+      { href: 'BrawlArena/game-guide.html', icon: '💥', title: 'BrawlArena', desc: '見下ろし視点で撃ち合う1対1のアリーナバトル（TypeScript＋Phaser 3＋Vite）' },
+      { href: 'BrawlArena/tutorial.html', icon: '🎓', title: 'BrawlArena 遊び方チュートリアル', desc: '操作方法・遠距離と近接攻撃・壁と茂み・必殺技・キャラの育て方まで15ステップ' },
+      { href: 'kingdom-game/game-guide.html', icon: '🏯', title: '陣形と城壁（仮）', desc: '兵種の三すくみ×地形で戦う陣形バトル＋攻城戦＋国盗り（素のHTML/CSS/JavaScript・ビルド不要）' },
+      { href: 'kingdom-game/tutorial.html', icon: '🎓', title: '陣形と城壁（仮） 遊び方チュートリアル', desc: '配置とコスト・兵の相性・地形・攻城戦・国盗り編・CPU対戦まで15ステップ' },
+      { href: '戦国守備戦/game-guide.html', icon: '🗾', title: '戦国守備戦', desc: '県ごとの軍で日本を取り合い、出撃すると将棋盤の合戦になる戦略ゲーム（TypeScript＋Phaser 3＋Vite）' },
+      { href: '戦国守備戦/tutorial.html', icon: '🎓', title: '戦国守備戦 遊び方チュートリアル', desc: '将軍選択・出撃・じゃんけん合戦・アイテムカード・日本三國モード・LAN対戦の始め方まで、16ステップの立体図で' },
+      { href: '覇権戦国/game-guide.html', icon: '☗', title: '覇権戦国', desc: '兵数を持った駒で戦う「将棋版」戦国バトル（開発初期）。HTML＋JavaScript 1ファイル＋Node(Express/ws)、Phaser＋TypeScript版を準備中' },
+      { href: '覇権戦国/tutorial.html', icon: '🎓', title: '覇権戦国 遊び方チュートリアル', desc: '駒の動き・兵数と戦闘・相性・成り・能力・LAN対戦の始め方まで15ステップ' },
+      { href: '名産鉄道/game-guide.html', icon: '🚃', title: '名産鉄道', desc: '47都道府県をサイコロで旅して名産品を集めるすごろく＋兵隊バトル（TypeScript＋Phaser3＋Vite、LAN対戦はNode＋ws）' },
+      { href: '名産鉄道/tutorial.html', icon: '🎓', title: '名産鉄道 遊び方チュートリアル', desc: 'サイコロと分かれ道・くじ・名産品と装備・兵隊バトル・領土と政策・LAN対戦まで15ステップ' },
+      { href: 'sodatemon/game-guide.html', icon: '🌱', title: 'そだてもん', desc: '勉強クイズに答えて、キャラを育てて日本統一を目指す学習ゲーム（HTML1ファイル＋素の JavaScript、保存は localStorage）' },
+      { href: 'sodatemon/tutorial.html', icon: '🎓', title: 'そだてもん 遊び方チュートリアル', desc: 'クイズ・ガチャ・覚醒と合成・日本統一マップのバトル・セーブのしかたまで15ステップ' },
+      { href: 'slime-nation/game-guide.html', icon: '🟢', title: 'スライム建国記', desc: '六角形の地図を交渉と制圧で塗り替える国造りシミュレーション（HTML＋CSS＋JavaScript 1ファイル・サーバー不要）' },
+      { href: 'slime-nation/tutorial.html', icon: '🎓', title: 'スライム建国記 遊び方チュートリアル', desc: '1日の流れ・資源・交渉と制圧の成功率・施設と進化・2つの勢力と外交まで15ステップ' },
+      { href: '太平洋海戦/tutorial.html', icon: '🎓', title: '太平洋海戦 遊び方チュートリアル', desc: '六角形のマスで海軍・空軍・陸軍を動かして相手の王都を落とすターン制ストラテジー（TypeScript＋Phaser＋Vite）。ユニット・資源と建造・領土・前線基地と王都・LAN対戦まで15ステップ' },
+    ],
+    note: '各ゲームの図解・チュートリアルのページは、ドラッグで回転、ホイールで拡大縮小、矢印キーでステップ送りができます。',
+  });
+})();
+</script>
 </body>
 </html>

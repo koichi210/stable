@@ -3,40 +3,95 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>line-bot-s8-cub ドキュメント</title>
-<link rel="stylesheet" href="lib/guide.css">
+<title>line-bot-s8-cub — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../portal/catalog.js"></script>
+<script src="../../portal/magic.js"></script>
+<script src="../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <h1>line-bot-s8-cub ドキュメント</h1>
-  <p class="lead">カブ隊用LINEボット「カブナビ8ちゃん」の仕組みと使い方を、Three.jsの立体図で1歩ずつ解説します。<br>
-  人名・ID・グループ名は<b>すべてダミー</b>です。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="structure.html">
-      <div class="t">🌳 メニュー階層</div>
-      <div class="tech">Three.js / 全10ステップ</div>
-      <div class="d">管理者 → 管理者用 → 保護者連絡 → アナウンス追加／削除… と、ボタンを押す順番を階層(ツリー)で表示。管理者のメニューと、一般(保護者)のメニューの両方。各ボタンでできることの表付き。</div>
-    </a>
-    <a class="gg-card" href="overview.html">
-      <div class="t">🗺️ アーキテクチャ</div>
-      <div class="tech">Three.js / 全8ステップ</div>
-      <div class="d">グループ・アナウンス・案内文設定・活動予定・メンバ(管理者 / ユーザ)が、どうつながっているかを図で。データの流れを矢印で追えます。</div>
-    </a>
-    <a class="gg-card" href="usecase.html">
-      <div class="t">🎬 ユースケース</div>
-      <div class="tech">Three.js / 自動再生 / 全10章</div>
-      <div class="d">デモ動画のように、役割別の使い方が流れます。「▶ 自動で再生」で、最初の準備 → 毎月の開催案内 → 保護者が見る画面まで。字幕付き。「見る人」の切り替え(開催案内登録=管理者 / 開催案内受信=保護者)で、人が意識する場所だけを明るく表示できます。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    「メニュー階層」は、Bot本体の <code>scripts/rich-menu-config.js</code> から自動生成した
-    <code>menus-data.js</code> を読んで組み立てています。メニューを変えたら、Bot側のリポジトリで
-    <code>node scripts/build-tutorial-data.js</code> を実行して <code>menus-data.js</code> を更新します。<br>
-    3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は
-    line-bot-mirai のドキュメントからのコピーです。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../',
+  id: 'line-bot-s8-cub',
+  caption: '管理者がそろえた開催案内とアナウンスを、保護者の LINE グループへ届ける',
+  lead: 'カブ隊用の LINE ボット「カブナビ8ちゃん」です。管理者が<b>カブ8通信の PDF</b> を送ると予定を読み取り、決めておいた<b>案内文</b>に当てはめて<b>開催案内</b>を作ります。' +
+        '今すぐ送るか、日時を決めて<b>予約</b>すると、保護者の LINE グループに届きます。保護者は届いたお知らせを見るだけで、操作はいりません。',
+  say: ['毎月の開催案内を、保護者のグループに送りたい', '決めた日時に、お知らせを自動で流したい', '活動予定を自分で見たい（保護者）', 'どのボタンを押せばいいか知りたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/announce-sample.png', title: '画面の見本', cap: '開催案内・案内文設定・カブ8通信の見本（名前・場所はダミー）' },
+  nodes: [
+    { id: 'admin', type: 'person', label: '管理者', at: [-9, 0],
+      desc: 'メンバリストに「管理者」で載っている人。リッチメニューに「🔧 管理者用」が出て、すべての操作ができる。最初の管理者が<b>オーナー</b>で、オーナーは外せない。' },
+    { id: 'members', type: 'store', label: 'メンバリスト', sub: '管理者・ユーザ', at: [-6, -4.5],
+      desc: '操作できる人（管理者）と、予定を見るだけの人（ユーザ）の一覧。追加・削除は管理者ならだれでもできる。追加するときは、本人に1:1で「マイID」と送ってもらい、そのIDを使う。' },
+    { id: 'pdf', type: 'file', label: 'カブ8通信 PDF', at: [-6, 4],
+      desc: '活動予定の読み取り元。PDF そのものは保存しない。' },
+    { id: 'bot', type: 'main', label: 'カブナビ8ちゃん', at: [-3, 0],
+      desc: 'カブ隊用の LINE ボット。管理者の操作にだけ反応する。それ以外の人には、1:1の「マイID」「ヘルプ」と、予定を見る操作だけ答える。' },
+    { id: 'cron', type: 'service', label: 'cron-job.org', sub: '毎分', at: [0.5, -5],
+      desc: '毎分ボットを呼び出して、予約の時刻を知らせる外のサービス。' },
+    { id: 'events', type: 'store', label: '活動予定', at: [2, 1.5],
+      desc: 'PDF から読み取った予定。同じ日付・タイトルの予定は上書きされ、日付が過ぎた予定は一覧やプレビューを開いたときに自動で消える。' },
+    { id: 'notice', type: 'store', label: '案内文設定', at: [0, 5],
+      desc: '開催案内の文面の形。一度決めれば使い回せる。' },
+    { id: 'resv', type: 'store', label: 'アナウンス予約', at: [3.5, -2.5],
+      desc: '「いつ・どのグループへ・何を」送るかの予約。送れた予約は自動で消える（1回きり）。' },
+    { id: 'preview', type: 'screen', label: '開催案内', sub: 'プレビュー', at: [5, 3.5],
+      desc: '活動予定を案内文設定に当てはめて作る文面。管理者は「案内文プレビュー」で予定を選んで確認できる。' },
+    { id: 'groups', type: 'store', label: '登録グループ', at: [6.5, -4.5],
+      desc: '送信先グループの登録リスト。役割は保護者・指導者・オーナーで、開催案内とアナウンスが届くのは<b>保護者</b>のグループ。指導者・オーナーは、今は登録だけ。' },
+    { id: 'line', type: 'screen', label: 'LINE グループ', sub: '保護者', at: [9, 0], img: 'img/announce-sample.png',
+      desc: '開催案内とアナウンスが届くグループ。ボットはグループで話しかけられても返事はしない（質問は指導者に直接）。' },
+    { id: 'parent', type: 'person', label: '保護者', at: [9, 4],
+      desc: '操作はいらない。グループに届くお知らせを見るだけ。予定はボットとの1:1トークのメニュー「活動予定」→「予定表」でも見られる。' },
+  ],
+  links: [
+    ['admin', 'bot'], ['bot', 'members'], ['admin', 'pdf'], ['pdf', 'bot'],
+    ['bot', 'events'], ['bot', 'notice'], ['events', 'preview'], ['notice', 'preview'],
+    ['bot', 'resv'], ['cron', 'bot'], ['resv', 'line'], ['preview', 'line'],
+    ['line', 'groups'], ['line', 'parent'],
+  ],
+  steps: [
+    { by: 'admin', title: '操作できるのは管理者だけ', flow: [['admin', 'bot'], ['bot', 'members']],
+      text: 'カブナビ8ちゃんを操作できるのは、メンバリストに「管理者」で載っている人だけ。仲間を増やすときは、本人に1:1で「マイID」と送ってもらい、管理者用 → メンバ編集で、そのIDとロール（管理者 / ユーザ）を登録する。「ユーザ」は予定を見るだけの人。',
+      note: '管理者にした・外した瞬間に、その人のメニューが管理者用 ⇔ 一般用に切り替わる。オーナーだけは外せない' },
+    { by: 'admin', title: '【最初に】送信先のグループを登録する', flow: [['line', 'groups']], focus: ['admin', 'line', 'groups'],
+      text: '保護者の LINE グループにカブナビ8ちゃんを招待して、そのグループの中で管理者が @メンションして「グループ追加 保護者」と送る。グループごとに1回だけ。',
+      note: '役割（保護者・指導者・オーナー）は必ず付ける。届け先になるのは「保護者」のグループだけ' },
+    { by: 'admin', title: '【最初に】案内文の形を決める', flow: [['admin', 'bot'], ['bot', 'notice']], shot: 'img/template-sample.png',
+      text: '管理者用 → 保護者連絡 → 案内文設定で、ヘッダ・フッタ・テンプレを決める。一度決めれば、毎月使い回せる。直すと次のプレビューからすぐ反映される。' },
+    { by: 'admin', title: '【毎月】カブ8通信の PDF を取り込む', flow: [['admin', 'pdf'], ['pdf', 'bot'], ['bot', 'events']], shot: 'img/newsletter-sample.png',
+      text: '管理者用 → 活動予定 →「カブ8取り込み」と合図して、5分以内に PDF を送る。ボットが予定を読み取って、活動予定として保存する。PDF そのものは保存しない。',
+      note: '取り込めるのは、合図をした本人が同じトークへ送った PDF だけ' },
+    { by: 'preview', title: '【毎月】プレビューで文面を確かめる', flow: [['events', 'preview'], ['notice', 'preview']], shot: 'img/announce-sample.png',
+      text: '保護者連絡 →「案内文プレビュー」で予定を選ぶと、予定を案内文設定に当てはめた開催案内ができる。中身が空の項目の行は、見出しごと消える。' },
+    { by: 'preview', title: '【毎月】今すぐ送る「次回を送信」', flow: [['preview', 'line'], ['line', 'parent']], focus: ['preview', 'line', 'groups', 'parent'],
+      text: 'チャットで「次回を送信」（または「次の次を送信」）と送ると、登録した保護者のグループ全部へ開催案内が届く。送った結果（✅ / ❌）がグループごとに返ってくる。' },
+    { by: 'cron', title: '【毎月】日時を決めて送る（アナウンス予約）', flow: [['admin', 'bot'], ['bot', 'resv'], ['cron', 'bot'], ['resv', 'line']], focus: ['admin', 'bot', 'resv', 'cron', 'groups', 'line'],
+      text: '保護者連絡 →「アナウンス追加」で、宛先（登録した保護者グループから選ぶ）・日時・本文を入れて予約する。本文はプレビューの文面をコピペして直すのが基本。cron-job.org が毎分ボットを呼び出し、時刻になった予約を送る。送れた予約は消え、失敗した分は次の呼び出しで再送する。',
+      note: '日時は2分以上先にする。VercelのHobbyプランは毎分のcronを持てないので、起こす役は cron-job.org' },
+    { by: 'parent', title: '【保護者】届いたお知らせを見るだけ', flow: [['line', 'parent']],
+      text: '保護者は操作不要。グループに届いた開催案内で、集合時間・場所・もちものを確かめる。予定を自分で見たいときは、ボットとの1:1トークのメニュー「活動予定」→「予定表」を開く。',
+      note: '予定を見られるのは、保護者・指導者のグループに入っている人と、メンバに「ユーザ」で登録された人' },
+  ],
+  pages: [
+    { href: 'structure.html', icon: '🌳', title: 'メニュー階層', desc: '管理者 → 管理者用 → 保護者連絡 → アナウンス追加／削除… と、ボタンを押す順番を階層(ツリー)で。管理者と一般(保護者)のメニューの両方、各ボタンでできることの表付き（全10ステップ）' },
+    { href: 'overview.html', icon: '🗺️', title: 'アーキテクチャ', desc: 'グループ・アナウンス・案内文設定・活動予定・メンバ(管理者 / ユーザ)が、どうつながっているかを図で。データの流れを矢印で追える（全8ステップ）' },
+    { href: 'usecase.html', icon: '🎬', title: 'ユースケース', desc: 'デモ動画のように、役割別の使い方が流れる。最初の準備 → 毎月の開催案内 → 保護者が見る画面まで、字幕付き（自動再生・全10章）' },
+  ],
+  note: '人名・ID・グループ名は<b>すべてダミー</b>です。「メニュー階層」は、Bot本体の <code>scripts/rich-menu-config.js</code> から自動生成した <code>menus-data.js</code> を読んで組み立てています。メニューを変えたら、Bot側のリポジトリで <code>node scripts/build-tutorial-data.js</code> を実行して <code>menus-data.js</code> を更新します。' +
+        '3D図解の共通フレームワーク（<code>lib/guide.js</code> / <code>lib/guide.css</code>）は line-bot-mirai のドキュメントからのコピーです。',
+});
+</script>
 </body>
 </html>

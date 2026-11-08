@@ -3,39 +3,87 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FFEdit ドキュメント</title>
-<link rel="stylesheet" href="../lib/guide.css">
+<title>FFEdit — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
 </head>
 <body>
-<div class="gg-hub">
-  <p><a href="../index.html">← Essentials 一覧へ</a></p>
-  <h1>FFEdit ドキュメント</h1>
-  <p class="lead">フォルダ内のファイル・フォルダ名を通し番号などで一括変換し、タイムスタンプの更新や移動・コピーもできるツール「FFEdit」(C# / WPF / .NET Framework)の使い方と仕組みを、Three.jsの立体図で1歩ずつ解説します。<br>
-  変換は<b>直前の操作1回分を元に戻せる</b>ので、安心して試せます。画面のスクリーンショットは、このガイド用に作った<b>ダミーフォルダ</b>だけを使っています。</p>
-
-  <div class="gg-grid">
-    <a class="gg-card" href="usage.html">
-      <div class="t">🖱️ 使い方</div>
-      <div class="tech">Three.js / 実画面のスクリーンショット / 全10ステップ</div>
-      <div class="d">対象フォルダを入れてリストアップ → 通し番号などで名前を一括変換 → 実行 → 復元。タイムスタンプの更新と、移動・コピー・空フォルダ削除の使い方まで。実際の画面を3D空間に並べ、ステップごとにカメラが寄ります。</div>
-    </a>
-    <a class="gg-card" href="dataflow.html">
-      <div class="t">🌊 データの流れ</div>
-      <div class="tech">Three.js / ブロックが流れるアニメ / 全11ステップ</div>
-      <div class="d">フォルダ → 自然順の一覧 → 処理対象 → 新しい名前の計算 → 実際の移動と「復元用の記録」 → 一覧の更新。タイムスタンプ・移動/コピー・設定の保存先の流れも。</div>
-    </a>
-    <a class="gg-card" href="architecture.html">
-      <div class="t">🧱 内部設計</div>
-      <div class="tech">Three.js / クラス構成の3D図 / 全9ステップ</div>
-      <div class="d">画面・処理ロジック・共通部品(_Common)・OS/外部の層と、<code>MainWindow</code> / <code>Rename</code> / <code>TimeStamp</code> / <code>Function</code> / <code>FileMng</code> などの実際のクラス・ファイルの役割と依存関係。</div>
-    </a>
-  </div>
-
-  <p class="lead" style="margin-top:28px">
-    ソースは <code>Essentials/FFEdit</code>(共通部品は <code>Essentials/_Common</code>)。
-    3D図解の共通フレームワークは <code>../lib/guide.js</code> / <code>../lib/guide.css</code> です。
-    ドラッグで回転、ホイールで拡大、矢印キー(←→)でステップ送りができます。
-  </p>
-</div>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'FFEdit',
+  caption: 'フォルダの中のファイル名を、通し番号などでまとめて変える',
+  lead: 'フォルダの中のファイル（またはフォルダ）の<b>名前をまとめて変える</b> Windows 用ツールです（C# / WPF）。' +
+        '名前の変換のほかに、<b>タイムスタンプの更新</b>と<b>移動・コピー・空フォルダの削除</b>もできます。' +
+        '名前の変換と移動は、<b>直前の操作1回分ずつ「復元」で戻せる</b>ので、安心して試せます。',
+  say: ['写真の名前を 001.jpg からの連番にしたい', '名前の頭に文字をまとめて足したい', 'ファイルの日時を撮影順に並べ直したい', 'サブフォルダの中身を1か所に集めたい'],
+  sayTitle: 'こんなときに',
+  shot: { src: 'img/1-list.png', title: 'FFEdit', cap: '実際の画面（ダミーのフォルダ・ファイル）' },
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.5, 0], desc: '対象フォルダを決めて、タブで処理を選び「実行」を押す人。' },
+    { id: 'ui', type: 'screen', label: 'FFEdit の画面', sub: '対象・一覧・タブ', at: [-4.6, -2.8], img: 'img/1-list.png',
+      desc: '上に対象フォルダ、右に一覧、下に「名称変換」「タイムスタンプ」「機能」の3つのタブ。' },
+    { id: 'json', type: 'store', label: '設定 JSON', sub: 'FFEdit.json', at: [-4.6, 3.4],
+      desc: '対象フォルダの履歴・入力欄2つの履歴・フィルターを保存する。既定の場所は <code>%LOCALAPPDATA%\\FFEdit\\</code>。' },
+    { id: 'app', type: 'main', label: 'FFEdit', at: [0, 0],
+      desc: 'C# / WPF の画面（<code>MainWindow</code>）。一覧を作り、開いているタブに合わせて <code>Rename</code> / <code>TimeStamp</code> / <code>Function</code> に仕事を渡す。' },
+    { id: 'rename', type: 'code', label: '名称変換', sub: 'Rename', at: [4.0, -3.6],
+      desc: '1件ずつ新しい名前を作る。通し番号・フォルダ名の追加・文字数の削除・拡張子変更・文字の削除・追加・置換の7種類。' },
+    { id: 'func', type: 'code', label: '機能タブ', sub: 'Function', at: [4.4, 0],
+      desc: '一覧の項目を移動・コピーする。空のフォルダの削除もここ。' },
+    { id: 'ts', type: 'code', label: 'タイムスタンプ', sub: 'TimeStamp', at: [2.6, 4.4],
+      desc: '作成・更新・アクセス日時を、1件目の日時から決めた間隔ずつずらして書き換える。' },
+    { id: 'fm', type: 'code', label: 'FileMng', at: [7.8, -0.9],
+      desc: '実際に動かす係。ファイル・フォルダを移動（改名）・コピーし、成功した分を「復元の記録」に積む。<code>Rename</code> と <code>Function</code> がそれぞれ1つずつ持つ。' },
+    { id: 'restore', type: 'store', label: '復元の記録', at: [8.4, -4.4],
+      desc: '「どこからどこへ動かしたか」を1回の操作ごとに積んだもの。<b>メモリ上だけ</b>なので、アプリを閉じると消える。' },
+    { id: 'disk', type: 'os', label: '対象フォルダの中身', sub: 'ファイル・フォルダ', at: [9, 2.4],
+      desc: '名前・日時・場所が書き換わる相手。一覧はここを読み直して作る。' },
+  ],
+  links: [['user', 'ui'], ['ui', 'app'], ['app', 'json'], ['app', 'rename'], ['app', 'func'], ['app', 'ts'],
+          ['rename', 'fm'], ['func', 'fm'], ['fm', 'disk'], ['fm', 'restore'], ['ts', 'disk'], ['app', 'disk']],
+  steps: [
+    { by: 'user', title: '対象フォルダを入れて「リストアップ」', flow: [['user', 'ui'], ['ui', 'app'], ['disk', 'app']], shot: 'img/1-list.png',
+      text: 'パスは手入力か、エクスプローラーからドラッグ＆ドロップで入れる。一覧は<b>自然順</b>（<code>IMG_2</code> が <code>IMG_10</code> より先）で、対象フォルダからの相対パスが並ぶ。' },
+    { by: 'app', title: '処理する対象を決める', flow: [['ui', 'app']],
+      text: '「フォルダ / ファイル」、<code>*.jpg</code> のようなフィルター、サブフォルダも含めるか、を選ぶ。「選択項目のみ」をオンにすると、一覧で選んだものだけが対象になる。',
+      note: '一覧で Delete キーを押すと、確認のあと、選んだものを<b>ごみ箱を通さずに完全削除</b>する。「復元」でも戻せない' },
+    { by: 'rename', title: '新しい名前を計算する', flow: [['app', 'rename']], shot: 'img/2-number-set.png',
+      text: '「名称変換」タブで変え方を選ぶ。通し番号なら、一覧の並び順に <code>001.jpg</code>、<code>002.jpg</code>… と付ける。桁を「自動」にすると、件数に合わせて0埋めの桁を決める。',
+      note: '通し番号の「最初の値」が数字でない、拡張子変更で新しい拡張子が空、のときはメッセージを出して始めない' },
+    { by: 'fm', title: '「実行」で名前を変えて、記録を積む', flow: [['rename', 'fm'], ['fm', 'disk'], ['fm', 'restore']], shot: 'img/3-number-done.png',
+      text: '1件ずつ実際に改名し、うまくいった分を「復元の記録」に積む。終わったら一覧をフォルダから読み直す。',
+      note: 'うまく変えられなかった項目は、最後にまとめてダイアログに出る（ほかの項目は変わったまま）' },
+    { by: 'fm', title: '「復元」で1回分ずつ戻す', flow: [['restore', 'fm'], ['fm', 'disk']],
+      text: '直前の操作で動かしたものを、後に動かしたものから逆向きに戻す。続けて押すと、さらに前の操作へ戻れる。いま開いているタブ（名称変換か機能）の記録が戻る。',
+      note: '記録はメモリ上だけなので、アプリを閉じると戻せない。タイムスタンプ・コピー・空フォルダの削除は戻せない' },
+    { by: 'ts', title: 'タイムスタンプをずらして書き換える', flow: [['app', 'ts'], ['ts', 'disk']], shot: 'img/4-time.png',
+      text: '「基準日」と「時刻」が1件目の日時。「加算間隔」（無し / 秒 / 分 / 時間 / 日）を1件ごとに足していく。作成・更新・アクセス日時のうち、チェックしたものだけを書き換える。',
+      note: 'タイムスタンプの更新は「復元」で戻せない' },
+    { by: 'func', title: '移動・コピー・空フォルダの削除', flow: [['app', 'func'], ['func', 'fm'], ['fm', 'disk'], ['fm', 'restore']], shot: 'img/5-func.png',
+      text: '「機能」タブで選ぶ。移動先は対象フォルダ自体か、指定したフォルダ（無ければ作る）。移動先ではファイル名だけを使うので、サブフォルダの中身を1か所に集める使い方もできる。',
+      note: '戻せるのは「移動」だけ。フォルダのコピーはできない。移動先に同じ名前があるなど失敗した項目は、エラーの一覧に出る' },
+    { by: 'app', title: '設定を保存・復元する', flow: [['app', 'json'], ['json', 'app']],
+      text: '「設定保存」か <code>Ctrl+S</code> で、対象フォルダ・入力欄2つ・フィルターの履歴を <code>FFEdit.json</code> に保存し、次の起動で戻す。選んだモードやチェックは保存しない。' },
+  ],
+  pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: '実際の画面で、リストアップ → 名前を一括変換 → 実行 → 復元、タイムスタンプ、移動・コピーまで（全10ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: 'フォルダ → 自然順の一覧 → 新しい名前 → 改名と復元の記録 → 一覧の更新を、ブロックで追う（全11ステップ）' },
+    { href: 'architecture.html', icon: '🧱', title: '内部設計', desc: '<code>MainWindow</code> / <code>Rename</code> / <code>TimeStamp</code> / <code>Function</code> / <code>FileMng</code> と共通部品の関係（全9ステップ）' },
+  ],
+  note: 'ソースは <code>Essentials/FFEdit</code>（共通部品は <code>Essentials/_Common</code>）。画面写真は、このガイド用に作った<b>ダミーのフォルダ</b>（中身が数バイトのファイル）だけを使っています。',
+});
+</script>
 </body>
 </html>
