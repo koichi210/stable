@@ -36,7 +36,7 @@
     // 世界
     ['world', 'world.js\nKit / createSky / timeLook\nbuildClassroom / buildTavern', 'world', -14, 0],
     ['makai', 'makai.js\nbuildMakai / skull', 'world', -8.5, 0],
-    ['spots', 'spots.js\nbuildSpot\n(水槽/酒棚/血の池)', 'world', -3, 0],
+    ['spots', 'spots.js\nbuildSpot\n(水槽/カウンター/大釜)', 'world', -3, 0],
     ['fancy', 'fancy.js\nbuildFancy\n(教室の演出)', 'world', 2.5, 0],
     ['fancyT', 'fancy-tavern.js\nbuildTavernFancy', 'world', 8, 0],
     ['fancyM', 'fancy-makai.js\nbuildMakaiFancy', 'world', 13.5, 0],
@@ -178,8 +178,8 @@
         html:
           '<table><tr><th>ファイル</th><th>責務</th></tr>' +
           '<tr><td><code>world.js</code></td><td>共通の道具箱 <code>Kit</code>(箱・円柱・球の部品とマテリアルの使い回し)、空 <code>createSky</code>・時刻の見た目 <code>timeLook</code>、共通家具(時計・カレンダー・本棚・白板)、<b>席 <code>CLASSROOM_SEATS</code></b>(3行×4列=12席)、教室 <code>buildClassroom</code> と酒場 <code>buildTavern</code>、<code>projectColor</code>(プロジェクト名→色)</td></tr>' +
-          '<tr><td><code>makai.js</code></td><td>魔界の部屋 <code>buildMakai</code>(黒曜石の床・ドクロ・溶岩・墓場)。<code>skull</code> は血の池でも再利用</td></tr>' +
-          '<tr><td><code>spots.js</code></td><td>席を立った人の立ち寄り先。教室=金魚の水槽(エサやり)、酒場=酒棚(取りに行く)、魔界=血の池(汲みに行く)</td></tr>' +
+          '<tr><td><code>makai.js</code></td><td>魔界の部屋 <code>buildMakai</code>(黒曜石の床・ドクロ・溶岩・墓場)。<code>skull</code> は玉座・テーブル・門などで何度も再利用</td></tr>' +
+          '<tr><td><code>spots.js</code></td><td>席を立った人の立ち寄り先。教室=金魚の水槽(エサやり)、酒場=カウンター(受け取りに行く)、魔界=魔女の大釜(汲みに行く)</td></tr>' +
           '<tr><td><code>fancy.js</code><br><code>fancy-tavern.js</code><br><code>fancy-makai.js</code></td><td>標準モードだけの豪華な演出(HDR色+ブルーム)。教室=ミラーボール・虹・風船・噴水、酒場=魔法のシャンデリア・魔法陣・提灯、魔界=炎の柱・亡霊・赤い稲妻 など。軽量では <code>group.visible=false</code></td></tr></table>' +
           '<p>3スキンとも<b>席の座標は同じ</b>(<code>CLASSROOM_SEATS</code>)なので、人の席割りも通路も共通のまま、見た目だけが入れ替わります。</p>'
       },
