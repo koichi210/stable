@@ -150,26 +150,20 @@ window.CUB_MENUS = {
      "color": "#F06292",
      "kind": "liff",
      "view": "delete"
-    },
+    }
+   ],
+   [
     {
      "label": "アナウンス一覧",
      "color": "#FCE4EC",
      "kind": "message",
      "text": "アナウンス一覧"
-    }
-   ],
-   [
+    },
     {
      "label": "案内文プレビュー",
      "color": "#DCEDC8",
      "kind": "liff",
      "view": "preview"
-    },
-    {
-     "label": "案内文設定",
-     "color": "#FFF9C4",
-     "kind": "switch",
-     "target": "notice"
     },
     {
      "label": "◀ 戻る",
@@ -220,12 +214,6 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
-     "label": "📣 保護者連絡",
-     "color": "#F8BBD0",
-     "kind": "switch",
-     "target": "parents"
-    },
-    {
      "label": "👤 メンバ編集",
      "color": "#FFE0B2",
      "kind": "switch",
@@ -236,11 +224,23 @@ window.CUB_MENUS = {
      "color": "#B3E5FC",
      "kind": "switch",
      "target": "groups"
+    },
+    {
+     "label": "✏️ 案内文編集",
+     "color": "#FFF9C4",
+     "kind": "switch",
+     "target": "notice"
     }
    ],
    [
     {
-     "label": "📄 活動予定",
+     "label": "📣 保護者連絡",
+     "color": "#F8BBD0",
+     "kind": "switch",
+     "target": "parents"
+    },
+    {
+     "label": "📄 活動計画",
      "color": "#DCEDC8",
      "kind": "switch",
      "target": "events"
@@ -255,7 +255,7 @@ window.CUB_MENUS = {
   ]
  },
  "events": {
-  "name": "s8-cub 活動予定サブメニュー",
+  "name": "s8-cub 活動計画サブメニュー",
   "rowHeight": null,
   "layout": [
    [
@@ -295,18 +295,24 @@ window.CUB_MENUS = {
   ]
  },
  "notice": {
-  "name": "s8-cub 案内文設定サブメニュー",
+  "name": "s8-cub 案内文編集サブメニュー",
   "rowHeight": null,
   "layout": [
    [
     {
-     "label": "ヘッダ設定",
+     "label": "プレフィックス",
+     "color": "#FFFDE7",
+     "kind": "liff",
+     "view": "prefix"
+    },
+    {
+     "label": "ヘッダ",
      "color": "#FFF9C4",
      "kind": "liff",
      "view": "header"
     },
     {
-     "label": "フッタ設定",
+     "label": "フッター",
      "color": "#FFF59D",
      "kind": "liff",
      "view": "footer"
@@ -323,7 +329,7 @@ window.CUB_MENUS = {
      "label": "◀ 戻る",
      "color": "#CFD8DC",
      "kind": "switch",
-     "target": "parents"
+     "target": "admin"
     }
    ]
   ]

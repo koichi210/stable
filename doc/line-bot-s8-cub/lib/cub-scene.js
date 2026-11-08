@@ -48,7 +48,7 @@
       node('pdf', -9, 3, '📄 カブ8通信PDF\n(読み取るだけ)', C.neutral);
       node('events', -9, -4, '🗓 活動予定\n(取り込み済み)', C.good);
       node('preview', 0, -4, '👀 開催案内\n(プレビュー)', C.data);
-      node('notice', 0, -11, '✏️ 案内文設定\nヘッダ・フッタ・テンプレ', C.gold);
+      node('notice', 0, -11, '✏️ 案内文編集\nプレフィックス・ヘッダ・フッタ・テンプレ', C.gold);
       node('resv', 9, 3, '📢 アナウンス予約\n(日時・宛先・本文)', '#ff8fb1');
       node('groups', 9, -11, '👥 登録グループ\n(保護者・指導者・オーナー)', C.third);
       node('admins', -9, -11, '👤 メンバリスト\n(管理者・ユーザ)', C.server);
