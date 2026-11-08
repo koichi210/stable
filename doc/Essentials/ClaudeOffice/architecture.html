@@ -166,7 +166,7 @@
           '<ol><li><code>ctx = { kit: new Kit(false), root: new THREE.Group(), lights: [], sky, bloom, fog ... }</code></li>' +
           '<li>スキンで分岐: <code>default → buildClassroom</code> / <code>isekai → buildTavern</code> / <code>makai → buildMakai</code>。部屋・机・窓・時計・本棚・白板を作り、<code>ctx.seats</code>(12席)、<code>ctx.glows</code>(机の画面)、<code>ctx.shelf</code>、<code>ctx.board</code>、<code>ctx.clock</code> などを埋める</li>' +
           '<li><code>ctx.fancy = buildFancy / buildTavernFancy / buildMakaiFancy</code>(標準モードの演出)</li>' +
-          '<li><code>addNpc</code>(先生・ルイーダ)、<code>buildSpot(ctx, skin)</code>(立ち寄り先 → <code>ctx.spot</code>)</li>' +
+          '<li><code>addNpc</code>(先生・酒場の主人)、<code>buildSpot(ctx, skin)</code>(立ち寄り先 → <code>ctx.spot</code>)</li>' +
           '<li><code>wander = createWander(ctx)</code>(席と立ち寄り先から通路を作る)</li>' +
           '<li><code>applyOptions()</code> → <code>syncPeople()</code> → シェーダーのコンパイル(最大8秒待ち)</li></ol>' +
           '<div class="gg-note">スキンを切り替えるたびに <code>clearAvatars()</code> と <code>ctx.kit.dispose()</code> で作り直します。時刻ごとの色は <code>updateTime()</code> が <code>timeLook(hour, ctx.keys)</code> から空・太陽・ランプへ反映し、最後に <code>ctx.update / ctx.fancy.update</code> を呼びます。</div>'
