@@ -25,7 +25,7 @@
 
   var controls = new T.OrbitControls(camera, st.renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.enablePan = false;
+  controls.screenSpacePanning = true; // 右ドラッグ・2本指で移動（説明ページと同じ操作）
   controls.minAzimuthAngle = -0.6; controls.maxAzimuthAngle = 0.6;
   controls.minPolarAngle = Math.PI / 2 - 0.6; controls.maxPolarAngle = Math.PI / 2 + 0.45;
   controls.rotateSpeed = 0.5;
@@ -202,6 +202,15 @@
     fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(0, -d * 0.05, d), toT: new T.Vector3(), t: 0, dur: 0.9 };
   }
   controls.minDistance = 6; controls.maxDistance = 80;
+  // 移動しすぎて魔法陣を見失わないよう、注視点を外枠の内側に留める（カメラも同じだけ戻す）
+  var panOver = new T.Vector3();
+  function clampPan() {
+    var t = controls.target, len = Math.hypot(t.x, t.y);
+    if (len <= FRAME_R && Math.abs(t.z) < 1e-6) return;
+    var k = Math.min(1, FRAME_R / len);
+    panOver.set(t.x - t.x * k, t.y - t.y * k, t.z);
+    t.sub(panOver); camera.position.sub(panOver);
+  }
   home(true);
   document.getElementById('mg-home').addEventListener('click', function () { home(false); });
 
@@ -229,6 +238,7 @@
   st.renderer.domElement.addEventListener('pointerup', function (e) {
     if (!down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) { down = null; return; }
     down = null;
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // 右ボタンは移動用
     var n = pick(e);
     if (!n) { if (e.pointerType !== 'mouse') setHover(null); return; }
     // タッチは1回目で情報を出し、同じ円をもう一度タップで開く
@@ -289,6 +299,7 @@
       if (fly.t >= 1 && !fly.leaving) fly = null;
     }
     controls.update();
+    clampPan();
     labels.update(camera, st.w, st.h);
     st.render();
     requestAnimationFrame(frameLoop);
