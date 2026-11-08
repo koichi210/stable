@@ -14,7 +14,6 @@
     { id: 'side', name: '常駐・Web', color: '#5fffc4' },
     { id: 'line', name: 'LINE ボット', color: '#55dcff' },
     { id: 'fs', name: '試作ゲーム', color: '#ffc94d' },
-    { id: 'cpp', name: 'C++ / MFC', color: '#b58cff' },
   ];
 
   var ITEMS = [
@@ -47,6 +46,9 @@
     { id: 'VsCodePets', name: 'VsCodePets', emoji: '🐶', group: 'side', href: 'doc/Essentials/VsCodePets/',
       tech: 'VS Code 拡張 / TypeScript',
       summary: 'VS Code のパネルを歩き回り、空を飛ぶペット。' },
+    { id: 'LoginHistory', name: 'LoginHistory', emoji: '📝', group: 'side', href: 'doc/Essentials/LoginHistory/',
+      tech: '稼働ログ / C++ / MFC',
+      summary: 'PC が動いていた時刻をログファイルに書き残す。' },
 
     // ---- Windows ツール ----
     { id: 'EventRecorder', name: 'EventRecorder', emoji: '🎬', group: 'desk', href: 'doc/Essentials/EventRecorder/',
@@ -79,14 +81,9 @@
     { id: 'Othello', name: 'Othello', emoji: '⚫', group: 'desk', href: 'doc/Essentials/Othello/',
       tech: 'オセロ / WPF',
       summary: 'オセロ（C# 版）。裏返す判定・COM の思考・一手戻す。' },
-
-    // ---- C++ / MFC ----
-    { id: 'OthelloMfc', name: 'OthelloMfc', emoji: '⚪', group: 'cpp', href: 'doc/Essentials/OthelloMfc/',
+    { id: 'OthelloMfc', name: 'OthelloMfc', emoji: '⚪', group: 'desk', href: 'doc/Essentials/OthelloMfc/',
       tech: 'オセロ / C++ / MFC',
       summary: 'オセロ（C++/MFC 版）。MFC のクラス構成と対局の流れ。' },
-    { id: 'LoginHistory', name: 'LoginHistory', emoji: '📝', group: 'cpp', href: 'doc/Essentials/LoginHistory/',
-      tech: '稼働ログ / C++ / MFC',
-      summary: 'PC が動いていた時刻をログファイルに書き残す。' },
   ];
 
   var byId = {};
