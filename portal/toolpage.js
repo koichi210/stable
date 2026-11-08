@@ -84,7 +84,7 @@
 
     // 左メニュー
     var side = $('.tp-side');
-    var sh = '<a class="home" href="' + root + 'index.html">🔮 トップ（魔法陣）</a>';
+    var sh = '<a class="home" href="' + root + 'index.html">🔮 トップ</a>';
     CAT.groups.forEach(function (g) {
       var its = CAT.items.filter(function (it) { return it.group === g.id; });
       if (!its.length) return;
