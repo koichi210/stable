@@ -12,6 +12,11 @@ window.CUB_MENUS = {
      "target": "schedule"
     },
     {
+     "label": "SNS",
+     "color": "#BBDEFB",
+     "kind": "url"
+    },
+    {
      "label": "その他",
      "color": "#EDE7F6",
      "kind": "switch",
@@ -60,8 +65,7 @@ window.CUB_MENUS = {
     {
      "label": "📖 仕組み",
      "color": "#E1BEE7",
-     "kind": "url",
-     "url": "https://koichi210.github.io/stable/doc/line-bot-s8-cub/index.html"
+     "kind": "url"
     }
    ],
    [
@@ -98,6 +102,11 @@ window.CUB_MENUS = {
      "color": "#C8E6C9",
      "kind": "switch",
      "target": "schedule-admin"
+    },
+    {
+     "label": "SNS",
+     "color": "#BBDEFB",
+     "kind": "url"
     },
     {
      "label": "その他",
@@ -188,8 +197,7 @@ window.CUB_MENUS = {
     {
      "label": "📖 仕組み",
      "color": "#E1BEE7",
-     "kind": "url",
-     "url": "https://koichi210.github.io/stable/doc/line-bot-s8-cub/index.html"
+     "kind": "url"
     }
    ],
    [
@@ -264,6 +272,12 @@ window.CUB_MENUS = {
      "color": "#DCEDC8",
      "kind": "message",
      "text": "カブ8取り込み"
+    },
+    {
+     "label": "年プロ取り込み",
+     "color": "#C5E1A5",
+     "kind": "message",
+     "text": "年プロ取り込み"
     },
     {
      "label": "予定削除",
