@@ -109,7 +109,15 @@
     }).join('');
 
     // 右パネル
-    var ph = '<span class="kind">' + esc(grp.name) + '</span>' +
+    var ph = '';
+    // 「詳しく見る」はサブメニューのつもりで、パネルの一番上に置く
+    if (cfg.pages && cfg.pages.length) {
+      ph += '<h3 class="first">📚 詳しく見る</h3><div class="tp-pages">' + cfg.pages.map(function (p) {
+        return '<a href="' + esc(p.href) + '"><span class="i">' + (p.icon || '📄') + '</span><span><b>' + esc(p.title) + '</b>' +
+          (p.desc ? '<small>' + p.desc + '</small>' : '') + '</span></a>';
+      }).join('') + '</div>';
+    }
+    ph += '<span class="kind">' + esc(grp.name) + '</span>' +
       '<h2>' + item.emoji + ' ' + esc(item.name) + '</h2>' +
       '<div class="tech" style="color:var(--muted);font-size:12.5px">' + esc(item.tech) + '</div>' +
       '<div class="lead">' + (cfg.lead || esc(item.summary)) + '</div>';
@@ -127,12 +135,6 @@
           return '<li data-i="' + i + '"><span class="n">' + (i + 1) + '</span><div><b>' + esc(s.title) + '</b>' +
             (s.text ? '<p>' + s.text + '</p>' : '') + (s.note ? '<p class="note">⚠ ' + s.note + '</p>' : '') + '</div></li>';
         }).join('') + '</ol>';
-    }
-    if (cfg.pages && cfg.pages.length) {
-      ph += '<h3>📚 詳しく見る</h3><div class="tp-pages">' + cfg.pages.map(function (p) {
-        return '<a href="' + esc(p.href) + '"><span class="i">' + (p.icon || '📄') + '</span><span><b>' + esc(p.title) + '</b>' +
-          (p.desc ? '<small>' + p.desc + '</small>' : '') + '</span></a>';
-      }).join('') + '</div>';
     }
     if (cfg.note) ph += '<p class="tp-note">' + cfg.note + '</p>';
     panel.innerHTML = ph;

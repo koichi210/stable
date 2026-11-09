@@ -246,3 +246,5 @@ body.tp { overflow: hidden; }
   .tp-label { font-size: 10.5px; padding: 2px 6px; }
   .tp-label.main { font-size: 12px; }
 }
+.tp-panel h3.first { margin-top: 0; }
+.tp-pages + .kind { margin-top: 20px; }
