@@ -175,6 +175,12 @@ window.CUB_MENUS = {
      "color": "#F06292",
      "kind": "liff",
      "view": "delete"
+    },
+    {
+     "label": "✏️ 案内文編集",
+     "color": "#FFF9C4",
+     "kind": "switch",
+     "target": "notice"
     }
    ],
    [
@@ -250,10 +256,10 @@ window.CUB_MENUS = {
      "target": "groups"
     },
     {
-     "label": "✏️ 案内文編集",
-     "color": "#FFF9C4",
-     "kind": "switch",
-     "target": "notice"
+     "label": "🏕️ 組編集",
+     "color": "#FFE082",
+     "kind": "liff",
+     "view": "units-add"
     }
    ],
    [
@@ -359,7 +365,7 @@ window.CUB_MENUS = {
      "label": "◀ 戻る",
      "color": "#CFD8DC",
      "kind": "switch",
-     "target": "admin"
+     "target": "parents"
     }
    ]
   ]
