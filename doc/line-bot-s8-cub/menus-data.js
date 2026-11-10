@@ -2,19 +2,27 @@
 window.CUB_MENUS = {
  "main": {
   "name": "s8-cub メインメニュー",
-  "rowHeight": null,
+  "rowHeight": 720,
   "layout": [
+   [
+    {
+     "label": "組編成",
+     "color": "#FFF9C4",
+     "kind": "liff",
+     "view": "units"
+    },
+    {
+     "label": "SNS",
+     "color": "#BBDEFB",
+     "kind": "url"
+    }
+   ],
    [
     {
      "label": "活動予定",
      "color": "#C8E6C9",
      "kind": "switch",
      "target": "schedule"
-    },
-    {
-     "label": "SNS",
-     "color": "#BBDEFB",
-     "kind": "url"
     },
     {
      "label": "その他",
@@ -98,15 +106,23 @@ window.CUB_MENUS = {
    ],
    [
     {
-     "label": "活動予定",
-     "color": "#C8E6C9",
-     "kind": "switch",
-     "target": "schedule-admin"
+     "label": "組編成",
+     "color": "#FFF9C4",
+     "kind": "liff",
+     "view": "units"
     },
     {
      "label": "SNS",
      "color": "#BBDEFB",
      "kind": "url"
+    }
+   ],
+   [
+    {
+     "label": "活動予定",
+     "color": "#C8E6C9",
+     "kind": "switch",
+     "target": "schedule-admin"
     },
     {
      "label": "その他",
