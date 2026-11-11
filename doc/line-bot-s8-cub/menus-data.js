@@ -165,6 +165,12 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
+     "label": "アナウンス一覧",
+     "color": "#FCE4EC",
+     "kind": "message",
+     "text": "アナウンス一覧"
+    },
+    {
      "label": "アナウンス追加",
      "color": "#F48FB1",
      "kind": "liff",
@@ -175,26 +181,20 @@ window.CUB_MENUS = {
      "color": "#F06292",
      "kind": "liff",
      "view": "delete"
+    }
+   ],
+   [
+    {
+     "label": "案内文プレビュー",
+     "color": "#DCEDC8",
+     "kind": "liff",
+     "view": "preview"
     },
     {
      "label": "✏️ 案内文設定",
      "color": "#FFF9C4",
      "kind": "switch",
      "target": "notice"
-    }
-   ],
-   [
-    {
-     "label": "アナウンス一覧",
-     "color": "#FCE4EC",
-     "kind": "message",
-     "text": "アナウンス一覧"
-    },
-    {
-     "label": "案内文プレビュー",
-     "color": "#DCEDC8",
-     "kind": "liff",
-     "view": "preview"
     },
     {
      "label": "◀ 戻る",
