@@ -50,13 +50,19 @@
   .cap:empty { display: none; }
   .cap small { display: block; font-size: 14px; color: #ffd98a; margin-bottom: 6px; font-weight: bold; }
   .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #000000b0; z-index: 3; }
+  .bar select { border: 1px solid #ffffff55; background: #2a2640; color: #fff; border-radius: 8px; padding: 6px 6px; font: inherit; font-size: 14px; cursor: pointer; }
   .bar button { border: 1px solid #ffffff55; background: #ffffff1c; color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
   .prog { flex: 1; height: 10px; background: #ffffff30; border-radius: 5px; overflow: hidden; cursor: pointer; }
   .prog i { display: block; height: 100%; width: 0; background: var(--green); }
   .time { font-size: 12px; color: #cfc8ff; min-width: 78px; text-align: right; }
   @media (max-width: 900px) {
-    #stage { right: 0; bottom: 214px; }
-    .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 62px; height: 146px; }
+    .bar { gap: 8px 6px; padding: 8px 8px 10px; flex-wrap: wrap; }
+    .prog { order: -1; flex: 1 1 100%; }
+    .time { margin-left: auto; min-width: 0; }
+    .bar button, .bar select { padding: 6px 8px; font-size: 13px; }
+    .bar .wide { display: none; }
+    #stage { right: 0; bottom: 232px; }
+    .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 80px; height: 146px; }
     .cap { font-size: 14.5px; padding: 10px 14px; line-height: 1.6; max-height: 146px; overflow-y: auto; }
     .top h1 { display: none; }
   }
@@ -85,7 +91,7 @@
   <div class="top"><a class="back" href="demo.html">← 機能一覧</a><h1 id="ttl"></h1><span id="chips"></span><select id="jump" title="ほかの機能へ"></select></div>
   <div class="cap-wrap"><div class="cap" id="cap"></div></div>
   <div class="bar">
-    <button id="play">⏸ 一時停止</button><button id="restart">⟲ 最初から</button>
+    <button id="play">⏸ 一時停止</button><button id="back10" title="10秒もどる(←キー)">⏪ 10秒</button><button id="fwd10" title="10秒すすむ(→キー)">10秒 ⏩</button><select id="speed" title="再生速度"><option value="0.8">0.8倍</option><option value="1" selected>1.0倍</option><option value="1.2">1.2倍</option><option value="1.5">1.5倍</option><option value="2">2.0倍</option></select><button id="restart" class="wide">⟲ 最初から</button>
     <div class="prog" id="prog"><i id="progi"></i></div><span class="time" id="time">0:00</span>
   </div>
 </div>
@@ -725,10 +731,25 @@
   var m = location.hash.match(/t=(\d+)/);
   if (m) { seek(Number(m[1])); playing = false; playBtn.textContent = '▶ 再生'; }
 
+  // 再生速度と、10秒もどる/すすむ(キーボード: ← → で10秒、スペースで再生/一時停止)
+  var speed = 1, speedEl = document.getElementById('speed');
+  try { var saved = Number(localStorage.getItem('demoSpeed')); if ([0.8, 1, 1.2, 1.5, 2].indexOf(saved) >= 0) speed = saved; } catch (e) {}
+  speedEl.value = String(speed);
+  speedEl.onchange = function () { speed = Number(speedEl.value) || 1; try { localStorage.setItem('demoSpeed', String(speed)); } catch (e) {} };
+  function skip(ms) { seek(clamp(vt + ms, 0, TOTAL)); if (vt >= TOTAL) { playing = false; document.getElementById('play').textContent = '▶ 再生'; } }
+  document.getElementById('back10').onclick = function () { skip(-10000); };
+  document.getElementById('fwd10').onclick = function () { skip(10000); };
+  document.addEventListener('keydown', function (e) {
+    if (e.target && /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft') { skip(-10000); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { skip(10000); e.preventDefault(); }
+    else if (e.key === ' ' && e.target.tagName !== 'BUTTON') { document.getElementById('play').click(); e.preventDefault(); }
+  });
+
   var prev = performance.now();
   function loop(now) {
     var dt = Math.min(100, now - prev); prev = now;
-    if (playing) step(dt);
+    if (playing) step(dt * speed);
     frame(now);
     ui();
     requestAnimationFrame(loop);
