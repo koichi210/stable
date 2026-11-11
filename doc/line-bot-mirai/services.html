@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ミライBot 使っているサービス一覧</title>
+<style>
+  :root { --bg: #17142a; --ink: #f4f1ff; --sub: #cfc8ff; --line: #ffffff2a; --card: #ffffff10; --green: #06c755; --gold: #ffd98a; --warn: #ffb4a2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif; line-height: 1.75; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 16px 70px; }
+  a { color: #b9a8ff; }
+  .back { font-size: 14px; text-decoration: none; color: var(--sub); }
+  h1 { font-size: 24px; margin: 8px 0 6px; }
+  p.lead { color: var(--sub); margin: 0 0 18px; }
+  h2 { font-size: 17px; color: var(--gold); margin: 30px 0 10px; }
+  .tblwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 14px; }
+  th, td { padding: 11px 13px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  th { background: #ffffff14; font-size: 13px; color: var(--sub); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.svc { white-space: nowrap; font-weight: bold; min-width: 130px; }
+  td.svc small { display: block; font-weight: normal; color: var(--sub); font-size: 12px; }
+  td ul { margin: 0; padding-left: 18px; }
+  td li { margin: 2px 0; }
+  .ok { color: #7ee2a0; font-size: 12px; white-space: nowrap; }
+  .ng { color: var(--warn); font-size: 12px; white-space: nowrap; }
+  .key { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 0 0 8px; }
+  .key b { color: var(--gold); }
+  .note { font-size: 13px; color: var(--sub); margin-top: 14px; }
+  code { background: #ffffff1a; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← ミライBotの図解にもどる</a>
+  <h1>🧰 使っているサービスと役割の一覧</h1>
+  <p class="lead">ミライBotは、自前のサーバーを持たず、よそのサービスの無料枠を組み合わせて動いています。どのサービスを、どの会社が出していて、何を受け持ち、どこまで無料なのかを1枚にまとめました。<br>確認日: 2026-11-11(各社の公式ページ。数字は変わることがあるので、困ったら公式を見てください)</p>
+
+  <h2>🔑 まず押さえたい上限(これを超えると困る数字)</h2>
+  <div class="key"><b>Vercel</b>: サーバーレス関数は <b>1つのプロジェクトで12個まで</b>(Hobby)。<code>api/</code> 直下のファイル数がそのまま関数の数になる。補助の処理は <code>lib/</code> に置く。</div>
+  <div class="key"><b>LINE</b>: 無料プランは <b>push(こちらから送る)メッセージが月200通まで</b>。「人数ぶん」で数えるので、10人に送れば10通ぶん。返信(reply)は数えない。</div>
+  <div class="key"><b>Upstash</b>: 無料枠は <b>1か月50万コマンド・256MBまで</b>。1分おきの通知チェックもここを使う。</div>
+  <div class="key"><b>Vercelの自前Cron</b>: Hobbyは <b>1日1回まで</b>。だから「1分おき」は外部サービス(cron-job.org)に任せている。</div>
+
+  <h2>📋 サービス一覧</h2>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>サービス</th><th>会社</th><th>このBotでの役割</th><th>無料枠・制限</th><th>気をつけること</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="svc">Vercel<small>ホスティング</small></td>
+        <td>Vercel Inc.(米国)</td>
+        <td>Botの本体(<code>api/index.js</code>)を動かす場所。LINEから来たメッセージを受けて、返事を作る。GitHubにpushすると自動でデプロイされる。</td>
+        <td><ul>
+          <li>関数は<b>12個まで</b>(Hobby) <span class="ok">✅公式確認</span></li>
+          <li>1回の処理は最大300秒、メモリ2GB <span class="ok">✅</span></li>
+          <li>自前Cronは<b>1日1回まで</b> <span class="ok">✅</span></li>
+          <li>ビルドは1回45分まで、1日100デプロイまで <span class="ok">✅</span></li>
+          <li>個人・非商用のみ(Hobby)</li>
+        </ul></td>
+        <td>13個目を足すとビルドが失敗する(実際に起きた)。補助ファイルは <code>lib/</code> へ。リクエストが来た時だけ起きて、終わると全部忘れるので、覚えておくものはUpstashへ。</td>
+      </tr>
+      <tr>
+        <td class="svc">LINE Messaging API<small>メッセージの中継</small></td>
+        <td>LINEヤフー株式会社(日本)</td>
+        <td>ユーザーとBotの間でメッセージを運ぶ。受け取ったメッセージをVercelに届け(Webhook)、返事・通知・リッチメニューを表示する。</td>
+        <td><ul>
+          <li>無料プランは月の無料メッセージ<b>200通まで</b>(push・multicast・broadcast) <span class="ok">✅公式確認</span></li>
+          <li><b>返信(reply)は数えない</b> <span class="ok">✅</span></li>
+          <li>送った<b>人数ぶん</b>で数える。ブロックした人宛ては数えない <span class="ok">✅</span></li>
+          <li>有料: ライト 月5,000円で5,000通 / スタンダード 月15,000円で30,000通 <span class="ok">✅</span></li>
+        </ul></td>
+        <td>リマインダーとアナウンスはpushなので枠を使う。だからリマインダーは管理者が許可した人だけ。返信は無制限なので、天気・予定・メモ・ゴミなどは気にしなくてよい。<br>※返信の個数(1回5件)・文字数(1通5,000字)・リッチメニューの枚数(1,000枚)の上限は公式サイトを自動で読めず未確認 <span class="ng">△</span></td>
+      </tr>
+      <tr>
+        <td class="svc">LIFF<small>LINEの中で開く画面</small></td>
+        <td>LINEヤフー株式会社(日本)</td>
+        <td>リマインド・メモ・アナウンスなどの入力フォーム。LINEのアプリの中で開くWeb画面。本人確認(IDトークン)もここで行う。</td>
+        <td><ul>
+          <li>登録・利用は無料(READMEの記載。公式の料金ページでは確認できず) <span class="ng">△</span></li>
+          <li>Messaging APIのチャネルには追加できない。同じプロバイダー内に<b>「LINEログイン」チャネル</b>を別に作る必要がある</li>
+        </ul></td>
+        <td>LIFF IDとチャネルIDの2つの環境変数が必要。フォームは<code>api/liff-reminder.html</code>の1枚を<code>?view=</code>で出し分けている。</td>
+      </tr>
+      <tr>
+        <td class="svc">Upstash Redis<small>データの保存先</small></td>
+        <td>Upstash, Inc.(米国)</td>
+        <td>覚えておくものを置く唯一の場所。リマインド・メモ・登録した地域・カレンダーID・送信先グループ・予約中のアナウンス・リマインダーの許可リストなど。</td>
+        <td><ul>
+          <li>無料: 1か月<b>50万コマンド</b>・データ<b>256MB</b>・通信10GB・DB1個 <span class="ok">✅公式ブログ確認</span></li>
+          <li>超えると: 従量で10万コマンドあたり0.20ドル</li>
+        </ul></td>
+        <td>1分おきの通知チェックでも読み書きが発生する。登録が増えて枠が足りなくなったら、まずここを見る。VercelのStorageタブから作ると、環境変数が自動で入る。</td>
+      </tr>
+      <tr>
+        <td class="svc">cron-job.org<small>1分おきの時計</small></td>
+        <td>cron-job.org(ドイツの外部サービス)</td>
+        <td>1分おきに <code>/cron/reminder</code> を叩いて、「いま通知する時間か」をVercel側に判断させる。Vercelの自前Cronが1日1回までなので、その代わり。</td>
+        <td><ul>
+          <li>無料で1分おきに実行できる(READMEの手順どおり) <span class="ng">△未再確認</span></li>
+        </ul></td>
+        <td>URLに合言葉(<code>CRON_SECRET</code>)を付けて、勝手に叩かれないようにしている。止まると通知とアナウンスが届かない。</td>
+      </tr>
+      <tr>
+        <td class="svc">GitHub<small>ソースの置き場</small></td>
+        <td>GitHub, Inc.(米国・Microsoft傘下)</td>
+        <td>ソースの保管。pushするとVercelが自動でビルド・デプロイする。公開用の図解(このページ)は、公開リポジトリ<code>stable</code>のGitHub Pagesで見られる。</td>
+        <td><ul><li>個人利用は無料(この用途の範囲)</li></ul></td>
+        <td>Botのリポジトリは非公開。公開するもの(stable)には、本物のID・URL・キーを入れない。</td>
+      </tr>
+      <tr>
+        <td class="svc">Google Calendar API<small>予定の取得</small></td>
+        <td>Google LLC(米国)</td>
+        <td>「予定」「今後一週間の予定」で、ユーザー自身のGoogleカレンダーを読む(閲覧のみ)。Google Cloudの<b>サービスアカウント</b>1つを全員で共通に使う。</td>
+        <td><ul><li>無料(APIの標準の割り当て内) <span class="ng">△数値は未確認</span></li></ul></td>
+        <td>各ユーザーが自分のカレンダーを、サービスアカウントのメールアドレスに「閲覧のみ」で共有する。秘密鍵(JSON)はリポジトリに入れない。</td>
+      </tr>
+      <tr>
+        <td class="svc">Open-Meteo<small>天気予報</small></td>
+        <td>Open-Meteo(スイス・オープンな気象データ)</td>
+        <td>「天気」「週間天気」の予報の取得。緯度経度を渡すと、気温・降水確率・天気コードが返る。</td>
+        <td><ul>
+          <li>無料は<b>非商用のみ</b> <span class="ok">✅公式確認</span></li>
+          <li>1日1万回未満・1時間5,000回・1分600回 <span class="ok">✅</span></li>
+          <li>データのライセンスはCC BY 4.0(出典の表示が必要)</li>
+        </ul></td>
+        <td>同じ問い合わせは10分間Upstashに覚えさせて、呼びすぎないようにしている。</td>
+      </tr>
+      <tr>
+        <td class="svc">Nominatim<small>住所→緯度経度</small></td>
+        <td>OpenStreetMap財団(英国)の検索サービス</td>
+        <td>「天気 〇〇市」の住所を、緯度経度に変える(OpenStreetMapのデータ)。</td>
+        <td><ul>
+          <li>公開サーバーは、1秒に1リクエストまで・識別できるUser-Agentが必要(利用ポリシー) <span class="ng">△今回は未再確認</span></li>
+        </ul></td>
+        <td>一度調べた住所はUpstashに覚えさせている。大量に引く使い方はしない。</td>
+      </tr>
+      <tr>
+        <td class="svc">Render<small>参考(別プロジェクト)</small></td>
+        <td>Render Services, Inc.(米国)</td>
+        <td>ミライBotの一部ではない。「アルカナ」と送った時に案内する、カードゲーム(ArcanaExplosion)を動かしている場所。</td>
+        <td><ul><li>無料枠で運用</li></ul></td>
+        <td>状態を持つ対戦ゲームなので、Vercelのような使い捨ての関数では動かせず、Renderにしている。</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="note">✅は公式ページで確認した数字、△は公式ページを自動で読めなかったか、READMEなど手元の記載をもとにしたものです。数字は各社が変えることがあるので、運用で困ったときは各社の公式ページを確認してください。<br>
+  カブナビ8ちゃん(<a href="../line-bot-s8-cub/index.html">line-bot-s8-cub</a>)も、Vercel・LINE・Upstashを同じ考え方で使っています。Vercelの関数は<b>プロジェクトごとに12個まで</b>です。</p>
+</div>
+</body>
+</html>
