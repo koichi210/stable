@@ -177,7 +177,7 @@ window.CUB_MENUS = {
      "view": "delete"
     },
     {
-     "label": "✏️ 案内文編集",
+     "label": "✏️ 案内文設定",
      "color": "#FFF9C4",
      "kind": "switch",
      "target": "notice"
@@ -331,7 +331,7 @@ window.CUB_MENUS = {
   ]
  },
  "notice": {
-  "name": "s8-cub 案内文編集サブメニュー",
+  "name": "s8-cub 案内文設定サブメニュー",
   "rowHeight": null,
   "layout": [
    [
