@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>カブナビ8ちゃん デモ動画</title>
 <!--
-  カブナビ8ちゃんの使い方デモ(指導者向けの導入説明用)。自動で流れる動画風のページです。
+  カブナビ8ちゃんの使い方デモ(上のタブで 保護者向け / 指導者向け を切り替え。?v=parents で保護者向けから開く)。自動で流れる動画風のページです。
   ・スマホ画面はThree.jsの3Dスマホに、実物の画面を貼って動かしています。
     リッチメニューは実際に登録している画像、LIFFの画面(組編成・予定表など)は本物の画面にダミーデータを入れて撮ったスクショです。
   ・素材は lib/demo-assets.js (自動生成。画像はdata URIで埋め込み、file://でも開ける)。名前・予定・IDはすべてダミー。
@@ -21,6 +21,9 @@
   #chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; white-space: nowrap; scrollbar-width: none; }
   .top a.back { color: #cfc8ff; text-decoration: none; font-size: 14px; margin-right: 6px; white-space: nowrap; }
   .top h1 { font-size: 16px; margin: 0 12px 0 0; white-space: nowrap; }
+  .tabs { display: flex; gap: 0; border: 1px solid #ffffff55; border-radius: 999px; overflow: hidden; flex: none; }
+  .tab { border: 0; background: #ffffff10; color: var(--ink); padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .tab.on { background: var(--gold); color: #2b1a00; font-weight: bold; }
   .chip { border: 1px solid #ffffff44; background: #ffffff14; color: var(--ink); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
   .chip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: bold; }
   .chip.adm::before { content: "管理者 "; font-size: 11px; opacity: .8; }
@@ -34,6 +37,7 @@
   .prog i { display: block; height: 100%; width: 0; background: var(--green); }
   .time { font-size: 12px; color: #cfc8ff; min-width: 78px; text-align: right; }
   @media (max-width: 900px) {
+    .tab { padding: 6px 9px; font-size: 12px; }
     #stage { right: 0; bottom: 214px; }
     .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 62px; height: 146px; }
     .cap { font-size: 14.5px; padding: 10px 14px; line-height: 1.6; max-height: 146px; overflow-y: auto; }
@@ -45,7 +49,7 @@
 </head>
 <body>
 <div id="stage"><canvas id="gl"></canvas></div>
-<div class="top"><a class="back" href="index.html">← もどる</a><h1>📱 カブナビ8ちゃん デモ</h1><span id="chips"></span></div>
+<div class="top"><a class="back" href="index.html">← もどる</a><h1>📱 カブナビ8ちゃん デモ</h1><span class="tabs" id="tabs"><button class="tab" data-v="parents">👪 保護者向け</button><button class="tab" data-v="admin">🔧 指導者向け</button></span><span id="chips"></span></div>
 <div class="cap-wrap"><div class="cap" id="cap"></div></div>
 <div class="bar">
   <button id="play">⏸ 一時停止</button><button id="restart">⟲ 最初から</button>
@@ -66,7 +70,7 @@
 
   // ================= 状態と時間 =================
   var st, vt = 0, playing = true, TOTAL = 0;
-  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, toast: null, cap: '', capTag: '', tilt: 0 }; }
+  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, toast: null, cap: '', capTag: '', tilt: 0, group: null }; }
   st = fresh();
 
   var EV = [], CH = [], T = 0;
@@ -75,7 +79,7 @@
   function chapter(title, menu, opts) {
     opts = opts || {};
     CH.push({ title: title, at: T, adm: !!opts.adm });
-    at(function (v) { st.bubbles = []; st.liff = null; st.toast = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; });
+    at(function (v) { st.bubbles = []; st.liff = null; st.toast = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; st.group = opts.group || null; });
   }
   function cap(text) { at(function () { st.cap = text; }); }
 
@@ -124,14 +128,14 @@
 
   function drawChat() {
     g.fillStyle = '#7f9bc5'; g.fillRect(0, 0, W, H);
-    var chatBottom = drawMenu();
+    var chatBottom = st.group ? H - 4 : drawMenu();
     // ヘッダ
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, 52);
-    g.fillStyle = '#111'; g.font = 'bold 16px ' + FONT; g.textAlign = 'center'; g.fillText('カブナビ8ちゃん', W / 2, 32);
+    g.fillStyle = '#111'; g.font = 'bold 16px ' + FONT; g.textAlign = 'center'; g.fillText(st.group || 'カブナビ8ちゃん', W / 2, 32);
     g.textAlign = 'left'; g.font = '22px ' + FONT; g.fillText('‹', 14, 32);
     // 吹き出し(下から積む。入りきらない古いものは上に消える)
     g.save(); g.beginPath(); g.rect(0, 52, W, chatBottom - 52); g.clip();
-    var y = chatBottom - 10, font = '13.5px ' + FONT, maxW = 232;
+    var y = chatBottom - 10, font = '13.5px ' + FONT, maxW = st.group ? 262 : 232;
     for (var i = st.bubbles.length - 1; i >= 0; i--) {
       var b = st.bubbles[i], lines = wrap(b.text, maxW, font), lh = 19, bh = lines.length * lh + 18;
       var a = clamp((vt - b.at) / 260, 0, 1);
@@ -140,6 +144,7 @@
       var bx = b.from === 'me' ? W - 12 - bw : 52, yy = y + (1 - a) * 10;
       g.globalAlpha = a;
       if (b.from === 'bot') { g.fillStyle = '#06c755'; g.beginPath(); g.arc(28, yy + 16, 16, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 14px ' + FONT; g.textAlign = 'center'; g.fillText('カ', 28, yy + 21); }
+      if (b.from === 'parent') { g.fillStyle = '#9aa3b5'; g.beginPath(); g.arc(28, yy + 16, 16, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 13px ' + FONT; g.textAlign = 'center'; g.fillText('保', 28, yy + 21); }
       g.fillStyle = b.from === 'me' ? '#8de055' : '#fff'; rr(bx, yy, bw, bh, 14); g.fill();
       g.fillStyle = '#1a1a1a'; g.textAlign = 'left'; g.font = font;
       lines.forEach(function (l, j) { g.fillText(l, bx + 11, yy + 22 + j * lh); });
@@ -222,6 +227,7 @@
     wait(after == null ? 900 : after);
   }
   function bot(text, delay) { wait(delay == null ? 650 : delay); at(function (v) { st.bubbles.push({ from: 'bot', text: text, at: v }); }); }
+  function other(text, delay) { wait(delay == null ? 900 : delay); at(function (v) { st.bubbles.push({ from: 'parent', text: text, at: v }); }); }
   function me(text, delay) { wait(delay || 0); at(function (v) { st.bubbles.push({ from: 'me', text: text, at: v }); }); }
   function scrollTo(to, dur) { at(function (v) { if (st.liff) st.liff.scroll = { from: st.liff.scroll ? st.liff.scroll.to : 0, to: to, at: v, dur: dur || 1800 }; }); }
   function closeLiff() {
@@ -234,7 +240,9 @@
   }
 
   var BACK = '戻る';
-  // ---------------- 台本 ----------------
+  var SCRIPTS = {};
+  // ---------------- 台本(指導者向け) ----------------
+  SCRIPTS.admin = function () {
   chapter('はじめに', 'main');
   cap('カブナビ8ちゃんは、LINEのトークでカブ隊の連絡を見たり送ったりできるBotです。\n使い方は、画面下の「メニュー」のボタンを押すだけです。');
   wait(4500);
@@ -309,7 +317,72 @@
   chapter('おわり', 'main');
   cap('以上です。ボタンを押すだけで使えます。\nIDの登録や、メニューの使い方で困ったときは、管理者に聞いてください。');
   wait(6000);
-  TOTAL = T; document.documentElement.dataset.chapters = JSON.stringify(CH.map(function (c) { return [c.title, c.at]; })) + ' total=' + TOTAL;
+  };
+
+  // ---------------- 台本(保護者向け) ----------------
+  SCRIPTS.parents = function () {
+    var GROUP = 'カブ隊 保護者(23)';
+    chapter('はじめに', 'main');
+    cap('カブナビ8ちゃんは、カブ隊からの連絡を受け取ったり、予定や組編成を見たりできる、LINEのBotです。\n保護者の方が使う機能を、順番にご紹介します。');
+    wait(5500);
+
+    chapter('① 連絡が届く', 'main', { group: GROUP });
+    cap('カブ隊の保護者のLINEグループに、指導者が、次回の活動の案内を送ります。\nこの案内は、カブナビ8ちゃんが届けます。');
+    wait(4200);
+    bot('カブ隊保護者のみなさま\n副長の〇〇です。次回の活動についてご連絡致します。\n\n11月15日(日) カブブック確認＆記念式典の準備\n集 合 ：  9:00 〇〇公園\n解 散 ：  15:00 〇〇公園\n活動場所： 〇〇公園\nもちもの ： お弁当・水筒・雨具\n\n雨天の場合は前日に連絡します。\nよろしくお願いします。', 900);
+    cap('集合・解散・場所・もちものが、見やすい形で届きます。\n(日付や場所はデモ用のダミーです)');
+    wait(7000);
+    other('ありがとうございます!', 600);
+    wait(1800);
+    cap('日時をあらかじめ決めておいて、その時間になると自動で届く「お知らせ」もあります。');
+    wait(2500);
+    bot('明日は記念式典の準備です。\n集合は 9:00 〇〇公園です。\nお弁当と水筒をお忘れなく！\n\n相模原第8団カブ隊です！', 900);
+    wait(6500);
+
+    chapter('② 使う前に', 'main');
+    cap('予定や組編成は、カブナビ8ちゃんと1対1のトークで見ます。\n友だち追加したあと、保護者として登録されていないと、見られない画面があります。\nためしに「活動予定 → 予定一覧」を押してみます。');
+    wait(2200); tapCell('活動予定'); tapCell('予定一覧', 400);
+    bot('ユーザー登録しないと使えないよ🙏\nマイIDと送って、管理者にIDを伝えてね', 900);
+    cap('このように返ってきたら、まだ登録されていません。\n「その他 → マイID」でIDを調べて、指導者に伝えてください。');
+    wait(4000);
+    tapCell(BACK); tapCell('その他'); tapCell('マイID', 400);
+    bot('あなたのuserIdです\n' + UID + '\n\nメンバに登録してほしい時は、この文字列を管理者に伝えてね', 900);
+    cap('出てきた「U」から始まる文字列が、自分のIDです。\n指導者が登録すると、メニューのすべてが使えるようになります。');
+    wait(5500);
+
+    chapter('③ 組編成・SNS', 'main');
+    cap('登録されると、メニューの一番上の「組編成」と「SNS」が使えます。');
+    wait(2500); tapCell('組編成', 600);
+    cap('各組のメンバーを、表で見られます。\n※ここに出ている名前はすべてダミーです');
+    wait(1800); scrollTo(560, 2600); wait(3400); scrollTo(1100, 2600); wait(2800);
+    closeLiff();
+    cap('「SNS」を押すと、カブ隊のFacebookグループが開きます。');
+    wait(1200); tapCell('SNS', 600);
+    wait(3200);
+    at(function () { st.toast = null; }); wait(600);
+
+    chapter('④ 活動予定', 'main');
+    cap('次回以降の活動予定は、「活動予定」から見ます。');
+    wait(1800); tapCell('活動予定');
+    cap('「予定一覧」を押すと、トークに今後の予定が返ってきます。');
+    wait(800); tapCell('予定一覧', 400);
+    bot('📋 今後の予定だよ\n・11月15日(日) カブブック確認＆記念式典の準備\n・11月29日(日) 発団50周年記念式典\n・12月13日(日) クリスマス会\n・1月17日(日) 新年会＆パインウッドダービー工作', 900);
+    wait(4500);
+    cap('「予定表」を押すと、集合・解散・持ち物まで、表で見られます。');
+    tapCell('予定表', 600); wait(3800);
+    closeLiff();
+
+    chapter('⑤ ヘルプ', 'main');
+    cap('困ったときは「その他 → ヘルプ」を押すと、使えるコマンドの一覧が返ってきます。');
+    wait(2500); tapCell('その他'); tapCell('ヘルプ', 400);
+    bot('使えるコマンドだよ📖\n・予定一覧 → 活動予定の一覧\n・SNS → カブ隊のFacebookグループ\n・マイID → あなたのユーザーID\n・組編成 → メニューのボタンから見られるよ', 900);
+    wait(5500);
+
+    chapter('おわり', 'main');
+    cap('以上です。\n連絡はグループに届き、予定や組編成は、メニューのボタンを押すだけで見られます。\nIDの登録や、使い方で困ったときは、指導者に聞いてください。');
+    wait(6000);
+  };
+
 
   // ================= 再生 =================
   var evIdx = 0;
@@ -390,11 +463,24 @@
   // ================= 画面まわり(字幕・ボタン) =================
   var capEl = document.getElementById('cap'), progi = document.getElementById('progi'), timeEl = document.getElementById('time');
   var chipsEl = document.getElementById('chips'), chipBtns = [];
-  CH.forEach(function (c, i) {
-    var b = document.createElement('button'); b.className = 'chip' + (c.adm ? ' adm' : ''); b.textContent = c.title.replace(/^[①-⑥] /, '');
-    b.onclick = function () { seek(c.at + 50); playing = true; document.getElementById('play').textContent = '⏸ 一時停止'; };
-    chipsEl.appendChild(b); chipBtns.push(b);
-  });
+  function makeChips() {
+    chipsEl.innerHTML = ''; chipBtns = [];
+    CH.forEach(function (c, i) {
+      var b = document.createElement('button'); b.className = 'chip' + (c.adm ? ' adm' : ''); b.textContent = c.title.replace(/^[①-⑥] /, '');
+      b.onclick = function () { seek(c.at + 50); playing = true; document.getElementById('play').textContent = '⏸ 一時停止'; };
+      chipsEl.appendChild(b); chipBtns.push(b);
+    });
+  }
+  // タブ(保護者向け/指導者向け)の切り替え。台本を作り直して最初から流す
+  var tabBtns = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  function build(v) {
+    EV = []; CH = []; T = 0; SCRIPTS[v]();
+    TOTAL = T; document.documentElement.dataset.chapters = JSON.stringify(CH.map(function (c) { return [c.title, c.at]; })) + ' total=' + TOTAL;
+    makeChips(); seek(0); playing = true; document.getElementById('play').textContent = '⏸ 一時停止';
+    tabBtns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
+    try { history.replaceState(null, '', location.pathname + '?v=' + v + location.hash); } catch (e) {}
+  }
+  tabBtns.forEach(function (b) { b.onclick = function () { build(b.getAttribute('data-v')); }; });
   function fmt(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
   function ui() {
     capEl.innerHTML = '';
@@ -412,6 +498,7 @@
   document.getElementById('prog').onclick = function (e) { var r = this.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * TOTAL); };
 
   // URLの #t=ミリ秒 で、その時刻から一時停止で開く(確認用)
+  build(/[?&]v=parents/.test(location.search) ? "parents" : "admin");
   var m = location.hash.match(/t=(\d+)/);
   if (m) { seek(Number(m[1])); playing = false; document.getElementById('play').textContent = '▶ 再生'; }
 
