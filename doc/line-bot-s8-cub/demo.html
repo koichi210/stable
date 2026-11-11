@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カブナビ8ちゃん デモ動画</title>
+<!--
+  カブナビ8ちゃんの使い方デモ(指導者向けの導入説明用)。自動で流れる動画風のページです。
+  ・スマホ画面はThree.jsの3Dスマホに、実物の画面を貼って動かしています。
+    リッチメニューは実際に登録している画像、LIFFの画面(組編成・予定表など)は本物の画面にダミーデータを入れて撮ったスクショです。
+  ・素材は lib/demo-assets.js (自動生成。画像はdata URIで埋め込み、file://でも開ける)。名前・予定・IDはすべてダミー。
+  ・メニューや画面を変えたら素材を作り直してください(Bot側 scripts/demo/ の手順)。
+-->
+<style>
+  :root { --bg: #17142a; --ink: #f4f1ff; --green: #06c755; --gold: #f59e0b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; left: 0; top: 56px; bottom: 56px; right: 440px; }
+  canvas#gl { display: block; width: 100%; height: 100%; }
+  .top { position: fixed; left: 0; right: 0; top: 0; height: 56px; display: flex; gap: 8px; align-items: center; padding: 0 14px; z-index: 2; }
+  #chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; white-space: nowrap; scrollbar-width: none; }
+  .top a.back { color: #cfc8ff; text-decoration: none; font-size: 14px; margin-right: 6px; white-space: nowrap; }
+  .top h1 { font-size: 16px; margin: 0 12px 0 0; white-space: nowrap; }
+  .chip { border: 1px solid #ffffff44; background: #ffffff14; color: var(--ink); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: bold; }
+  .chip.adm::before { content: "管理者 "; font-size: 11px; opacity: .8; }
+  .cap-wrap { position: fixed; right: 20px; top: 56px; bottom: 56px; width: 400px; display: flex; align-items: center; pointer-events: none; z-index: 2; }
+  .cap { width: 100%; background: #ffffff10; border: 1px solid #ffffff2a; color: #fff; padding: 18px 22px; border-radius: 14px; font-size: 19px; line-height: 1.75; text-align: left; white-space: pre-line; }
+  .cap:empty { display: none; }
+  .cap small { display: block; font-size: 14px; color: #ffd98a; margin-bottom: 6px; font-weight: bold; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #000000b0; z-index: 3; }
+  .bar button { border: 1px solid #ffffff55; background: #ffffff1c; color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+  .prog { flex: 1; height: 10px; background: #ffffff30; border-radius: 5px; overflow: hidden; cursor: pointer; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--green); }
+  .time { font-size: 12px; color: #cfc8ff; min-width: 78px; text-align: right; }
+  @media (max-width: 900px) {
+    #stage { right: 0; bottom: 214px; }
+    .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 62px; height: 146px; }
+    .cap { font-size: 14.5px; padding: 10px 14px; line-height: 1.6; max-height: 146px; overflow-y: auto; }
+    .top h1 { display: none; }
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="lib/demo-assets.js"></script>
+</head>
+<body>
+<div id="stage"><canvas id="gl"></canvas></div>
+<div class="top"><a class="back" href="index.html">← もどる</a><h1>📱 カブナビ8ちゃん デモ</h1><span id="chips"></span></div>
+<div class="cap-wrap"><div class="cap" id="cap"></div></div>
+<div class="bar">
+  <button id="play">⏸ 一時停止</button><button id="restart">⟲ 最初から</button>
+  <div class="prog" id="prog"><i id="progi"></i></div><span class="time" id="time">0:00</span>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var A = window.CubDemoAssets;
+  var W = 390, H = 780, S = 1.5;            // スマホ画面(論理px)と、キャンバスの倍率
+  var UID = 'U0123456789abcdef0123456789abcdef';
+
+  // ================= 素材の読み込み =================
+  var menuImg = {}, shotImg = {};
+  Object.keys(A.menus).forEach(function (id) { var im = new Image(); im.src = A.menus[id].img; menuImg[id] = im; });
+  Object.keys(A.shots).forEach(function (id) { var im = new Image(); im.src = A.shots[id]; shotImg[id] = im; });
+
+  // ================= 状態と時間 =================
+  var st, vt = 0, playing = true, TOTAL = 0;
+  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, toast: null, cap: '', capTag: '', tilt: 0 }; }
+  st = fresh();
+
+  var EV = [], CH = [], T = 0;
+  function at(fn) { EV.push({ at: T, fn: fn }); }
+  function wait(ms) { T += ms; }
+  function chapter(title, menu, opts) {
+    opts = opts || {};
+    CH.push({ title: title, at: T, adm: !!opts.adm });
+    at(function (v) { st.bubbles = []; st.liff = null; st.toast = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; });
+  }
+  function cap(text) { at(function () { st.cap = text; }); }
+
+  // ================= 画面の作図 =================
+  var cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  var g = cv.getContext('2d');
+  var FONT = '"Yu Gothic","Meiryo",sans-serif';
+  var clamp = function (x, a, b) { return Math.max(a, Math.min(b, x)); };
+  var ease = function (p) { return 1 - Math.pow(1 - p, 3); };
+
+  function wrap(text, maxW, font) {
+    g.font = font; var out = [];
+    text.split('\n').forEach(function (para) {
+      if (para === '') { out.push(''); return; }
+      var line = '';
+      for (var i = 0; i < para.length; i++) {
+        var ch = para[i];
+        if (g.measureText(line + ch).width > maxW) { out.push(line); line = ch; } else { line += ch; }
+      }
+      out.push(line);
+    });
+    return out;
+  }
+  function rr(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+  function menuGeom(id) { var m = A.menus[id]; return { m: m, h: W * m.h / m.w }; }
+  function cellRect(id, label) {
+    var G = menuGeom(id), top = H - G.h, k = W / G.m.w, c = null;
+    G.m.cells.forEach(function (x) { if (x.label.indexOf(label) >= 0) c = x; });
+    if (!c) throw new Error('cell not found: ' + id + ' / ' + label);
+    return { x: c.x * k, y: top + c.y * k, w: c.w * k, h: c.h * k, cell: c };
+  }
+
+  function drawMenu() {
+    var id = st.menu, p = clamp((vt - st.menuAt) / 320, 0, 1), G = menuGeom(id), top = H - G.h;
+    g.fillStyle = '#f2f2f2'; g.fillRect(0, top - 34, W, 34);
+    g.fillStyle = '#666'; g.font = '12px ' + FONT; g.textAlign = 'center'; g.fillText('メニュー  ▾', W / 2, top - 12);
+    if (menuImg[id].complete) g.drawImage(menuImg[id], 0, top, W, G.h);
+    if (st.menuFrom && p < 1) {
+      var F = menuGeom(st.menuFrom); g.globalAlpha = 1 - p;
+      if (menuImg[st.menuFrom].complete) g.drawImage(menuImg[st.menuFrom], 0, H - F.h, W, F.h);
+      g.globalAlpha = 1;
+    }
+    return top - 34;
+  }
+
+  function drawChat() {
+    g.fillStyle = '#7f9bc5'; g.fillRect(0, 0, W, H);
+    var chatBottom = drawMenu();
+    // ヘッダ
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, 52);
+    g.fillStyle = '#111'; g.font = 'bold 16px ' + FONT; g.textAlign = 'center'; g.fillText('カブナビ8ちゃん', W / 2, 32);
+    g.textAlign = 'left'; g.font = '22px ' + FONT; g.fillText('‹', 14, 32);
+    // 吹き出し(下から積む。入りきらない古いものは上に消える)
+    g.save(); g.beginPath(); g.rect(0, 52, W, chatBottom - 52); g.clip();
+    var y = chatBottom - 10, font = '13.5px ' + FONT, maxW = 232;
+    for (var i = st.bubbles.length - 1; i >= 0; i--) {
+      var b = st.bubbles[i], lines = wrap(b.text, maxW, font), lh = 19, bh = lines.length * lh + 18;
+      var a = clamp((vt - b.at) / 260, 0, 1);
+      y -= bh;
+      var bw = 0; g.font = font; lines.forEach(function (l) { bw = Math.max(bw, g.measureText(l).width); }); bw += 22;
+      var bx = b.from === 'me' ? W - 12 - bw : 52, yy = y + (1 - a) * 10;
+      g.globalAlpha = a;
+      if (b.from === 'bot') { g.fillStyle = '#06c755'; g.beginPath(); g.arc(28, yy + 16, 16, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 14px ' + FONT; g.textAlign = 'center'; g.fillText('カ', 28, yy + 21); }
+      g.fillStyle = b.from === 'me' ? '#8de055' : '#fff'; rr(bx, yy, bw, bh, 14); g.fill();
+      g.fillStyle = '#1a1a1a'; g.textAlign = 'left'; g.font = font;
+      lines.forEach(function (l, j) { g.fillText(l, bx + 11, yy + 22 + j * lh); });
+      g.globalAlpha = 1;
+      y -= 8;
+    }
+    g.restore();
+  }
+
+  function drawLiff() {
+    var L = st.liff; if (!L) return;
+    var open = ease(clamp((vt - L.openAt) / 450, 0, 1));
+    var close = L.closeAt != null ? ease(clamp((vt - L.closeAt) / 380, 0, 1)) : 0;
+    var oy = H * (1 - open) + H * close; if (oy >= H) return;
+    var img = shotImg[L.shot], ih = img.complete ? img.naturalHeight / 2 : H; // スクショは2倍で撮ってある
+    var viewH = H - 46, maxScroll = Math.max(0, ih - viewH), sc = 0;
+    if (L.scroll) sc = L.scroll.from + (L.scroll.to - L.scroll.from) * ease(clamp((vt - L.scroll.at) / L.scroll.dur, 0, 1));
+    sc = clamp(sc, 0, maxScroll);
+    g.save(); g.translate(0, oy);
+    g.fillStyle = '#f5f7f5'; g.fillRect(0, 0, W, H);
+    if (img.complete) g.drawImage(img, 0, 46 - sc, W, ih);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, 46);
+    g.fillStyle = '#e5e5e5'; g.fillRect(0, 46, W, 1);
+    g.fillStyle = '#111'; g.font = 'bold 15px ' + FONT; g.textAlign = 'center'; g.fillText('カブナビ8ちゃん', W / 2, 29);
+    g.font = '20px ' + FONT; g.textAlign = 'right'; g.fillText('✕', W - 14, 30);
+    g.restore();
+  }
+
+  function drawToast() {
+    var T0 = st.toast; if (!T0) return;
+    var a = ease(clamp((vt - T0.at) / 300, 0, 1));
+    g.fillStyle = 'rgba(20,18,40,' + 0.9 * a + ')'; g.fillRect(0, 0, W, H);
+    g.globalAlpha = a; g.fillStyle = '#fff'; rr(40, 290, W - 80, 190, 18); g.fill();
+    g.fillStyle = '#1b1830'; g.textAlign = 'center';
+    g.font = '40px ' + FONT; g.fillText(T0.icon, W / 2, 350);
+    g.font = 'bold 16px ' + FONT;
+    T0.lines.forEach(function (l, i) { g.fillText(l, W / 2, 392 + i * 26); });
+    g.globalAlpha = 1;
+  }
+
+  function drawFinger() {
+    var f = st.finger; if (!f) return;
+    var p = ease(clamp((vt - f.at) / f.dur, 0, 1));
+    var x = f.fx + (f.tx - f.fx) * p, y = f.fy + (f.ty - f.fy) * p;
+    if (st.flash) {
+      var q = clamp((vt - st.flash.at) / 650, 0, 1);
+      if (q < 1) {
+        g.fillStyle = 'rgba(255,255,255,' + 0.5 * (1 - q) + ')'; g.fillRect(st.flash.x, st.flash.y, st.flash.w, st.flash.h);
+        g.strokeStyle = 'rgba(245,158,11,' + (1 - q) + ')'; g.lineWidth = 4; g.beginPath(); g.arc(st.flash.cx, st.flash.cy, 14 + q * 46, 0, 7); g.stroke();
+      }
+    }
+    var press = st.flash ? clamp(1 - (vt - st.flash.at) / 220, 0, 1) : 0;
+    g.fillStyle = 'rgba(245,158,11,0.35)'; g.beginPath(); g.arc(x, y, 18 + press * 4, 0, 7); g.fill();
+    g.font = '34px ' + FONT; g.textAlign = 'left'; g.fillText('👆', x - 12, y + 34 - press * 4);
+  }
+
+  function renderScreen() {
+    g.setTransform(S, 0, 0, S, 0, 0);
+    g.clearRect(0, 0, W, H);
+    drawChat(); drawLiff(); drawToast(); drawFinger();
+  }
+
+  // ================= 台本(操作の部品) =================
+  function curPos() { return st.finger ? { x: st.finger.tx, y: st.finger.ty } : { x: W - 40, y: H - 30 }; }
+  function moveTo(x, y, v, dur) { var c = curPos(); st.finger = { fx: c.x, fy: c.y, tx: x, ty: y, at: v, dur: dur || 600 }; }
+
+  function tapCell(label, after) {
+    var r;
+    at(function (v) { r = cellRect(st.menu, label); moveTo(r.x + r.w / 2, r.y + r.h / 2, v); });
+    wait(700);
+    at(function (v) { r = cellRect(st.menu, label); st.flash = { x: r.x, y: r.y, w: r.w, h: r.h, cx: r.x + r.w / 2, cy: r.y + r.h / 2, at: v }; });
+    wait(260);
+    at(function (v) {
+      var d = cellRect(st.menu, label).cell.do;
+      if (d.switch) { st.menuFrom = st.menu; st.menu = d.switch; st.menuAt = v; }
+      else if (d.say) { st.bubbles.push({ from: 'me', text: d.say, at: v }); }
+      else if (d.liff) { st.liff = { shot: d.liff, openAt: v, closeAt: null, scroll: null }; }
+      else if (d.url) { st.toast = { at: v, icon: '📘', lines: ['外のアプリ(Facebook)で', 'カブ隊のグループが開きます'] }; }
+    });
+    wait(after == null ? 900 : after);
+  }
+  function bot(text, delay) { wait(delay == null ? 650 : delay); at(function (v) { st.bubbles.push({ from: 'bot', text: text, at: v }); }); }
+  function me(text, delay) { wait(delay || 0); at(function (v) { st.bubbles.push({ from: 'me', text: text, at: v }); }); }
+  function scrollTo(to, dur) { at(function (v) { if (st.liff) st.liff.scroll = { from: st.liff.scroll ? st.liff.scroll.to : 0, to: to, at: v, dur: dur || 1800 }; }); }
+  function closeLiff() {
+    at(function (v) { moveTo(W - 14, 24, v, 600); });
+    wait(700);
+    at(function (v) { st.flash = { x: W - 44, y: 0, w: 44, h: 46, cx: W - 18, cy: 23, at: v }; });
+    wait(260);
+    at(function (v) { if (st.liff) st.liff.closeAt = v; st.toast = null; });
+    wait(800);
+  }
+
+  var BACK = '戻る';
+  // ---------------- 台本 ----------------
+  chapter('はじめに', 'main');
+  cap('カブナビ8ちゃんは、LINEのトークでカブ隊の連絡を見たり送ったりできるBotです。\n使い方は、画面下の「メニュー」のボタンを押すだけです。');
+  wait(4500);
+  cap('このデモでは、実際の画面を使って、ボタンを押すとどうなるかを順番に見ていきます。');
+  wait(3500);
+
+  chapter('① 使う前に', 'main');
+  cap('友だち追加しただけだと、見られない画面があります。\nためしに「活動予定 → 予定一覧」を押してみます。');
+  wait(1500); tapCell('活動予定'); tapCell('予定一覧', 400);
+  bot('ユーザー登録しないと使えないよ🙏\nマイIDと送って、管理者にIDを伝えてね', 900);
+  cap('未登録だと、このように返ってきます。\n「その他 → マイID」でIDを調べて、管理者に伝えます。');
+  wait(3500);
+  tapCell(BACK); tapCell('その他'); tapCell('マイID', 400);
+  bot('あなたのuserIdです\n' + UID + '\n\nメンバに登録してほしい時は、この文字列を管理者に伝えてね', 900);
+  cap('出てきた「U」から始まる文字列が自分のIDです。\n管理者が登録すると、すべての機能が使えるようになります。');
+  wait(5000);
+
+  chapter('② 組編成・SNS', 'main');
+  cap('メニューの一番上に「組編成」と「SNS」があります。');
+  wait(2200); tapCell('組編成', 600);
+  cap('各組のメンバーを表で見られます。\n画面の上に、スカウト・デンリーダー・デンコーチ・指導者の総人数も出ます。\n※ここに出ている名前はすべてダミーです');
+  wait(1800); scrollTo(560, 2600); wait(3400); scrollTo(1100, 2600); wait(3000);
+  closeLiff();
+  cap('「SNS」を押すと、カブ隊のFacebookグループが開きます。');
+  wait(1200); tapCell('SNS', 600);
+  wait(3200);
+  at(function () { st.toast = null; }); wait(600);
+
+  chapter('③ 活動予定', 'main');
+  cap('次回以降の活動予定は、「活動予定」から見ます。');
+  wait(1800); tapCell('活動予定');
+  cap('「予定一覧」を押すと、トークに今後の予定が返ってきます。');
+  wait(800); tapCell('予定一覧', 400);
+  bot('📋 今後の予定だよ\n・11月15日(日) カブブック確認＆記念式典の準備\n・11月29日(日) 発団50周年記念式典\n・12月13日(日) クリスマス会\n・1月17日(日) 新年会＆パインウッドダービー工作', 900);
+  wait(4500);
+  cap('「予定表」を押すと、集合・解散・持ち物まで、表で見られます。');
+  tapCell('予定表', 600); wait(3800);
+  closeLiff();
+
+  chapter('④ 活動計画を取り込む', 'main-admin', { adm: true });
+  cap('ここからは管理者向けです。管理者のメニューには、一番上に「管理者用」のボタンが付きます。');
+  wait(3200); tapCell('管理者用'); cap('「活動計画」を押します。'); tapCell('活動計画');
+  cap('「カブ8取り込み」を押すと、カブ8通信のPDFを受け付けます。'); wait(600); tapCell('カブ8取り込み', 400);
+  bot('📄 次に送られたカブ8通信のPDFを取り込むよ(5分以内・1回だけ)\n\n・スマホ: 入力欄の左の「＋」→「ファイル」→ PDFを選ぶ\n(送り方の案内は、ここでは一部を省略しています)', 900);
+  wait(5200);
+  cap('そのあとに、カブ8通信のPDFを送ります。');
+  me('📎 カブ8通信.pdf', 400); wait(1000);
+  bot('📄 カブ8通信.pdf を取り込んだよ(追加 4件 / 上書き 0件)\n\n・11月15日(日) カブブック確認＆記念式典の準備\n・11月29日(日) 発団50周年記念式典\n・12月13日(日) クリスマス会\n・1月17日(日) 新年会＆パインウッドダービー工作', 1400);
+  cap('PDFから予定を自動で読み取って、予定一覧・予定表に反映されます。');
+  wait(5200);
+
+  chapter('⑤ 保護者へ連絡する', 'main-admin', { adm: true });
+  cap('保護者への連絡は「管理者用 → 保護者連絡」から行います。');
+  wait(2500); tapCell('管理者用'); tapCell('保護者連絡');
+  cap('「案内文プレビュー」では、予定を選ぶと開催案内の文面ができます。');
+  wait(800); tapCell('案内文プレビュー', 600); wait(4200);
+  cap('「コピー」を押して、保護者のグループなどに貼り付けて使えます。'); wait(2600);
+  closeLiff();
+  cap('「アナウンス追加」は、日時と宛先を決めて予約すると、時間になったら自動で保護者のグループに届きます。');
+  wait(1200); tapCell('アナウンス追加', 600); wait(3000); scrollTo(300, 1600); wait(3200);
+  closeLiff();
+
+  chapter('⑥ 組編集', 'main-admin', { adm: true });
+  cap('組のメンバーの登録・削除は「管理者用 → 組編集」から行います。');
+  wait(2500); tapCell('管理者用'); tapCell('組編集', 600);
+  cap('組・ロール・名前を選んで、1人ずつ登録します。\nロールは、組長・次長・メンバ・デンリーダー・デンコーチ・指導者から選べます。');
+  wait(4500); scrollTo(560, 2400); wait(3200);
+  cap('下の「登録済み」の一覧から、削除もできます。\n年度が替わる時は、「組編成」のJSON画面を空にして保存すると、全員を一度に削除できます。');
+  wait(5500);
+  closeLiff();
+
+  chapter('おわり', 'main');
+  cap('以上です。ボタンを押すだけで使えます。\nIDの登録や、メニューの使い方で困ったときは、管理者に聞いてください。');
+  wait(6000);
+  TOTAL = T; document.documentElement.dataset.chapters = JSON.stringify(CH.map(function (c) { return [c.title, c.at]; })) + ' total=' + TOTAL;
+
+  // ================= 再生 =================
+  var evIdx = 0;
+  function seek(ms) {
+    st = fresh(); evIdx = 0; vt = 0;
+    var target = clamp(ms, 0, TOTAL);
+    while (evIdx < EV.length && EV[evIdx].at <= target) { vt = EV[evIdx].at; EV[evIdx].fn(vt); evIdx++; }
+    vt = target;
+  }
+  function step(dt) {
+    vt = Math.min(TOTAL, vt + dt);
+    while (evIdx < EV.length && EV[evIdx].at <= vt) { EV[evIdx].fn(EV[evIdx].at); evIdx++; }
+    if (vt >= TOTAL) { playing = false; document.getElementById('play').textContent = '▶ 再生'; }
+  }
+
+  // ================= 3D(Three.js) =================
+  var canvas = document.getElementById('gl');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x17142a);
+  scene.fog = new THREE.Fog(0x17142a, 14, 34);
+  var camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  var key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(4, 8, 8); scene.add(key);
+  var rim = new THREE.PointLight(0x8b7bff, 1.2, 30); rim.position.set(-6, 2, -4); scene.add(rim);
+
+  // スマホ本体(角丸の板)と、画面(キャンバスを貼った板)
+  var phone = new THREE.Group(); scene.add(phone);
+  var bw = 3.2, bh = 6.5, br = 0.42;
+  var shape = new THREE.Shape();
+  shape.moveTo(-bw / 2 + br, -bh / 2); shape.lineTo(bw / 2 - br, -bh / 2); shape.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + br);
+  shape.lineTo(bw / 2, bh / 2 - br); shape.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - br, bh / 2);
+  shape.lineTo(-bw / 2 + br, bh / 2); shape.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - br);
+  shape.lineTo(-bw / 2, -bh / 2 + br); shape.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + br, -bh / 2);
+  var body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.26, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 4 }),
+    new THREE.MeshStandardMaterial({ color: 0x23203a, metalness: 0.6, roughness: 0.35 }));
+  body.position.z = -0.13; phone.add(body);
+  var tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8;
+  var screen = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.8), new THREE.MeshBasicMaterial({ map: tex }));
+  screen.position.z = 0.2; phone.add(screen);
+
+  // ふわふわ浮く光の粒と、足元の輪
+  var N = 220, pos = new Float32Array(N * 3), seed = [];
+  for (var i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 26; pos[i * 3 + 1] = (Math.random() - 0.5) * 16; pos[i * 3 + 2] = -3 - Math.random() * 12; seed.push(Math.random() * 6.28); }
+  var pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var pts = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xb9a8ff, size: 0.08, transparent: true, opacity: 0.8 })); scene.add(pts);
+  var ring = new THREE.Mesh(new THREE.RingGeometry(2.6, 2.75, 64), new THREE.MeshBasicMaterial({ color: 0x06c755, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = -3.5; scene.add(ring);
+  var ring2 = ring.clone(); ring2.scale.set(1.5, 1.5, 1.5); ring2.material = ring.material.clone(); ring2.material.color.set(0xf59e0b); ring2.material.opacity = 0.25; scene.add(ring2);
+
+  function resize() {
+    var st0 = document.getElementById('stage'), w = st0.clientWidth, h = st0.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h;
+    var t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    camera.userData.base = Math.max((7.3 / 2) / t, (4.4 / 2) / (t * camera.aspect));
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize); resize();
+
+  var yaw = 0, zoom = 1;
+  function frame(tms) {
+    var wall = tms / 1000;
+    var tgtYaw = (st.liff && st.liff.closeAt == null ? -0.1 : 0.16) + Math.sin(wall * 0.5) * 0.12;
+    yaw += (tgtYaw - yaw) * 0.05;
+    var tgtZoom = st.liff && st.liff.closeAt == null ? 0.9 : 1;
+    zoom += (tgtZoom - zoom) * 0.05;
+    phone.rotation.y = yaw; phone.rotation.x = Math.sin(wall * 0.37) * 0.04; phone.position.y = Math.sin(wall * 0.9) * 0.08;
+    camera.position.set(0, 0.4, camera.userData.base * zoom); camera.lookAt(0, 0, 0);
+    ring.rotation.z = wall * 0.3; ring2.rotation.z = -wall * 0.2;
+    for (var i = 0; i < N; i++) pg.attributes.position.array[i * 3 + 1] += Math.sin(wall + seed[i]) * 0.0016;
+    pg.attributes.position.needsUpdate = true;
+    renderScreen(); tex.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+
+  // ================= 画面まわり(字幕・ボタン) =================
+  var capEl = document.getElementById('cap'), progi = document.getElementById('progi'), timeEl = document.getElementById('time');
+  var chipsEl = document.getElementById('chips'), chipBtns = [];
+  CH.forEach(function (c, i) {
+    var b = document.createElement('button'); b.className = 'chip' + (c.adm ? ' adm' : ''); b.textContent = c.title.replace(/^[①-⑥] /, '');
+    b.onclick = function () { seek(c.at + 50); playing = true; document.getElementById('play').textContent = '⏸ 一時停止'; };
+    chipsEl.appendChild(b); chipBtns.push(b);
+  });
+  function fmt(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function ui() {
+    capEl.innerHTML = '';
+    if (st.cap) { if (st.capTag) { var sm = document.createElement('small'); sm.textContent = st.capTag; capEl.appendChild(sm); } capEl.appendChild(document.createTextNode(st.cap)); }
+    progi.style.width = (vt / TOTAL * 100) + '%'; timeEl.textContent = fmt(vt) + ' / ' + fmt(TOTAL);
+    var cur = 0; CH.forEach(function (c, i) { if (vt >= c.at) cur = i; });
+    chipBtns.forEach(function (b, i) { b.classList.toggle('on', i === cur); });
+  }
+  var lastCap = null;
+  document.getElementById('play').onclick = function () {
+    if (vt >= TOTAL) seek(0);
+    playing = !playing; this.textContent = playing ? '⏸ 一時停止' : '▶ 再生';
+  };
+  document.getElementById('restart').onclick = function () { seek(0); playing = true; document.getElementById('play').textContent = '⏸ 一時停止'; };
+  document.getElementById('prog').onclick = function (e) { var r = this.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * TOTAL); };
+
+  // URLの #t=ミリ秒 で、その時刻から一時停止で開く(確認用)
+  var m = location.hash.match(/t=(\d+)/);
+  if (m) { seek(Number(m[1])); playing = false; document.getElementById('play').textContent = '▶ 再生'; }
+
+  var prev = performance.now();
+  function loop(now) {
+    var dt = Math.min(100, now - prev); prev = now;
+    if (playing) step(dt);
+    frame(now);
+    ui();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
