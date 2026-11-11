@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ミライBot 機能デモ</title>
+<!--
+  ミライBotの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=weather のように機能を指定します。
+  ・スマホ画面はThree.jsの3Dスマホに、実物の画面を貼って動かしています。
+    リッチメニューは実際に登録している画像、LIFFの画面(リマインド・メモ・アナウンスなど)は本物の画面にダミーデータを入れて撮ったスクショです。
+  ・素材は lib/demo-assets.js (自動生成。画像はdata URIで埋め込み、file://でも開ける)。名前・ID・予定はすべてダミー。
+  ・メニューや画面を変えたら素材を作り直してください(Bot側 scripts/demo/ の手順)。
+-->
+<style>
+  :root { --bg: #17142a; --ink: #f4f1ff; --green: #06c755; --gold: #f59e0b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif; }
+  body.player { overflow: hidden; }
+  a { color: inherit; }
+  /* ---- 機能一覧 ---- */
+  #hub { display: none; max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+  body.hub #hub { display: block; }
+  #hub h1 { font-size: 24px; margin: 8px 0 6px; }
+  #hub p.lead { color: #cfc8ff; line-height: 1.8; margin: 0 0 20px; }
+  #hub .back { color: #cfc8ff; font-size: 14px; text-decoration: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .card { display: block; text-decoration: none; background: #ffffff10; border: 1px solid #ffffff2a; border-radius: 14px; padding: 16px 18px; transition: .15s; }
+  .card:hover { background: #ffffff1c; border-color: var(--green); transform: translateY(-2px); }
+  .card .ic { font-size: 30px; }
+  .card h2 { font-size: 17px; margin: 6px 0 4px; }
+  .card p { font-size: 13.5px; line-height: 1.65; color: #d8d2ff; margin: 0; }
+  .card .tag { display: inline-block; font-size: 11px; background: var(--gold); color: #2b1a00; border-radius: 999px; padding: 1px 8px; margin-left: 6px; font-weight: bold; vertical-align: middle; }
+  .card .len { font-size: 12px; color: #a99fff; margin-top: 8px; }
+  h3.sec { margin: 26px 0 10px; font-size: 15px; color: #ffd98a; }
+  /* ---- プレイヤー ---- */
+  #player { display: none; }
+  body.player #player { display: block; }
+  #stage { position: fixed; left: 0; top: 56px; bottom: 56px; right: 440px; }
+  canvas#gl { display: block; width: 100%; height: 100%; }
+  .top { position: fixed; left: 0; right: 0; top: 0; height: 56px; display: flex; gap: 8px; align-items: center; padding: 0 14px; z-index: 2; }
+  #chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; white-space: nowrap; scrollbar-width: none; flex: 1; }
+  .top a.back { color: #cfc8ff; text-decoration: none; font-size: 14px; margin-right: 4px; white-space: nowrap; }
+  .top h1 { font-size: 16px; margin: 0 8px 0 0; white-space: nowrap; }
+  .top select { background: #ffffff18; color: var(--ink); border: 1px solid #ffffff44; border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 13px; max-width: 150px; }
+  .top select option { color: #111; }
+  .chip { border: 1px solid #ffffff44; background: #ffffff14; color: var(--ink); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: bold; }
+  .cap-wrap { position: fixed; right: 20px; top: 56px; bottom: 56px; width: 400px; display: flex; align-items: center; pointer-events: none; z-index: 2; }
+  .cap { width: 100%; background: #ffffff10; border: 1px solid #ffffff2a; color: #fff; padding: 18px 22px; border-radius: 14px; font-size: 19px; line-height: 1.75; text-align: left; white-space: pre-line; }
+  .cap:empty { display: none; }
+  .cap small { display: block; font-size: 14px; color: #ffd98a; margin-bottom: 6px; font-weight: bold; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #000000b0; z-index: 3; }
+  .bar button { border: 1px solid #ffffff55; background: #ffffff1c; color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+  .prog { flex: 1; height: 10px; background: #ffffff30; border-radius: 5px; overflow: hidden; cursor: pointer; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--green); }
+  .time { font-size: 12px; color: #cfc8ff; min-width: 78px; text-align: right; }
+  @media (max-width: 900px) {
+    #stage { right: 0; bottom: 214px; }
+    .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 62px; height: 146px; }
+    .cap { font-size: 14.5px; padding: 10px 14px; line-height: 1.6; max-height: 146px; overflow-y: auto; }
+    .top h1 { display: none; }
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="lib/demo-assets.js"></script>
+</head>
+<body>
+
+<!-- ============ 機能一覧 ============ -->
+<div id="hub">
+  <a class="back" href="index.html">← ミライBotの図解にもどる</a>
+  <h1>📱 ミライBot 機能デモ</h1>
+  <p class="lead">機能ごとに、1本ずつの短いデモです(30秒〜1分ほど)。実際の画面を使って「ここを押すとこうなる」を順番に見せます。見たい機能をえらんでください。<br>表示している名前・ID・予定・天気などは、すべてダミーです。</p>
+  <h3 class="sec">みんなが使う機能</h3>
+  <div class="grid" id="gridUser"></div>
+  <h3 class="sec">管理者の機能</h3>
+  <div class="grid" id="gridAdmin"></div>
+</div>
+
+<!-- ============ プレイヤー ============ -->
+<div id="player">
+  <div id="stage"><canvas id="gl"></canvas></div>
+  <div class="top"><a class="back" href="demo.html">← 機能一覧</a><h1 id="ttl"></h1><span id="chips"></span><select id="jump" title="ほかの機能へ"></select></div>
+  <div class="cap-wrap"><div class="cap" id="cap"></div></div>
+  <div class="bar">
+    <button id="play">⏸ 一時停止</button><button id="restart">⟲ 最初から</button>
+    <div class="prog" id="prog"><i id="progi"></i></div><span class="time" id="time">0:00</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var A = window.MiraiDemoAssets;
+  var W = 390, H = 780, S = 1.5;            // スマホ画面(論理px)と、キャンバスの倍率
+  var UID = 'U0123456789abcdef0123456789abcdef';
+  var BOT = 'ミライBot';
+
+  // ================= 機能の一覧(台本は下の SCRIPTS) =================
+  var FEATURES = [
+    { id: 'start',    icon: '🆔', title: 'はじめに(マイID・ヘルプ)', adm: false, len: '約0:35', desc: '友だち追加したら最初にやること。自分のIDを調べる「マイID」と、使えるコマンドの一覧「ヘルプ」。' },
+    { id: 'weather',  icon: '🌤️', title: '天気', adm: false, len: '約0:45', desc: '今日の天気と週間天気を、メニューのボタンで見ます。住所は「地域設定」で自分用に登録できます。' },
+    { id: 'trash',    icon: '🗑️', title: 'ゴミ出し', adm: false, len: '約0:30', desc: '「今日は何ゴミの日か」と、曜日ごとの収集スケジュールが見られます。' },
+    { id: 'game',     icon: '🎮', title: 'ゲーム', adm: false, len: '約0:30', desc: 'おみくじ、アルカナのミニ勝負、アルカナ本体(対戦ページ)への案内。' },
+    { id: 'schedule', icon: '📅', title: '予定(Googleカレンダー)', adm: false, len: '約0:45', desc: '自分のGoogleカレンダーを登録して、今日の予定・今後一週間の予定をトークで見ます。' },
+    { id: 'memo',     icon: '📝', title: 'メモ', adm: false, len: '約0:40', desc: '買い物メモなどの個人用TODO。フォームで追加・削除、一覧はトークに表示します。' },
+    { id: 'reminder', icon: '⏰', title: 'リマインダー', adm: false, len: '約0:55', desc: '決めた時刻に通知してくれます。毎日・毎週・毎月・1回だけ。管理者が許可した人だけ使えます。' },
+    { id: 'announce', icon: '📢', title: 'アナウンス', adm: true, len: '約1:05', desc: 'グループトークに、決めた日時でお知らせを自動で送ります。送り先グループの登録から、予約の追加・削除まで。' },
+    { id: 'access',   icon: '🔑', title: 'リマインダーの許可', adm: true, len: '約0:50', desc: 'リマインダーを使える人を、管理者が許可・解除します。許可された人の一覧も見られます。' }
+  ];
+  var byId = {}; FEATURES.forEach(function (f) { byId[f.id] = f; });
+
+  var qs = (location.search.match(/[?&]f=([\w-]+)/) || [])[1];
+  var feature = byId[qs];
+
+  // ================= 機能一覧ページ =================
+  if (!feature) {
+    document.body.className = 'hub';
+    FEATURES.forEach(function (f) {
+      var a = document.createElement('a'); a.className = 'card'; a.href = 'demo.html?f=' + f.id;
+      a.innerHTML = '<div class="ic">' + f.icon + '</div><h2>' + f.title + (f.adm ? '<span class="tag">管理者</span>' : '') + '</h2><p>' + f.desc + '</p><div class="len">▶ ' + f.len + '</div>';
+      document.getElementById(f.adm ? 'gridAdmin' : 'gridUser').appendChild(a);
+    });
+    return;
+  }
+  document.body.className = 'player';
+  document.title = 'ミライBot デモ: ' + feature.title;
+  document.getElementById('ttl').textContent = feature.icon + ' ' + feature.title;
+  var jump = document.getElementById('jump');
+  FEATURES.forEach(function (f) { var o = document.createElement('option'); o.value = f.id; o.textContent = f.icon + ' ' + f.title.replace(/\(.*\)/, ''); if (f.id === feature.id) o.selected = true; jump.appendChild(o); });
+  jump.onchange = function () { location.href = 'demo.html?f=' + jump.value; };
+
+  // ================= 素材の読み込み =================
+  var menuImg = {}, shotImg = {};
+  Object.keys(A.menus).forEach(function (id) { var im = new Image(); im.src = A.menus[id].img; menuImg[id] = im; });
+  Object.keys(A.shots).forEach(function (id) { var im = new Image(); im.src = A.shots[id]; shotImg[id] = im; });
+
+  // ================= 状態と時間 =================
+  var st, vt = 0, playing = true, TOTAL = 0;
+  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, cap: '', capTag: '' }; }
+  st = fresh();
+
+  var EV = [], CH = [], T = 0;
+  function at(fn) { EV.push({ at: T, fn: fn }); }
+  function wait(ms) { T += ms; }
+  function chapter(title, menu) {
+    CH.push({ title: title, at: T });
+    at(function () { st.bubbles = []; st.liff = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; });
+  }
+  function cap(text) { at(function () { st.cap = text; }); }
+
+  // ================= 画面の作図 =================
+  var cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  var g = cv.getContext('2d');
+  var FONT = '"Yu Gothic","Meiryo",sans-serif';
+  var clamp = function (x, a, b) { return Math.max(a, Math.min(b, x)); };
+  var ease = function (p) { return 1 - Math.pow(1 - p, 3); };
+
+  function wrap(text, maxW, font) {
+    g.font = font; var out = [];
+    text.split('\n').forEach(function (para) {
+      if (para === '') { out.push(''); return; }
+      var line = '';
+      for (var i = 0; i < para.length; i++) {
+        var ch = para[i];
+        if (g.measureText(line + ch).width > maxW) { out.push(line); line = ch; } else { line += ch; }
+      }
+      out.push(line);
+    });
+    return out;
+  }
+  function rr(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+  function menuGeom(id) { var m = A.menus[id]; return { m: m, h: W * m.h / m.w }; }
+  function cellRect(id, label) {
+    var G = menuGeom(id), top = H - G.h, k = W / G.m.w, c = null;
+    G.m.cells.forEach(function (x) { if (!c && x.label.indexOf(label) >= 0) c = x; });
+    if (!c) throw new Error('cell not found: ' + id + ' / ' + label);
+    return { x: c.x * k, y: top + c.y * k, w: c.w * k, h: c.h * k, cell: c };
+  }
+
+  function drawMenu() {
+    var id = st.menu, p = clamp((vt - st.menuAt) / 320, 0, 1), G = menuGeom(id), top = H - G.h;
+    g.fillStyle = '#f2f2f2'; g.fillRect(0, top - 34, W, 34);
+    g.fillStyle = '#666'; g.font = '12px ' + FONT; g.textAlign = 'center'; g.fillText('メニュー  ▾', W / 2, top - 12);
+    if (menuImg[id].complete) g.drawImage(menuImg[id], 0, top, W, G.h);
+    if (st.menuFrom && p < 1) {
+      var F = menuGeom(st.menuFrom); g.globalAlpha = 1 - p;
+      if (menuImg[st.menuFrom].complete) g.drawImage(menuImg[st.menuFrom], 0, H - F.h, W, F.h);
+      g.globalAlpha = 1;
+    }
+    return top - 34;
+  }
+
+  function drawChat() {
+    g.fillStyle = '#7f9bc5'; g.fillRect(0, 0, W, H);
+    var chatBottom = drawMenu();
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, 52);
+    g.fillStyle = '#111'; g.font = 'bold 16px ' + FONT; g.textAlign = 'center'; g.fillText(BOT, W / 2, 32);
+    g.textAlign = 'left'; g.font = '22px ' + FONT; g.fillText('‹', 14, 32);
+    g.save(); g.beginPath(); g.rect(0, 52, W, chatBottom - 52); g.clip();
+    var y = chatBottom - 10, font = '13.5px ' + FONT, maxW = 232;
+    for (var i = st.bubbles.length - 1; i >= 0; i--) {
+      var b = st.bubbles[i], lines = wrap(b.text, maxW, font), lh = 19, bh = lines.length * lh + 18;
+      var a = clamp((vt - b.at) / 260, 0, 1);
+      y -= bh;
+      var bw = 0; g.font = font; lines.forEach(function (l) { bw = Math.max(bw, g.measureText(l).width); }); bw += 22;
+      var bx = b.from === 'me' ? W - 12 - bw : 52, yy = y + (1 - a) * 10;
+      g.globalAlpha = a;
+      if (b.from === 'bot') { g.fillStyle = '#7c5cff'; g.beginPath(); g.arc(28, yy + 16, 16, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 14px ' + FONT; g.textAlign = 'center'; g.fillText('ミ', 28, yy + 21); }
+      g.fillStyle = b.from === 'me' ? '#8de055' : '#fff'; rr(bx, yy, bw, bh, 14); g.fill();
+      g.fillStyle = '#1a1a1a'; g.textAlign = 'left'; g.font = font;
+      lines.forEach(function (l, j) { g.fillText(l, bx + 11, yy + 22 + j * lh); });
+      g.globalAlpha = 1;
+      y -= 8;
+    }
+    g.restore();
+  }
+
+  function drawLiff() {
+    var L = st.liff; if (!L) return;
+    var open = ease(clamp((vt - L.openAt) / 450, 0, 1));
+    var close = L.closeAt != null ? ease(clamp((vt - L.closeAt) / 380, 0, 1)) : 0;
+    var oy = H * (1 - open) + H * close; if (oy >= H) return;
+    var img = shotImg[L.shot], ih = img.complete ? img.naturalHeight / 2 : H; // スクショは2倍で撮ってある
+    g.save(); g.translate(0, oy);
+    g.fillStyle = '#f5f7f5'; g.fillRect(0, 0, W, H);
+    if (img.complete) g.drawImage(img, 0, 46, W, ih);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, 46);
+    g.fillStyle = '#e5e5e5'; g.fillRect(0, 46, W, 1);
+    g.fillStyle = '#111'; g.font = 'bold 15px ' + FONT; g.textAlign = 'center'; g.fillText(BOT, W / 2, 29);
+    g.font = '20px ' + FONT; g.textAlign = 'right'; g.fillText('✕', W - 14, 30);
+    // 保存・削除のあとに出る結果メッセージ(画面の下)
+    if (L.status) {
+      var a = ease(clamp((vt - L.status.at) / 300, 0, 1)), lines = [];
+      L.status.text.split('\n').forEach(function (p) { wrap(p, W - 64, 'bold 14px ' + FONT).forEach(function (l) { lines.push(l); }); });
+      var sh = lines.length * 21 + 22, sy = H - sh - 40;
+      g.globalAlpha = a; g.fillStyle = '#e8f7ec'; rr(16, sy, W - 32, sh, 12); g.fill();
+      g.strokeStyle = '#06c755'; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = '#0a5a28'; g.font = 'bold 14px ' + FONT; g.textAlign = 'left';
+      lines.forEach(function (l, j) { g.fillText(l, 30, sy + 28 + j * 21); });
+      g.globalAlpha = 1;
+    }
+    g.restore();
+  }
+
+  function drawFinger() {
+    var f = st.finger; if (!f) return;
+    var p = ease(clamp((vt - f.at) / f.dur, 0, 1));
+    var x = f.fx + (f.tx - f.fx) * p, y = f.fy + (f.ty - f.fy) * p;
+    if (st.flash) {
+      var q = clamp((vt - st.flash.at) / 650, 0, 1);
+      if (q < 1) {
+        g.fillStyle = 'rgba(255,255,255,' + 0.5 * (1 - q) + ')'; g.fillRect(st.flash.x, st.flash.y, st.flash.w, st.flash.h);
+        g.strokeStyle = 'rgba(245,158,11,' + (1 - q) + ')'; g.lineWidth = 4; g.beginPath(); g.arc(st.flash.cx, st.flash.cy, 14 + q * 46, 0, 7); g.stroke();
+      }
+    }
+    var press = st.flash ? clamp(1 - (vt - st.flash.at) / 220, 0, 1) : 0;
+    g.fillStyle = 'rgba(245,158,11,0.35)'; g.beginPath(); g.arc(x, y, 18 + press * 4, 0, 7); g.fill();
+    g.font = '34px ' + FONT; g.textAlign = 'left'; g.fillText('👆', x - 12, y + 34 - press * 4);
+  }
+
+  function renderScreen() {
+    g.setTransform(S, 0, 0, S, 0, 0);
+    g.clearRect(0, 0, W, H);
+    drawChat(); drawLiff(); drawFinger();
+  }
+
+  // ================= 台本の部品 =================
+  function curPos() { return st.finger ? { x: st.finger.tx, y: st.finger.ty } : { x: W - 40, y: H - 30 }; }
+  function moveTo(x, y, v, dur) { var c = curPos(); st.finger = { fx: c.x, fy: c.y, tx: x, ty: y, at: v, dur: dur || 600 }; }
+  function pressAt(x, y, w, h, v) { st.flash = { x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2, at: v }; }
+
+  function tapCell(label, after) {
+    var r;
+    at(function (v) { r = cellRect(st.menu, label); moveTo(r.x + r.w / 2, r.y + r.h / 2, v); });
+    wait(700);
+    at(function (v) { r = cellRect(st.menu, label); pressAt(r.x, r.y, r.w, r.h, v); });
+    wait(260);
+    at(function (v) {
+      var d = cellRect(st.menu, label).cell.do;
+      if (d.switch) { st.menuFrom = st.menu; st.menu = d.switch; st.menuAt = v; }
+      else if (d.say) { st.bubbles.push({ from: 'me', text: d.say, at: v }); }
+      else if (d.liff) { st.liff = { shot: d.liff, openAt: v, closeAt: null, status: null }; }
+    });
+    wait(after == null ? 900 : after);
+  }
+  function bot(text, delay) { wait(delay == null ? 650 : delay); at(function (v) { st.bubbles.push({ from: 'bot', text: text, at: v }); }); }
+  function me(text, delay) { wait(delay || 0); at(function (v) { st.bubbles.push({ from: 'me', text: text, at: v }); }); }
+
+  // LIFF画面の中(スクショ上の座標 → 画面座標は上に46pxの帯ぶん下がる)
+  function shotRect(kind, idx) {
+    var p = A.pts[st.liff.shot] || {}, r = kind === 'btn' ? p.btn : p.items[idx];
+    return { x: r[0], y: 46 + r[1], w: r[2], h: r[3] };
+  }
+  function tapShot(kind, idx, after) {
+    at(function (v) { var r = shotRect(kind, idx); moveTo(r.x + r.w / 2, r.y + r.h / 2, v); });
+    wait(700);
+    at(function (v) { var r = shotRect(kind, idx); pressAt(r.x, r.y, r.w, r.h, v); });
+    wait(260 + (after || 0));
+  }
+  function checkItem(idx) { // 一覧のチェックを入れる(入れた状態のスクショに切り替える)
+    tapShot('item', idx, 0);
+    at(function () { if (st.liff && A.shots[st.liff.shot + '-on']) st.liff.shot = st.liff.shot + '-on'; });
+    wait(700);
+  }
+  function submitForm(statusText) { // 送信ボタンを押して、結果メッセージを出す
+    tapShot('btn', 0, 0);
+    at(function (v) { if (st.liff) st.liff.status = { text: statusText + '\n\nこの画面は自動で閉じるよ', at: v }; });
+    wait(2200);
+    at(function (v) { if (st.liff) st.liff.closeAt = v; st.finger = null; });
+    wait(800);
+  }
+  function closeLiff() {
+    at(function (v) { moveTo(W - 14, 24, v, 600); });
+    wait(700);
+    at(function (v) { pressAt(W - 44, 0, 44, 46, v); });
+    wait(260);
+    at(function (v) { if (st.liff) st.liff.closeAt = v; });
+    wait(800);
+  }
+
+  // ================= 各機能の台本 =================
+  var BACK = '戻る';
+  var SCRIPTS = {};
+
+  SCRIPTS.start = function () {
+    chapter('友だち追加したら', 'main');
+    cap('ミライBotは、LINEのトークで天気・予定・メモ・リマインダーなどを使えるBotです。\n使い方は、画面下の「メニュー」のボタンを押すだけです。');
+    wait(4500);
+    chapter('マイID', 'main');
+    cap('まず「その他 → マイID」を押してみます。');
+    wait(1500); tapCell('その他'); tapCell('マイID', 400);
+    bot('あなたのuserIdだよ\n' + UID, 900);
+    cap('出てきた「U」から始まる文字列が自分のIDです。\nリマインダーを使いたいときなどに、この文字列を管理者に伝えると、許可してもらえます。');
+    wait(5500);
+    chapter('ヘルプ', 'other');
+    cap('使えるコマンドの一覧は「ヘルプ」で見られます。');
+    wait(1800); tapCell('ヘルプ', 400);
+    bot('🤖 ミライBotでできること\n\n🌤️ 天気 〇〇 → 今日の天気\n📅 週間天気 〇〇 → 1週間分\n🌤️ 地域登録 住所 → 天気の住所登録\n\n🗑️ ゴミ → 今日の状況\n🗑️ ゴミの日 → 収集スケジュール\n\n📅 予定 → 今日の予定一覧\n📅 週間予定 → 今後1週間\n\n(以下、おみくじ・リマインド・メモなども並びます。ここでは一部を省略しています)', 900);
+    wait(6500);
+    cap('メニューのボタンを押す代わりに、このように文字を送っても、同じように使えます。');
+    wait(4500);
+  };
+
+  SCRIPTS.weather = function () {
+    chapter('今日の天気', 'main');
+    cap('メニューの「天気」を押します。');
+    wait(1500); tapCell('天気');
+    cap('「今日の天気」を押すと、登録した地域の天気が返ってきます。');
+    wait(1200); tapCell('今日の天気', 400);
+    bot('📍神奈川県相模原市中央区 の今日の天気だよ\n天気: 晴れ\n気温: 最高18℃ / 最低8℃\n現在の気温: 14.2℃(湿度52%)\n降水確率: 10%', 1000);
+    wait(5000);
+    chapter('週間天気', 'weather');
+    cap('「週間天気」を押すと、7日分の予報が出ます。');
+    wait(1500); tapCell('週間天気', 400);
+    bot('📍神奈川県相模原市中央区 の週間天気だよ\n11/11(水) 晴れ 18℃/8℃ 降水10%\n11/12(木) 薄曇り 17℃/9℃ 降水20%\n11/13(金) 曇り 16℃/10℃ 降水30%\n11/14(土) 弱い雨 14℃/11℃ 降水70%\n11/15(日) 曇り 15℃/9℃ 降水30%\n11/16(月) 晴れ 17℃/7℃ 降水10%\n11/17(火) 晴れ 18℃/8℃ 降水0%', 1000);
+    wait(6000);
+    chapter('地域設定', 'weather');
+    cap('天気の場所は、自分用に登録できます。\n「その他 → 地域設定」を開きます。');
+    wait(1500); tapCell(BACK); tapCell('その他'); tapCell('地域設定', 600);
+    cap('住所を入れて「保存する」を押すと、次から「天気」はその場所で返ってきます。');
+    wait(3800); submitForm('地域を保存したよ🌤️\n神奈川県相模原市中央区');
+    cap('「天気 〇〇市」のように地名を付けて送ると、その場所の天気も調べられます。');
+    wait(4000);
+  };
+
+  SCRIPTS.trash = function () {
+    chapter('今日は何ゴミ?', 'main');
+    cap('メニューの「ゴミ」を押します。');
+    wait(1500); tapCell('ゴミ');
+    cap('「今日は何の日」を押すと、今日のゴミの種類を教えてくれます。');
+    wait(1200); tapCell('今日は何の日', 400);
+    bot('今日(水)はペットボトルゴミの日だよ🗑️', 900);
+    wait(4000);
+    chapter('収集スケジュール', 'trash');
+    cap('「ゴミの日一覧」を押すと、曜日ごとの収集スケジュールが出ます。');
+    wait(1500); tapCell('ゴミの日一覧', 400);
+    bot('🗑️ ゴミの日一覧だよ\n月曜日：燃えるゴミ\n火曜日：プラゴミ\n水曜日：ペットボトルゴミ\n木曜日：燃えるゴミ\n金曜日：資源ゴミ', 900);
+    wait(5000);
+    cap('ゴミの日ではない日は、「次は〇曜日の〇〇だよ」と次の収集日を教えてくれます。');
+    wait(4500);
+  };
+
+  SCRIPTS.game = function () {
+    chapter('おみくじ', 'main');
+    cap('メニューの「ゲーム」から遊べます。まずは「おみくじ」です。');
+    wait(2000); tapCell('ゲーム'); tapCell('おみくじ', 400);
+    bot('🎋 おみくじ結果: 大吉\nやったね!今日は思い切って動いちゃおう🎉', 900);
+    cap('押すたびに結果が変わります。一言コメント付きです。');
+    wait(4500);
+    chapter('ミニゲーム', 'game');
+    cap('「ミニゲーム」は、カードを1枚ずつ引いて攻撃力で勝負する1本勝負です。');
+    wait(1500); tapCell('ミニゲーム', 400);
+    bot('⚔️ アルカナ・ミニ勝負!\nあなた: ♠K (攻160/防100)\nCPU: ♦4 (攻60/防20)\n🎉 キミの勝ち!', 900);
+    cap('攻撃力が同じときは、防御力で決着します。');
+    wait(5000);
+    chapter('アルカナ', 'game');
+    cap('「アルカナ」を押すと、本格的なカードゲーム「ArcanaExplosion」の対戦ページを案内します。');
+    wait(1500); tapCell('アルカナ', 400);
+    bot('(ArcanaExplosionの対戦ページのURLが返ります。ここでは省略しています)', 900);
+    wait(4500);
+  };
+
+  SCRIPTS.schedule = function () {
+    chapter('カレンダーを登録', 'main');
+    cap('予定を見るには、自分のGoogleカレンダーを登録します。\n「その他 → カレンダー登録」を開きます。');
+    wait(2500); tapCell('その他'); tapCell('カレンダー登録', 600);
+    cap('カレンダーのIDを入れて「保存する」を押します。\n(事前に、カレンダーをBot用のメールアドレスに「閲覧のみ」で共有しておきます)');
+    wait(5000); submitForm('カレンダーを保存したよ📅\nsample.user@example.com');
+    chapter('今日の予定', 'other');
+    cap('登録したら、メニューの「予定」から見られます。');
+    wait(1500); tapCell(BACK); tapCell('予定');
+    cap('「今日の予定」を押します。');
+    wait(900); tapCell('今日の予定', 400);
+    bot('📅 今日の予定だよ\n09:30-10:30 打ち合わせ\n12:00-13:00 ランチ\n19:00-20:00 ジム', 900);
+    wait(4500);
+    chapter('今後一週間の予定', 'schedule');
+    cap('「今後一週間の予定」は、今日から7日分を日付ごとにまとめて表示します。');
+    wait(1500); tapCell('今後一週間の予定', 400);
+    bot('📅 今後一週間の予定だよ\n11/11(水)\n  09:30-10:30 打ち合わせ\n  19:00-20:00 ジム\n11/12(木) 予定なし\n11/13(金)\n  終日 〇〇の締め切り\n11/14(土)\n  10:00-12:00 買い物\n11/15(日) 予定なし\n11/16(月)\n  14:00-15:00 歯医者\n11/17(火) 予定なし', 1000);
+    wait(7500);
+    cap('登録できるのは自分のカレンダーだけです。他の人の予定が見えることはありません。');
+    wait(4500);
+  };
+
+  SCRIPTS.memo = function () {
+    chapter('メモを追加', 'main');
+    cap('メニューの「メモ」を押します。');
+    wait(1500); tapCell('メモ');
+    cap('「メモ追加」を押すと、入力フォームが開きます。');
+    wait(1200); tapCell('メモ追加', 600);
+    cap('内容を入れて「追加する」を押します。');
+    wait(3200); submitForm('メモを追加したよ📝\n牛乳と卵を買う');
+    chapter('一覧を見る', 'todo');
+    cap('「メモ一覧」を押すと、トークに番号つきで表示されます。');
+    wait(1500); tapCell('メモ一覧', 400);
+    bot('今のメモ一覧だよ📝\n1. 牛乳と卵を買う\n2. 年賀状の宛名を書く\n3. 図書館の本を返す', 900);
+    wait(5000);
+    chapter('メモを削除', 'todo');
+    cap('消したいときは「メモ削除」を押します。');
+    wait(1500); tapCell('メモ削除', 600);
+    cap('消したいメモにチェックを入れて、「選択したものを削除」を押します。');
+    wait(3000); checkItem(0);
+    tapShot('btn', 0, 0);
+    at(function (v) { st.liff.status = { text: '削除したよ📝\n牛乳と卵を買う', at: v }; });
+    wait(2400); at(function (v) { st.liff.closeAt = v; st.finger = null; }); wait(800);
+    cap('グループトークでは「@ミライBot メモ登録 〇〇」のように呼びかけると、メンバー全員で使えるメモになります。');
+    wait(5500);
+  };
+
+  SCRIPTS.reminder = function () {
+    chapter('許可について', 'main');
+    cap('リマインダーは、管理者が許可した人だけが使えます。\n(使いすぎでLINEの無料の送信枠を使い切らないようにするためです)\n許可は、自分のIDを管理者に伝えて、してもらいます。');
+    wait(6500);
+    chapter('リマインドを追加', 'main');
+    cap('メニューの「リマインダー」を押します。');
+    wait(1200); tapCell('リマインダー');
+    cap('「リマインド追加」を押すと、登録フォームが開きます。');
+    wait(1000); tapCell('リマインド追加', 600);
+    cap('通知する文言・くり返し・曜日・時刻を入れます。\nくり返しは、毎日・毎週・毎月・1回だけ、から選べます。');
+    wait(5500); submitForm('登録したよ⏰\n毎週火・金 08:00 ゴミ出し');
+    chapter('一覧を見る', 'reminder');
+    cap('「リマインド一覧」で、今の登録が番号つきで見られます。');
+    wait(1200); tapCell('リマインド一覧', 400);
+    bot('今のリマインド一覧だよ⏰\n1. 毎週火・金 08:00 ゴミ出し\n2. 毎日 13:00 薬飲む時間\n3. 11/20 13:00(1回のみ) 歯医者\n4. 毎月25日 10:00 家賃', 900);
+    wait(5500);
+    cap('時刻になると、この文言がトークに届きます。1回だけのものは、届いたあと自動で消えます。');
+    wait(4500);
+    chapter('リマインドを削除', 'reminder');
+    cap('「リマインド削除」を押すと、登録済みの一覧が出ます。');
+    wait(1200); tapCell('リマインド削除', 600);
+    cap('消したいものにチェックを入れて、「選択したものを削除」を押します。');
+    wait(3000); checkItem(0);
+    tapShot('btn', 0, 0);
+    at(function (v) { st.liff.status = { text: '削除したよ⏰\n毎週火・金 08:00 ゴミ出し', at: v }; });
+    wait(2400); at(function (v) { st.liff.closeAt = v; st.finger = null; }); wait(800);
+    cap('チャットで「リマインド登録 洗濯物 10分後」のように送って、すぐ登録することもできます。');
+    wait(5500);
+  };
+
+  SCRIPTS.announce = function () {
+    chapter('管理者のメニュー', 'main-admin');
+    cap('ここからは管理者の機能です。管理者のメニューには、一番上に「管理者用」のボタンがつきます。');
+    wait(3500); tapCell('管理者用'); tapCell('アナウンス', 400);
+    cap('アナウンスは、決めた日時に、グループトークへお知らせを1回だけ自動で送る機能です。');
+    wait(4500);
+    chapter('送り先グループ', 'announcement');
+    cap('まず送り先のグループを登録します。\nBotをグループに招待して、グループの中で「グループ登録」ボタンのことば(このグループに登録)を送ります。');
+    wait(6500);
+    cap('「グループ一覧」を押すと、登録済みのグループが見られます。');
+    wait(800); tapCell('グループ一覧', 400);
+    bot('(登録済みのグループ名の一覧が返ります)\n・サークルA\n・町内会の連絡', 900);
+    wait(4500);
+    chapter('アナウンスを追加', 'announcement');
+    cap('「アナウンス追加」を押します。');
+    wait(1000); tapCell('アナウンス追加', 600);
+    cap('宛先グループ・日付・時刻・内容を入れて「登録する」を押します。\n内容は複数行でも書けます。');
+    wait(5500); submitForm('アナウンスを登録したよ📢\n宛先: サークルA\n2026-11-20 19:00\n次回の開催案内です!\n集合は19時、〇〇公民館です。');
+    chapter('一覧と削除', 'announcement');
+    cap('「アナウンス一覧」で、予約中のものが見られます。');
+    wait(1000); tapCell('アナウンス一覧', 400);
+    bot('今登録されてるアナウンスだよ📢\n1. [サークルA] 2026-11-20 19:00\n次回の開催案内です!\n集合は19時、〇〇公民館です。\n\n2. [町内会の連絡] 2026-11-28 09:00\n今週末は清掃活動です。ご協力をお願いします!', 1000);
+    wait(6500);
+    cap('取り消したいときは「アナウンス削除」から、チェックを入れて削除します。');
+    wait(800); tapCell('アナウンス削除', 600); wait(2500); checkItem(0);
+    tapShot('btn', 0, 0);
+    at(function (v) { st.liff.status = { text: '削除したよ📢\n2026-11-20 19:00 次回の開催案内です!', at: v }; });
+    wait(2400); at(function (v) { st.liff.closeAt = v; st.finger = null; }); wait(800);
+    cap('指定した日時になると、登録した文言がそのままグループに届き、予約は自動で消えます。');
+    wait(5000);
+  };
+
+  SCRIPTS.access = function () {
+    chapter('なぜ許可制?', 'main-admin');
+    cap('リマインダーの通知は、LINEの月ごとの無料の送信枠を使います。\nそのため、管理者が許可した人だけが使える仕組みです。');
+    wait(6000);
+    chapter('許可する', 'main-admin');
+    cap('「管理者用 → リマインダー」を開きます。');
+    wait(1800); tapCell('管理者用'); tapCell('リマインダー', 400);
+    cap('使いたい人から教えてもらったID(マイIDで調べたもの)を、「権限許可」で登録します。');
+    wait(3500); tapCell('権限許可', 600);
+    cap('IDを入れて「許可する」を押します。');
+    wait(3000); submitForm('リマインダーの利用を許可したよ⏰\nミライの友だちC');
+    chapter('許可リスト', 'reminder-access');
+    cap('「許可リスト」を押すと、今、許可している人の一覧が出ます。');
+    wait(1200); tapCell('許可リスト', 400);
+    bot('リマインダーを許可してる人だよ⏰\n・管理者(あなた)\n・ミライの友だちA\n・ミライの友だちB\n・ミライの友だちC', 900);
+    wait(5500);
+    chapter('許可を解除', 'reminder-access');
+    cap('やめてもらうときは「権限削除」を押して、チェックを入れて解除します。');
+    wait(1500); tapCell('権限削除', 600); wait(2500); checkItem(1);
+    tapShot('btn', 0, 0);
+    at(function (v) { st.liff.status = { text: '許可を解除したよ⏰\nミライの友だちB', at: v }; });
+    wait(2400); at(function (v) { st.liff.closeAt = v; st.finger = null; }); wait(800);
+    cap('許可されていない人がリマインダーを使おうとすると、「管理者の許可が必要だよ」と返ります。');
+    wait(5000);
+  };
+
+  SCRIPTS[feature.id]();
+  TOTAL = T + 1500;
+  document.documentElement.dataset.chapters = JSON.stringify(CH.map(function (c) { return [c.title, c.at]; })) + ' total=' + TOTAL;
+
+  // ================= 再生 =================
+  var evIdx = 0;
+  function seek(ms) {
+    st = fresh(); evIdx = 0; vt = 0;
+    var target = clamp(ms, 0, TOTAL);
+    while (evIdx < EV.length && EV[evIdx].at <= target) { vt = EV[evIdx].at; EV[evIdx].fn(vt); evIdx++; }
+    vt = target;
+  }
+  function step(dt) {
+    vt = Math.min(TOTAL, vt + dt);
+    while (evIdx < EV.length && EV[evIdx].at <= vt) { EV[evIdx].fn(EV[evIdx].at); evIdx++; }
+    if (vt >= TOTAL) { playing = false; document.getElementById('play').textContent = '▶ 再生'; }
+  }
+
+  // ================= 3D(Three.js) =================
+  var canvas = document.getElementById('gl');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x17142a);
+  scene.fog = new THREE.Fog(0x17142a, 14, 34);
+  var camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  var key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(4, 8, 8); scene.add(key);
+  var rim = new THREE.PointLight(0x8b7bff, 1.2, 30); rim.position.set(-6, 2, -4); scene.add(rim);
+
+  var phone = new THREE.Group(); scene.add(phone);
+  var bw = 3.2, bh = 6.5, br = 0.42;
+  var shape = new THREE.Shape();
+  shape.moveTo(-bw / 2 + br, -bh / 2); shape.lineTo(bw / 2 - br, -bh / 2); shape.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + br);
+  shape.lineTo(bw / 2, bh / 2 - br); shape.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - br, bh / 2);
+  shape.lineTo(-bw / 2 + br, bh / 2); shape.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - br);
+  shape.lineTo(-bw / 2, -bh / 2 + br); shape.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + br, -bh / 2);
+  var body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.26, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 4 }),
+    new THREE.MeshStandardMaterial({ color: 0x23203a, metalness: 0.6, roughness: 0.35 }));
+  body.position.z = -0.13; phone.add(body);
+  var tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8;
+  var screen = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.8), new THREE.MeshBasicMaterial({ map: tex }));
+  screen.position.z = 0.2; phone.add(screen);
+
+  var N = 220, pos = new Float32Array(N * 3), seed = [];
+  for (var i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 26; pos[i * 3 + 1] = (Math.random() - 0.5) * 16; pos[i * 3 + 2] = -3 - Math.random() * 12; seed.push(Math.random() * 6.28); }
+  var pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var pts = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xb9a8ff, size: 0.08, transparent: true, opacity: 0.8 })); scene.add(pts);
+  var ring = new THREE.Mesh(new THREE.RingGeometry(2.6, 2.75, 64), new THREE.MeshBasicMaterial({ color: 0x7c5cff, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = -3.5; scene.add(ring);
+  var ring2 = ring.clone(); ring2.scale.set(1.5, 1.5, 1.5); ring2.material = ring.material.clone(); ring2.material.color.set(0xf59e0b); ring2.material.opacity = 0.25; scene.add(ring2);
+
+  function resize() {
+    var st0 = document.getElementById('stage'), w = st0.clientWidth, h = st0.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h;
+    var t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    camera.userData.base = Math.max((7.3 / 2) / t, (4.4 / 2) / (t * camera.aspect));
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize); resize();
+
+  var yaw = 0, zoom = 1;
+  function frame(tms) {
+    var wall = tms / 1000;
+    var tgtYaw = (st.liff && st.liff.closeAt == null ? -0.1 : 0.16) + Math.sin(wall * 0.5) * 0.12;
+    yaw += (tgtYaw - yaw) * 0.05;
+    var tgtZoom = st.liff && st.liff.closeAt == null ? 0.9 : 1;
+    zoom += (tgtZoom - zoom) * 0.05;
+    phone.rotation.y = yaw; phone.rotation.x = Math.sin(wall * 0.37) * 0.04; phone.position.y = Math.sin(wall * 0.9) * 0.08;
+    camera.position.set(0, 0.4, camera.userData.base * zoom); camera.lookAt(0, 0, 0);
+    ring.rotation.z = wall * 0.3; ring2.rotation.z = -wall * 0.2;
+    for (var i = 0; i < N; i++) pg.attributes.position.array[i * 3 + 1] += Math.sin(wall + seed[i]) * 0.0016;
+    pg.attributes.position.needsUpdate = true;
+    renderScreen(); tex.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+
+  // ================= 画面まわり(字幕・ボタン) =================
+  var capEl = document.getElementById('cap'), progi = document.getElementById('progi'), timeEl = document.getElementById('time');
+  var chipsEl = document.getElementById('chips'), chipBtns = [];
+  var playBtn = document.getElementById('play');
+  CH.forEach(function (c) {
+    var b = document.createElement('button'); b.className = 'chip'; b.textContent = c.title;
+    b.onclick = function () { seek(c.at + 50); playing = true; playBtn.textContent = '⏸ 一時停止'; };
+    chipsEl.appendChild(b); chipBtns.push(b);
+  });
+  function fmt(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function ui() {
+    capEl.innerHTML = '';
+    if (st.cap) { if (st.capTag) { var sm = document.createElement('small'); sm.textContent = st.capTag; capEl.appendChild(sm); } capEl.appendChild(document.createTextNode(st.cap)); }
+    progi.style.width = (vt / TOTAL * 100) + '%'; timeEl.textContent = fmt(vt) + ' / ' + fmt(TOTAL);
+    var cur = 0; CH.forEach(function (c, i) { if (vt >= c.at) cur = i; });
+    chipBtns.forEach(function (b, i) { b.classList.toggle('on', i === cur); });
+  }
+  playBtn.onclick = function () {
+    if (vt >= TOTAL) seek(0);
+    playing = !playing; this.textContent = playing ? '⏸ 一時停止' : '▶ 再生';
+  };
+  document.getElementById('restart').onclick = function () { seek(0); playing = true; playBtn.textContent = '⏸ 一時停止'; };
+  document.getElementById('prog').onclick = function (e) { var r = this.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * TOTAL); };
+
+  // URLの #t=ミリ秒 で、その時刻から一時停止で開く(確認用)
+  var m = location.hash.match(/t=(\d+)/);
+  if (m) { seek(Number(m[1])); playing = false; playBtn.textContent = '▶ 再生'; }
+
+  var prev = performance.now();
+  function loop(now) {
+    var dt = Math.min(100, now - prev); prev = now;
+    if (playing) step(dt);
+    frame(now);
+    ui();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
