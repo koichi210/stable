@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailer 機能デモ</title>
+<!--
+  Mailerの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=open のように機能を指定します。
+  ・実際のMailer(WPF)を起動し、ダミーの入力で操作して撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+  ・宛先・件名・本文はすべて架空の例です(example.com)。保存先もダミーのフォルダです。
+  ・「ブラウザで表示」は、撮影用の代わりのプログラム(browser.exe。渡されたURLを記録するだけ)に向けて押しました。
+    実際のメールサービスは開いていないので、ブラウザ側の画面(br_*.jpg)は、記録したURLの中身から作った「再現イメージ」です(画面にも明記しています)。
+  ・「保存ファイル名の選択」(ファイルを選ぶ標準ダイアログ)は大きいので、スクショには入れず、字幕で説明しています。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 664, FH = 532;
+  var M = window.MA_PTS.main, D = window.MA_PTS.dlg;
+  var SUBST = '※ この動画では、ブラウザパスに「撮影用の代わりのプログラム」(browser.exe)を指定しています。実際のブラウザやメールは開いていません。';
+  var MOCK = '※ ブラウザ側の画面は、Mailerが渡したURLの中身から作った再現イメージです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から) ----
+  function to(d, r, o) { o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, r, o) { to(d, r, o); d.wait(100); d.click(); }
+  function mk(d, r, label, dur) { d.mark({ x: r.x - 4, y: r.y - 3, w: r.w + 8, h: r.h + 6 }, { label: label || '', dur: dur || 3000 }); }
+  function un(a, b) { var x1 = Math.min(a.x, b.x), y1 = Math.min(a.y, b.y), x2 = Math.max(a.x + a.w, b.x + b.w), y2 = Math.max(a.y + a.h, b.y + b.h); return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 }; }
+  function zoom(d, r, o) { // 矩形 r が収まる(窓と同じ縦横比の)範囲へズーム
+    o = o || {}; var pad = o.pad != null ? o.pad : 28, minW = o.minW || 360;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function start(d) { d.cursor(600, 40, { dur: 0 }); }
+  var MAIL_ROWS = un(M.MailTo, M.MailSubject);
+
+  // ================= 台本の部品(個別のデモと全体紹介で共用。b=true なら短め) =================
+  // ブラウザパス
+  function segBrowserPath(d, b) {
+    d.scene('open_0.jpg');
+    d.cap('最初に、一番上の「ブラウザパス」を決めます。\nGmailの作成画面を開くブラウザの実行ファイル(chrome.exe など)です。PATHが通っていれば、ファイル名だけで構いません。');
+    mk(d, M.BrowserPath, 'ブラウザパス', 4200); tap(d, M.BrowserPath, { dx: -150, dur: 900 }); d.wait(b ? 3200 : 4200);
+    d.scene('open_1.jpg');
+    d.cap(SUBST + '\n設定の項目は、このあと保存しておけます(デモの最後で紹介します)。'); d.wait(b ? 3600 : 5200);
+  }
+  // 宛先・件名・本文
+  function segMail(d, b) {
+    d.cap('次に、「メール設定」に宛先(To)と、必要なら Cc・Bcc を入れます。\n複数のときは、アドレスを区切って並べます。※ ここのアドレスは、すべて架空の例です。');
+    mk(d, un(M.MailTo, M.MailBcc), 'To・Cc・Bcc', 4600); tap(d, M.MailTo, { dx: -100, dur: 800 }); d.wait(1200);
+    d.scene('open_2.jpg'); to(d, M.MailCc, { dx: -100, dur: 600 }); d.wait(b ? 2200 : 3200);
+    d.cap('「件名」と「本文」を入れます。\n本文は何行でも書けます。送信する前の下書きとして、書いた内容がそのまま作成画面に入ります。');
+    tap(d, M.MailSubject, { dx: -100, dur: 700 }); d.scene('open_3.jpg'); d.wait(1500);
+    tap(d, M.MailBody, { dy: -40, dur: 800 }); d.scene('open_4.jpg'); mk(d, M.MailBody, '本文', 3000); d.wait(b ? 3200 : 4600);
+  }
+  // ブラウザで表示
+  function segShow(d, b) {
+    d.cap('「ブラウザで表示」を押します。\n入力した内容を埋めたGmailの新規作成画面が、ブラウザで開きます。');
+    mk(d, M.OpenBrowse, 'ブラウザで表示', 3200); tap(d, M.OpenBrowse, { dur: 900 }); d.wait(900);
+    d.scene('br_open.jpg', { fade: 500 }); d.cam(null);
+    d.cap('宛先・件名・本文が入った状態で、作成画面が開きました。\n送信はされません。内容を確認して、自分で送信を押します。\n' + MOCK + '\n' + SUBST);
+    d.wait(b ? 5200 : 8500);
+  }
+  // 日付の置き換え記号
+  function segPlaceholders(d, b) {
+    d.scene('ph_0.jpg', { fade: 400 });
+    d.cap('件名には、日付や曜日に置き換わる記号が使えます。\nたとえば「日報 %%TODAY%%(%%DAYOFWEEK%%)」と書くと、開いた日の日付と曜日が入ります。\n毎日の日報の件名を、毎回書かなくて済みます。');
+    mk(d, M.MailSubject, '日付の記号', 5000); tap(d, M.MailSubject, { dx: -100, dur: 800 }); d.wait(b ? 3400 : 6000);
+    d.cap('どんな記号があるかは、右の「ヘルプ」で見られます。');
+    tap(d, M.Help, { dur: 900 }); d.wait(500); d.scene('ph_help.jpg', { fade: 120 }); zoom(d, D.help, { pad: 14, dur: 900 });
+    d.wait(1500);
+    d.cap('小文字は「1/1」のような月日と短い曜日、大文字は「2024/1/1」のように年まで付いた日付と、「月曜日」のような正式な曜日名です。\ntoday=今日、tomorrow=明日、weekend=次の金曜日、usersday・dayofweek=「起点日」の日付と曜日です。');
+    mk(d, D.help, '', 6000); d.wait(b ? 5600 : 9500);
+    d.cam(null, { dur: 700 }); tap(d, D.helpOk, { dur: 800 }); d.scene('ph_0.jpg', { fade: 120 }); d.wait(900);
+    d.cap('そのまま「ブラウザで表示」を押すと、記号が今日の日付に置き換わった件名で開きます。');
+    tap(d, M.OpenBrowse, { dur: 900 }); d.wait(900); d.scene('br_ph.jpg', { fade: 500 }); d.cam(null);
+    d.wait(b ? 4800 : 6500);
+    d.cap('件名が「日報 2026/11/13(金曜日)」になりました。(撮影した日の日付です)\n本文の中の記号は置き換わりません。置き換わるのは件名だけです。\n' + MOCK);
+    d.wait(b ? 4200 : 6200);
+  }
+  // 一括表示
+  function segBatch(d, b) {
+    d.scene('batch_0.jpg', { fade: 400 }); d.cam(null);
+    d.cap('「一括表示」は、日付をずらした作成画面を、まとめて何通も開く機能です。\n毎日違う日付の日報を、週のはじめにまとめて用意したい、といった使い方です。\n件名には「日報 %%USERSDAY%%(%%dayofweek%%)」と書きました。');
+    mk(d, M.MailSubject, '件名の記号', 4200); d.wait(b ? 3800 : 6800);
+    d.cap('「起点日」から数えて、「生成数」の日数ぶんを、1通ずつ開きます。\n日付は1日ずつ進みます。「インターバル」は、1通開いたあとに待つ時間(ミリ秒)です。\nここでは3通・1.5秒おきにしました。');
+    zoom(d, un(M.Calendar, M.OpenBrowse_OneWeek), { pad: 24, dur: 900 }); mk(d, M.Calendar, '起点日', 2500); to(d, M.Calendar, { dur: 800 }); d.wait(2400);
+    mk(d, M.CreateNum, '生成数', 2400); to(d, M.CreateNum, { dur: 700 }); d.wait(2500);
+    mk(d, M.IntervalMsec, 'インターバル', 2400); to(d, M.IntervalMsec, { dur: 700 }); d.wait(b ? 2400 : 3200);
+    d.cap('「一括表示」を押します。');
+    tap(d, M.OpenBrowse_OneWeek, { dur: 900 }); d.cam(null, { dur: 600 }); d.wait(800);
+    d.scene('br_b1.jpg', { fade: 500 });
+    d.cap('1通目は、起点日から2日先(15日・日曜)の日付で開きました。\nつづけて1.5秒ごとに、1日ずつ戻りながら開いていきます。(待っている間、Mailerの画面は操作できません)\n' + MOCK);
+    d.wait(3800); d.scene('br_b2.jpg', { fade: 500 }); d.wait(2600); d.scene('br_b3.jpg', { fade: 500 }); d.wait(b ? 2800 : 3600);
+    d.scene('batch_off.jpg', { fade: 400 });
+    d.cap('開く順番は「Reverse」で決まります。チェックがあると、日付の遅い順(15日→14日→13日)。外すと、早い順(13日→14日→15日)に開きます。');
+    zoom(d, M.Reverse, { pad: 60, dur: 800 }); mk(d, M.Reverse, 'Reverse', 4000); tap(d, M.Reverse, { dur: 800 }); d.wait(b ? 3400 : 6000);
+    if (!b) { d.scene('br_f1.jpg', { fade: 500 }); d.cam(null, { dur: 600 }); d.cap('Reverseを外して開いたときの1通目は、13日(金曜)です。\n' + MOCK); d.wait(4200); }
+    d.cam(null, { dur: 500 });
+  }
+  // 設定の保存と読み込み
+  function segProfile(d, b) {
+    d.scene('pf_0.jpg', { fade: 400 }); d.cam(null);
+    d.cap('よく使う入力内容は、「設定保存」で名前を付けて残せます。\nブラウザパス・宛先・Cc・Bcc・件名・本文が保存されます。');
+    mk(d, un(M.BrowserPath, M.MailBody), '保存される内容', 4200); d.wait(b ? 4200 : 5600);
+    tap(d, M.SaveSetting, { dur: 900 }); d.wait(600); d.scene('pf_ask.jpg', { fade: 150 });
+    d.cap('最初に「現在の設定ファイルに保存しますか?」と聞かれます。\n今の設定ファイル(Mailer.json)に上書きするなら「はい」、新しい名前で残すなら「いいえ」を押します。');
+    zoom(d, D.ask, { pad: 24, dur: 900 }); d.wait(b ? 4200 : 5800);
+    tap(d, D.askNo, { dur: 900 }); d.cam(null, { dur: 500 }); d.scene('pf_0.jpg', { fade: 150 });
+    d.cap('「いいえ」を押すと、保存するファイル名を入力する画面(Windows標準のファイル保存ダイアログ)が開きます。(この画面は大きいので、ここでは省略しています)\nここでは「週次の報告」と名前を付けて保存します。');
+    d.wait(b ? 4600 : 6600);
+    d.scene('pf_done.jpg', { fade: 150 }); zoom(d, D.done, { pad: 40, dur: 800 });
+    d.cap('保存できました。メッセージには、保存したファイルの場所が出ます。(保存先は、デモ用のダミーのフォルダです)');
+    d.wait(b ? 3200 : 4200); tap(d, D.doneOk, { dur: 800 }); d.cam(null, { dur: 600 }); d.scene('pf_saved.jpg', { fade: 150 }); d.wait(700);
+    d.cap('一番下のプルダウンに、保存した設定の名前が並びます。\nもうひとつ、別の内容(日報用)も同じように保存しておきます。');
+    mk(d, M.LoadSetting, '', 3600); to(d, M.LoadSetting, { dx: -160, dur: 800 }); d.wait(b ? 2600 : 3800);
+    d.scene('pf_two.jpg', { fade: 400 }); d.wait(b ? 2000 : 3000);
+    d.cap('使うときは、プルダウンから名前を選ぶだけです。\n選んだ設定の内容が、すぐに画面へ読み込まれます。');
+    tap(d, M.LoadSetting, { dx: -160, dur: 900 }); d.wait(900); d.scene('pf_loaded.jpg', { fade: 300 });
+    mk(d, un(M.MailTo, M.MailBody), '読み込まれた内容', 3600); d.wait(b ? 4200 : 5600);
+    if (!b) { d.cap('保存した設定は、Windowsの保存先フォルダに、ファイル(.json)として残ります。\n保存先は、タイトルバーを右クリック(または左端のアイコン)して出る「データ保存先を変更」で、好きな場所へ移せます。'); d.wait(7200); }
+  }
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  SCRIPTS.overview = function (d) {
+    start(d);
+    d.chapter('はじめに'); d.scene('open_0.jpg');
+    d.cap('Mailerは、宛先・件名・本文をあらかじめ決めておいて、ボタンひとつで、Gmailの新規作成画面を開くためのツールです。\n毎日・毎週の定型メールの下書きを、すばやく用意できます。');
+    d.wait(6200);
+    d.cap('画面は大きく3つに分かれています。\n上が「Windows設定」(ブラウザ)、まん中が「メール設定」(宛先・件名・本文)、下が「お試し機能」(一括表示)と、設定の保存です。');
+    mk(d, { x: 12, y: 43, w: 640, h: 57, cx: 332, cy: 71 }, 'Windows設定', 2600); d.wait(2600);
+    mk(d, { x: 12, y: 106, w: 640, h: 297, cx: 332, cy: 254 }, 'メール設定', 2600); d.wait(2600);
+    mk(d, { x: 12, y: 411, w: 531, h: 83, cx: 277, cy: 452 }, 'お試し機能', 2600); d.wait(3000);
+    d.chapter('ブラウザを指定'); segBrowserPath(d, true);
+    d.chapter('メールを入力'); segMail(d, true);
+    d.chapter('ブラウザで表示'); segShow(d, true);
+    d.chapter('日付の記号'); segPlaceholders(d, true);
+    d.chapter('一括表示'); segBatch(d, true);
+    d.chapter('設定の保存'); segProfile(d, true);
+    d.chapter('おわり'); d.cam(null, { dur: 400 }); d.scene('open_0.jpg', { fade: 600 });
+    d.cap('以上が、Mailerの使い方です。\n入力して「ブラウザで表示」。日付は記号で自動に、まとめて開くなら「一括表示」、よく使う内容は「設定保存」。\n機能ごとのくわしいデモは、一覧から見られます。');
+    d.wait(7500);
+  };
+
+  SCRIPTS.open = function (d) {
+    start(d);
+    d.chapter('ブラウザを指定'); segBrowserPath(d, false);
+    d.chapter('メールを入力'); segMail(d, false);
+    d.chapter('ブラウザで表示'); segShow(d, false);
+  };
+
+  SCRIPTS.placeholders = function (d) {
+    start(d);
+    d.chapter('件名の記号'); segPlaceholders(d, false);
+  };
+
+  SCRIPTS.batch = function (d) {
+    start(d);
+    d.chapter('一括表示'); segBatch(d, false);
+  };
+
+  SCRIPTS.profile = function (d) {
+    start(d);
+    d.chapter('設定の保存と読み込み'); segProfile(d, false);
+  };
+
+  function S(id) { return function (d) { SCRIPTS[id](d); }; }
+  DesktopDemo.start({
+    title: 'Mailer 機能デモ', icon: '✉️', back: 'index.html', backLabel: '← Mailerの図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、Mailerでできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。実際のMailerを操作して撮った画面です(宛先・件名・本文はすべて架空の例で、メールは送信されません)。再生速度の変更や、10秒の送り・戻しもできます。',
+    frame: { w: FW, h: FH, title: 'Mailer ― ダミーの入力で動作' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', desc: 'ブラウザを指定 → 入力 → ブラウザで表示 → 日付の記号 → 一括表示 → 設定の保存まで、主な使い方をひととおり。', sec: 'まずは全体を見る', script: S('overview') },
+      { id: 'open', icon: '📨', title: '作成画面を開く', desc: 'ブラウザパス・宛先・件名・本文を入れて、「ブラウザで表示」で、入力済みの新規作成画面を開く。', sec: '機能ごとのデモ', script: S('open') },
+      { id: 'placeholders', icon: '📅', title: '件名の日付の記号', desc: '%%TODAY%% や %%DAYOFWEEK%% など、日付と曜日に置き換わる記号。ヘルプで一覧を見られる。', sec: '機能ごとのデモ', script: S('placeholders') },
+      { id: 'batch', icon: '🗂️', title: '一括表示', desc: '起点日・生成数・インターバルを決めて、日付をずらした作成画面をまとめて開く。Reverseで開く順を切り替える。', sec: '機能ごとのデモ', script: S('batch') },
+      { id: 'profile', icon: '💾', title: '設定の保存と読み込み', desc: 'よく使う入力内容を名前を付けて保存し、プルダウンから選ぶだけで読み込む。', sec: '機能ごとのデモ', script: S('profile') }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
