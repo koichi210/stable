@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>株レーダー 機能デモ</title>
+<!--
+  株レーダーの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=card のように機能を指定します。
+  ・実際のアプリ(public/)を、ダミーデータで動かして撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+  ・銘柄名・株価・指標・値動きは、すべてデモ用に作った架空のデータです(Yahoo! Finance などには接続していません)。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  // スクショは 1280x720 の画面を 1.5 倍の解像度(1920x1080)で撮っている。座標(demo-pts.js)もその画素
+  var K = 1.5, FW = 1280 * K, FH = 720 * K;
+  var DUMMY = '※ この画面の銘柄名・数値は、すべてデモ用のダミー(架空)です。';
+  var NOADVICE = '※ 決まったルールで機械的に判定しているだけで、値上がりを保証するものではありません。投資判断の助言でもありません。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.SR_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function U() { // 複数の要素を囲む枠(s, k1, k2, ...)
+    var s = arguments[0], x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 1; i < arguments.length; i++) { var r = P(s, arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function col(s, kFrom, kTo) { var a = P(s, kFrom), b = P(s, kTo), t = P(s, 'table'); return { x: a.x - 8 * K, y: t.y, w: b.x - a.x - 4 * K, h: t.h, cx: 0, cy: 0 }; }
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0) * K, r.cy + (o.dy || 0) * K, { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる 16:9 の範囲へズーム
+    o = o || {}; var pad = (o.pad != null ? o.pad : 36) * K, minW = (o.minW || 560) * K;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d, s) { var ks = Array.prototype.slice.call(arguments, 2); zoomR(d, U.apply(null, [s].concat(ks))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 5 * K, y: r.y - 4 * K, w: r.w + 10 * K, h: r.h + 8 * K }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  function start(d, s, k) { var r = P(s, k); d.cursor(r.cx + 260 * K, r.cy + 150 * K, { dur: 0 }); }
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  // ---------- 買い候補を探す ----------
+  SCRIPTS.scan = function (d) {
+    d.chapter('期間と予算'); d.scene('top.jpg'); start(d, 'top', 'modeShort');
+    d.cap(DUMMY + '\n株レーダーは、日本株の「買い候補」を、ボタンを押した時点のデータで一覧にするツールです。'); d.wait(4800);
+    d.cap('まず「期間」を選びます。\n短期は1〜2週間で売る前提、長期は半年〜1年持つ前提です。');
+    mark(d, 'top', 'modeShort', '短期', 3000); tap(d, 'top', 'modeShort'); d.wait(900); tap(d, 'top', 'modeLong', { dur: 900 }); d.wait(1500);
+    d.cap('次に、100株を買うのに使える予算の上限と下限を、万円で入れます。\nこの金額に収まる株価の銘柄だけが対象になります。');
+    markR(d, U('top', 'max', 'min'), '予算の範囲', 4200); to(d, 'top', 'max'); d.wait(1800); to(d, 'top', 'min', { dur: 900 }); d.wait(1800);
+    d.chapter('探す');
+    d.cap('「買い候補を探す」を押します。');
+    tap(d, 'top', 'run', { dur: 1000 }); d.wait(600);
+    d.scene('res-short.jpg', { fade: 500 });
+    d.cap('調べた時刻・予算・対象銘柄数が出て、点の高い順に最大20銘柄が並びます。\n株価は約20分遅れの公開データです(このデモではダミー)。');
+    zoom(d, 'res-short', 'status'); mark(d, 'res-short', 'status', '調べた条件', 4500); d.wait(5200);
+    d.cap('「地合い」は、日経平均の状態です。25日線・75日線との位置から、今は買いに向く相場かを一言で示します。');
+    d.cam(null, { dur: 700 }); zoom(d, 'res-short', 'market'); mark(d, 'res-short', 'market', '地合い', 5000); d.wait(5800);
+    d.cam(null, { dur: 700 });
+    d.chapter('長期で探す');
+    d.cap('期間を「長期」にして探すこともできます。\n長期は、割安さ(PER・PBR)・配当・利益の質などで点を付けます。');
+    d.scene('top-long.jpg', { fade: 400 }); tap(d, 'top-long', 'modeLong', { dur: 900 }); d.wait(2200);
+    tap(d, 'top-long', 'run', { dur: 1000 }); d.wait(500);
+    d.scene('res-long.jpg', { fade: 500 }); d.wait(3800);
+    d.cap(NOADVICE); d.wait(5200);
+  };
+
+  // ---------- 銘柄カードの見かた ----------
+  SCRIPTS.card = function (d) {
+    d.chapter('カードの全体'); d.scene('card.jpg'); start(d, 'card', 'head');
+    d.cap(DUMMY + '\n1銘柄が1枚のカードで出ます。上から「点数と現在値」「買い・利確・損切りの値段」「押しポイント」「チャート」の順です。'); d.wait(6000);
+    d.chapter('点数と現在値');
+    d.cap('右上の「買いスコア」は、買い候補としての点数です。決まったルールで加点・減点して、100点満点で出します。');
+    zoom(d, 'card', 'head', 'price'); to(d, 'card', 'score'); mark(d, 'card', 'score', '買いスコア', 4200); d.wait(4800);
+    d.cap('現在値・前日終値・100株で必要な金額と、PER・PBR・ROE・配当・RSI が1行に並びます。\n数字の横には、東証プライム全体の平均などの「目安」も添えてあります。');
+    to(d, 'card', 'price', { dx: -180 }); mark(d, 'card', 'price', '', 5500); d.wait(6500);
+    d.chapter('買い・利確・損切り');
+    d.cap('「買い」は指値の幅、「利確」は売って利益を確定する値段、「損切り」は傷が浅いうちに売る値段の目安です。');
+    zoom(d, 'card', 'buy', 'gain', 'loss', 'meta'); to(d, 'card', 'buy'); mark(d, 'card', 'buy', '買い', 2600); d.wait(2800);
+    to(d, 'card', 'gain'); mark(d, 'card', 'gain', '利確', 2600); d.wait(2800);
+    to(d, 'card', 'loss'); mark(d, 'card', 'loss', '損切り', 2600); d.wait(3000);
+    d.cap('それぞれ、100株で買った場合の増える額・減る額も出ます。\n短期は「手じまいの期限」も出ます。期限までにどちらにも届かなければ、売って終わりにする目安の日です。');
+    to(d, 'card', 'meta', { dx: -120 }); mark(d, 'card', 'meta', '手じまいの期限・損益比', 5500); d.wait(7000);
+    d.cam(null, { dur: 700 });
+    d.chapter('押しポイント');
+    d.cap('「押しポイント」は、その銘柄の良いところ。「気をつけるところ」は注意点です。\nどれも「何がどうなっているから」を文章で説明します。');
+    zoom(d, 'card', 'good', 'bad'); to(d, 'card', 'good'); mark(d, 'card', 'good', '押しポイント', 4500); d.wait(4800);
+    to(d, 'card', 'bad'); mark(d, 'card', 'bad', '気をつけるところ', 4500); d.wait(5000);
+    d.cam(null, { dur: 700 }); d.cap(NOADVICE); d.wait(5000);
+  };
+
+  // ---------- チャート ----------
+  SCRIPTS.chart = function (d) {
+    d.chapter('日足チャート'); d.scene('card.jpg'); start(d, 'card', 'chart');
+    d.cap(DUMMY + '\nカードの右側に、チャートが出ます。画面に近づいたカードから順に読み込まれます。'); d.wait(4500);
+    zoom(d, 'card', 'chart'); mark(d, 'card', 'chart', '日足(100本)', 3500); d.wait(3200);
+    d.cap('ローソク足は、赤が前の日より上がった日、青が下がった日です。\n色のついた細い線は、5日線・25日線・75日線(移動平均線)です。'); to(d, 'card', 'chart'); d.wait(6500);
+    d.cap('▲はゴールデンクロス(短い線が長い線を下から抜けた日)、▼はデッドクロス(上から抜けた日)の印です。'); d.wait(5800);
+    d.cap('横の点線は、買いの範囲・利確・損切りの値段です。\n値動きと、売る目安の距離を見比べられます。'); to(d, 'card', 'svg', { dx: 300, dy: -30, dur: 1000 }); d.wait(6000);
+    d.cam(null, { dur: 700 });
+    d.chapter('なぞって見る');
+    d.scene('chart-hover.jpg', { fade: 120 });
+    var h = P('chart-hover', 'hover');
+    d.cap('グラフの上でマウスをなぞると、その日の始値・高値・安値・終値と、前の日との差が上に出ます。');
+    d.cursor(h.x - 260 * K, h.y + 40 * K, { dur: 0 }); d.cursor(h.x, h.y, { dur: 1400 }); d.wait(500);
+    var c = P('chart-hover', 'chart');
+    zoomR(d, { x: c.x, y: c.y, w: c.w, h: c.h * 0.55, cx: c.cx, cy: c.y + c.h * 0.27 }); markR(d, { x: c.x, y: c.y - 6 * K, w: c.w, h: 30 * K }, 'その日の値段', 4800); d.wait(5000);
+    d.cam(null, { dur: 700 });
+    d.chapter('週足');
+    d.scene('card.jpg', { fade: 120 }); d.cap('「週足」タブを押すと、1週間を1本にしたチャートに切り替わります。\nより長い流れを見るときに便利です。');
+    d.cursor(h.x, h.y, { dur: 0 }); tap(d, 'card', 'tabWeek', { dur: 1100 }); d.wait(300);
+    d.scene('chart-week.jpg', { fade: 400 }); zoom(d, 'chart-week', 'chart'); d.wait(3000);
+    d.cap('週足では、13週線と26週線を引いています。\n「日足」に戻したいときは、隣のタブを押します。'); d.wait(5500);
+    d.cam(null, { dur: 700 }); d.wait(500);
+  };
+
+  // ---------- 絞り込み ----------
+  SCRIPTS.filter = function (d) {
+    d.chapter('条件を選ぶ'); d.scene('top.jpg'); start(d, 'top', 'per');
+    d.cap(DUMMY + '\n「絞り込み」では、選んだ条件を「すべて」満たす銘柄だけを出せます。'); markR(d, U('top', 'per', 'pbr', 'cross', 'gc', 'dc'), '絞り込み', 3800); d.wait(4400);
+    d.cap('PERは「何年分の利益で買えるか」。ここでは「15倍以下」を選びます。\n(下線の言葉を押すと、意味が出ます)');
+    tap(d, 'top', 'per'); d.scene('filter-1.jpg', { fade: 250 }); mark(d, 'filter-1', 'per', '15倍以下', 3000); d.wait(3600);
+    d.cap('PBRは「会社の持ち物の何倍の値段か」。「1.5倍未満」を選びます。');
+    tap(d, 'filter-1', 'pbr'); d.scene('filter-2.jpg', { fade: 250 }); mark(d, 'filter-2', 'pbr', '1.5倍未満', 3000); d.wait(3600);
+    d.cap('ゴールデンクロスは、「3日以内」から「20日以内」に起きた銘柄や、「もうすぐ起きそう」な銘柄に絞れます。\nクロスを見る線は「5日線と25日線」「25日線と75日線」「MACD」から選びます。');
+    tap(d, 'filter-2', 'gc'); d.scene('filter-set.jpg', { fade: 250 }); markR(d, U('filter-set', 'cross', 'gc', 'gcSoon'), 'クロスの条件', 4800); d.wait(6600);
+    d.chapter('絞り込んだ結果');
+    d.cap('「買い候補を探す」を押します。');
+    tap(d, 'filter-set', 'run', { dur: 1000 }); d.wait(500);
+    d.scene('filter-result.jpg', { fade: 500 });
+    d.cap('調べた行に、使った条件と、「対象24銘柄 → PER・PBRで17銘柄」のように、絞り込みで何銘柄になったかが出ます。');
+    zoom(d, 'filter-result', 'status'); mark(d, 'filter-result', 'status', '使った条件', 5000); d.wait(6200);
+    d.cam(null, { dur: 700 });
+    d.cap('デッドクロスは逆向きの条件で、「起きた銘柄を除く」も選べます。\n条件を消すときは、「条件をクリア」を押します。');
+    d.scene('top.jpg', { fade: 250 }); to(d, 'top', 'dc'); mark(d, 'top', 'dc', '除く、も選べる', 3000); d.wait(3200);
+    tap(d, 'top', 'clear'); mark(d, 'top', 'clear', '条件をクリア', 3000); d.wait(3800);
+  };
+
+  // ---------- 並べ替え ----------
+  SCRIPTS.sort = function (d) {
+    d.chapter('並べ替え'); d.scene('sort-score.jpg'); start(d, 'sort-score', 'sort');
+    d.cap(DUMMY + '\n結果の上にある「並び順」で、表示している銘柄を並べ替えられます。初めは買いスコアの高い順です。');
+    mark(d, 'sort-score', 'sort', '並び順', 3500); to(d, 'sort-score', 'sort'); d.wait(5200);
+    d.cap('たとえば「PBRが低い順」を選ぶと…');
+    tap(d, 'sort-score', 'sort', { dur: 900 }); d.wait(600);
+    d.scene('sort-pbr.jpg', { fade: 400 });
+    d.cap('PBRが最も低い銘柄が先頭になります。\n同じ銘柄リストを、見る角度を変えて眺められます。');
+    mark(d, 'sort-pbr', 'pbrT', 'PBR 0.58倍が先頭', 4500); d.wait(5800);
+    d.cap('「最低購入金額が安い順」もあります。予算が限られるときに、買える銘柄から見られます。');
+    tap(d, 'sort-pbr', 'sort', { dur: 900 }); d.wait(500); d.scene('sort-cost.jpg', { fade: 400 }); d.wait(4800);
+    d.cap('値がない銘柄(赤字でPERが出ない、など)は、どの向きでも最後に回ります。\n選んだ並び順は、ブラウザが覚えておきます。'); d.wait(5500);
+  };
+
+  // ---------- スナップショット ----------
+  SCRIPTS.snapshot = function (d) {
+    d.chapter('結果を保存'); d.scene('snap-before.jpg'); start(d, 'snap-before', 'snapSave');
+    d.cap(DUMMY + '\n調べた結果を、その時点のまま保存しておけます。あとで「その後どう動いたか」を確かめるための機能です。'); d.wait(5600);
+    d.cap('結果の上の「この結果を保存」を押します。');
+    mark(d, 'snap-before', 'snapSave', '', 3000); tap(d, 'snap-before', 'snapSave', { dur: 1100 }); d.wait(300);
+    d.scene('snap-saved.jpg', { fade: 250 }); mark(d, 'snap-saved', 'msg', '保存しました', 3500); d.wait(4500);
+    d.chapter('保存したものを開く');
+    d.cap('右上の「スナップショット」を押すと、保存した結果の一覧が出ます。');
+    tap(d, 'snap-saved', 'openSnaps', { dur: 1100 }); d.wait(400);
+    d.scene('snap-dialog.jpg', { fade: 300 }); markR(d, U('snap-dialog', 'row0', 'row2'), '保存した結果', 3500); d.wait(4400);
+    d.cap('10日ほど前に保存したものを選んで、「開いて今と比べる」を押します。');
+    tap(d, 'snap-dialog', 'open1', { dur: 1200 }); d.wait(500);
+    d.scene('snap-compare.jpg', { fade: 500 });
+    d.chapter('その後を比べる');
+    d.cap('保存したときの結果が出て、その上に「その後のまとめ」が出ます。\n8銘柄のうち、利確に届いたもの・損切りに届いたもの・まだどちらでもないものの数と、値段の変化の平均です。');
+    zoom(d, 'snap-compare', 'head', 'summary'); mark(d, 'snap-compare', 'summary', 'その後のまとめ', 5500); d.wait(7200);
+    d.cam(null, { dur: 600 });
+    d.scene('snap-compare2.jpg', { fade: 200 });
+    d.cap('表では、銘柄ごとに「保存したとき」と「今」の値段、変化、その後の高値・安値が並びます。');
+    zoom(d, 'snap-compare2', 'table'); d.wait(1000); markR(d, col('snap-compare2', 'th2', 'th6'), '保存したとき → 今 → 変化 → 高値/安値', 4200); d.wait(5200);
+    d.cap('右の列は、利確と損切りのどちらに先に届いたかです。\n1日の中でどちらが先かは分からないので、同じ日に両方届いたときは「同じ日に両方」と出ます。');
+    markR(d, col('snap-compare2', 'th6', 'th7'), '利確・損切り', 4500); to(d, 'snap-compare2', 'th6', { dx: 40, dy: 40 }); d.wait(7000);
+    d.cap('「最新の検索」の列は、そのあと新しく調べた結果での今の順位です。\n保存したときより順位が下がったか、圏外になったかも分かります。');
+    markR(d, { x: P('snap-compare2', 'th7').x - 8, y: P('snap-compare2', 'table').y, w: 110 * K, h: P('snap-compare2', 'table').h }, '最新の検索', 4500); to(d, 'snap-compare2', 'th7', { dx: 20, dy: 40 }); d.wait(6500);
+    d.cam(null, { dur: 700 }); d.cap('見終わったら、「最新の結果に戻る」を押します。'); to(d, 'snap-compare', 'backBtn'); mark(d, 'snap-compare', 'backBtn', '', 3500); d.wait(4500);
+  };
+
+  // ---------- 用語集 ----------
+  SCRIPTS.glossary = function (d) {
+    d.chapter('言葉を押す'); d.scene('card.jpg'); start(d, 'card', 'perT');
+    d.cap(DUMMY + '\nカードの数字や見出しにある、下線のついた言葉は押せます。'); markR(d, P('card', 'price'), '下線の言葉', 3800); d.wait(4800);
+    d.cap('たとえば「PER」を押すと…'); tap(d, 'card', 'perT', { dur: 1200 }); d.wait(400);
+    d.scene('gloss-per.jpg', { fade: 250 });
+    d.cap('用語集が開いて、その言葉の意味と見かたが出ます。\n「このアプリの目安」の表には、何倍なら割安か、などが載っています。');
+    mark(d, 'gloss-per', 'item', 'PER の説明と、このアプリの目安', 6000); d.wait(7600);
+    d.chapter('用語集を開く');
+    d.scene('top.jpg', { fade: 250 }); d.cap('右上の「用語集」ボタンからは、すべての言葉を一覧で開けます。');
+    d.cam(null, { dur: 300 }); tap(d, 'top', 'openGloss', { dur: 1200 }); d.wait(400);
+    d.scene('gloss-all.jpg', { fade: 250 });
+    d.cap('上の言葉の一覧から、読みたい項目へ飛べます。\nPER・PBR・ROE、移動平均線、ゴールデンクロス、RSI、損切り、手じまいの期限 など、画面に出てくる言葉は一通り載っています。');
+    markR(d, P('gloss-all', 'index'), '言葉の一覧', 5500); d.wait(8000);
+    d.cap('「平均」や「境目」のように、判断を入れない基準も載せています。\n(平均は東証プライム全体の集計から取った値です)'); d.scene('gloss-scroll.jpg', { fade: 300 }); d.wait(6200);
+    d.chapter('地合い');
+    d.scene('res-short.jpg', { fade: 250 }); d.cap('「地合い」のような見出しの言葉も、押すと意味が出ます。');
+    tap(d, 'res-short', 'marketTerm', { dur: 1200 }); d.wait(400); d.scene('gloss-market.jpg', { fade: 250 }); d.wait(5200);
+  };
+
+  // ---------- 配当・優待 ----------
+  SCRIPTS.extras = function (d) {
+    d.chapter('配当と優待'); d.scene('extras.jpg'); start(d, 'extras', 'perks');
+    d.cap(DUMMY + '\nカードの左下には、その銘柄の「配当」と「株主優待」の欄があります。'); markR(d, P('extras', 'perks'), '配当・優待', 3800); d.wait(5000);
+    d.cap('配当は、100株で年にいくらもらえるか(予想)と、権利が確定する月、次の確定月が出ます。');
+    zoom(d, 'extras', 'perks'); to(d, 'extras', 'div', { dx: -180 }); mark(d, 'extras', 'div', '', 4500); d.wait(5800);
+    d.cap('優待は、種類・権利確定の月と権利付き最終日・100株で対象になるか、が出ます。');
+    to(d, 'extras', 'yutai', { dx: -180 }); mark(d, 'extras', 'yutai', '', 4500); d.wait(5500);
+    d.chapter('優待の中身');
+    d.cap('「継続保有の条件あり」と出たら、一定期間(ここでは1年以上)持ち続けないと受け取れない優待です。\n「優待の内容を見る」を押すと、株数ごとの内容も開きます。');
+    tap(d, 'extras', 'summary', { dur: 1100 }); d.wait(300);
+    d.scene('extras-open.jpg', { fade: 250 }); mark(d, 'extras-open', 'cont', '継続保有の条件', 3500); d.wait(4000); mark(d, 'extras-open', 'yutaiBox', '株数ごとの内容', 3500); d.wait(5500);
+    d.cam(null, { dur: 700 });
+    d.cap('短期で持つ間に権利確定日が来るときは、「気をつけるところ」に知らせが出ます。\n権利落ち日は、その分だけ株価が下がりやすいためです。'); d.wait(7000);
+  };
+
+  // ---------- 全体紹介(約2分) ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('top.jpg'); start(d, 'top', 'run');
+    d.cap(DUMMY + '\n株レーダーは、日本株の「買い候補」と、買ったあとに売る値段(利確・損切り)の目安を、ボタンを押した時点のデータで一覧にするツールです。'); d.wait(7500);
+    d.cap('パソコンの中だけで動くローカル専用ツールで、空売りの候補は出しません。\nこのデモでは、主な使い方を2分ほどで紹介します。'); d.wait(6000);
+    d.chapter('探す');
+    d.cap('期間(短期・長期)と、100株を買うのに使える予算を決めて、「買い候補を探す」を押します。');
+    mark(d, 'top', 'modeShort', '', 2200); to(d, 'top', 'modeShort'); d.wait(1500); to(d, 'top', 'max'); d.wait(1500); mark(d, 'top', 'run', '', 2500); tap(d, 'top', 'run', { dur: 1000 }); d.wait(500);
+    d.scene('res-short.jpg', { fade: 500 });
+    d.cap('点の高い順に最大20銘柄が並びます。上には、日経平均の「地合い」も出ます。');
+    markR(d, U('res-short', 'status', 'market'), '調べた条件・地合い', 4500); d.wait(6500);
+    d.chapter('カード');
+    d.scene('card.jpg', { fade: 500 }); d.cap('1銘柄が1枚のカードです。「買い」「利確」「損切り」の値段の目安と、100株での増減額が出ます。');
+    zoom(d, 'card', 'buy', 'gain', 'loss'); to(d, 'card', 'buy'); mark(d, 'card', 'buy', '買い', 2200); d.wait(2400); to(d, 'card', 'gain'); mark(d, 'card', 'gain', '利確', 2200); d.wait(2400); to(d, 'card', 'loss'); mark(d, 'card', 'loss', '損切り', 2200); d.wait(2600);
+    d.cam(null, { dur: 600 }); d.cap('「押しポイント」「気をつけるところ」で、点数の理由が文章で分かります。短期は手じまいの期限も出ます。');
+    zoom(d, 'card', 'good', 'bad'); to(d, 'card', 'good'); mark(d, 'card', 'good', '', 2800); d.wait(3000); to(d, 'card', 'bad'); mark(d, 'card', 'bad', '', 2800); d.wait(3200);
+    d.chapter('チャート');
+    d.cam(null, { dur: 600 }); d.scene('chart-hover.jpg', { fade: 250 });
+    var h = P('chart-hover', 'hover');
+    d.cap('右のチャートは、ローソク足と移動平均線に、買い・利確・損切りの線を重ねています。\nなぞると、その日の値段が出ます。週足にも切り替えられます。');
+    d.cursor(h.x - 240 * K, h.y + 40 * K, { dur: 0 }); d.cursor(h.x, h.y, { dur: 1500 }); zoom(d, 'chart-hover', 'chart'); mark(d, 'chart-hover', 'chart', '日足・週足', 4500); d.wait(8500);
+    d.chapter('絞り込み');
+    d.cam(null, { dur: 600 }); d.scene('filter-set.jpg', { fade: 300 });
+    d.cap('PER・PBR・ゴールデンクロス/デッドクロスで、条件をすべて満たす銘柄だけに絞れます。');
+    markR(d, U('filter-set', 'per', 'pbr', 'cross', 'gc', 'dc'), '絞り込み', 4000); to(d, 'filter-set', 'gc'); d.wait(5500);
+    d.scene('filter-result.jpg', { fade: 400 }); zoom(d, 'filter-result', 'status'); d.cap('使った条件と、何銘柄に絞れたかが出ます。'); d.wait(3800);
+    d.cam(null, { dur: 600 });
+    d.chapter('並べ替え');
+    d.scene('sort-pbr.jpg', { fade: 400 }); d.cap('並び順は、PBR・PER・最低購入金額などで並べ替えられます。');
+    mark(d, 'sort-pbr', 'sort', '', 3500); to(d, 'sort-pbr', 'sort'); d.wait(6000);
+    d.chapter('保存');
+    d.scene('snap-compare2.jpg', { fade: 400 });
+    d.cap('「この結果を保存」しておくと、あとで開いて、その後どう動いたかを今の値段と比べられます。\n利確と損切りのどちらに先に届いたかも出ます。');
+    zoom(d, 'snap-compare2', 'table'); markR(d, col('snap-compare2', 'th4', 'th7'), '変化・その後・利確/損切り', 4500); d.wait(9500);
+    d.cam(null, { dur: 600 });
+    d.chapter('用語集');
+    d.scene('gloss-per.jpg', { fade: 400 });
+    d.cap('下線の言葉を押すと、用語集が開いて、意味と目安(何倍なら割安か、など)が出ます。\n初めての言葉でも、画面を離れずに調べられます。'); d.wait(9000);
+    d.chapter('配当・優待');
+    d.scene('extras-open.jpg', { fade: 400 });
+    d.cap('配当(100株での年額・権利確定月)と、株主優待(内容・権利付き最終日・継続保有の条件)も、カードの中で確認できます。');
+    markR(d, P('extras-open', 'perks'), '', 4500); d.wait(8500);
+    d.chapter('おわり');
+    d.scene('res-short.jpg', { fade: 500 }); d.cam(null, { dur: 300 });
+    d.cap(NOADVICE + '\n決算の中身やニュースは読んでいません。売買の前に、証券会社の画面で今の値段を確認してください。'); d.wait(9500);
+    d.cap('機能ごとの詳しいデモは、「機能一覧」から見られます。'); d.wait(6000);
+  };
+
+  DesktopDemo.start({
+    title: '株レーダー 機能デモ', icon: '📡', back: 'index.html', backLabel: '← 株レーダーの図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、株レーダーでできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。実際のアプリの画面に、カーソルや字幕を重ねた動画風のページです。<br><b>画面の銘柄名・株価・指標・値動きは、すべてデモ用の架空のデータです。</b>実際の相場や、投資の判断とは関係ありません。',
+    frame: { w: FW, h: FH, title: '株レーダー(StockRadar) ― ダミーデータで動作' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', desc: '探す → カード → チャート → 絞り込み → 保存 → 用語集まで、主な使い方をひととおり。', sec: 'まずは全体を見る', script: SCRIPTS.overview },
+      { id: 'scan', icon: '🔍', title: '買い候補を探す', desc: '短期・長期と予算を決めて探す。結果の見かたと、日経平均の「地合い」。', sec: '機能ごとのデモ', script: SCRIPTS.scan },
+      { id: 'card', icon: '🧾', title: '銘柄カードの見かた', desc: '買いスコア・買い/利確/損切りの値段・100株の損益・手じまいの期限・押しポイント。', sec: '機能ごとのデモ', script: SCRIPTS.card },
+      { id: 'chart', icon: '📈', title: 'チャート', desc: 'ローソク足・移動平均線・クロスの印・売る目安の線。なぞって値段を見る、週足に切り替える。', sec: '機能ごとのデモ', script: SCRIPTS.chart },
+      { id: 'filter', icon: '🎯', title: '絞り込み', desc: 'PER・PBR・ゴールデンクロス/デッドクロスで、条件をすべて満たす銘柄だけに絞る。', sec: '機能ごとのデモ', script: SCRIPTS.filter },
+      { id: 'sort', icon: '↕️', title: '並べ替え', desc: '買いスコア・PBR・PER・最低購入金額で、表示した銘柄を並べ替える。', sec: '機能ごとのデモ', script: SCRIPTS.sort },
+      { id: 'snapshot', icon: '📸', title: 'スナップショット', desc: '調べた結果を保存して、あとで「その後どう動いたか」を今の値段と比べる。', sec: '機能ごとのデモ', script: SCRIPTS.snapshot },
+      { id: 'glossary', icon: '📖', title: '用語集', desc: '下線の言葉を押すと、意味と目安(何倍なら割安か、など)が開く。', sec: '機能ごとのデモ', script: SCRIPTS.glossary },
+      { id: 'extras', icon: '🎁', title: '配当・株主優待', desc: '100株での配当額・権利確定月、優待の内容・権利付き最終日・継続保有の条件。', sec: '機能ごとのデモ', script: SCRIPTS.extras }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
