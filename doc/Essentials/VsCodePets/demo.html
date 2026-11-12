@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VsCodePets 機能デモ</title>
+<!--
+  VsCodePets(vscode-pets 改造版 Flying)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=fly のように機能を指定します。
+  ・ペットが動いているパネルは、拡張機能の本物の表示部分(media/main-bundle.js・画像・CSS)を、そのまま動かして撮ったスクショです。
+  ・まわりのVS Code風の画面(エディタ・サイドバー・コマンドパレット・通知)は、撮影用に作った「ダミーの画面」です(実際のVS Codeは使っていません。コードも架空です)。
+  ・飛び方・卵・おしゃべりなどは、乱数を固定した本物の動きを、狙った場面まで進めて撮っています。
+  ・再生部分は ../lib/demo-player.js(Essentials共通)。座標はスクショ(1920x1080)の画素で、demo-pts.js は撮影時に要素の位置を測った値です。
+  ・見た目を変えたら、スクショを撮り直してください。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var P = window.VP, FW = 1920, FH = 1080;
+  // (cx, cy) 中心で幅 w ぶん映す(縦横比は16:9、はみ出さないよう寄せる)
+  function V(cx, cy, w) {
+    var h = w * 9 / 16;
+    return { x: Math.max(0, Math.min(FW - w, cx - w / 2)), y: Math.max(0, Math.min(FH - h, cy - h / 2)), w: w, h: h };
+  }
+  function C(r) { return [r.x + r.w / 2, r.y + r.h / 2]; }
+  // ペットの矩形を少し広げた目印用の枠
+  function pad(r, m, top) { return { x: r.x - m, y: r.y - (top || m), w: r.w + m * 2, h: r.h + m + (top || m) }; }
+  function cap(d, text, ms) { d.cap(text); d.wait(ms); }
+  var PANEL = V(1176, 800, 1488);           // 下のペットのパネル全体
+  function near(r, w) { var c = C(r); return V(c[0], c[1] - 40, w || 820); }
+
+  var FEATURES = [
+    // ================= 全体紹介 =================
+    { id: 'overview', icon: '🎬', title: '全体紹介（約2分）', sec: 'まずは全体を見る', top: true,
+      desc: 'VsCodePets でできることを、ペットを選ぶ・飛び回る・掴む・卵を産む・おしゃべり・ぶつからない・季節の背景・コマンドの順に、ひととおり見ます。',
+      script: function (d) {
+        d.chapter('はじめに'); d.scene('pets-1');
+        cap(d, 'VsCodePets は、VS Code の下のパネルに、ペットを住まわせる拡張機能です。\nペットがパネルの中を、歩いたり、飛んだりします。\n（まわりのエディタの画面は、撮影用のダミーです。ペットのパネルは、拡張機能の本物の表示です）', 8000);
+        d.mark(P.pets.frame, { dur: 4500, label: 'ここがペットのパネル' });
+        d.cam(PANEL, { dur: 900 });
+        cap(d, 'ペットは、上流の vscode-pets をもとに、絵をすべて描き直し、飛ぶ・掴める・卵を産む・おしゃべりする、といった動きを足した改造版です。', 7500);
+
+        d.chapter('ペットを選ぶ');
+        d.scene('species', { fade: 500 });
+        cap(d, 'ペットは16種類から選べます。犬・フォックス・パンダ・カメ・ヘビ・秘書さんなど、絵はすべてオリジナルです。', 6500);
+        d.scene('colors', { fade: 500 });
+        cap(d, '犬の毛色のように、種類によっては色も選べます。大きさは「nano・small・medium・large」の4段階です。', 6500);
+
+        d.chapter('飛び回る');
+        d.scene('fly-0', { fade: 500 });
+        cap(d, 'ペットは、地上の動きが終わるたびに、飛び立つことがあります。', 4200);
+        d.scene('fly-1', { fade: 400 }); d.mark(pad(P.fly.p1[1], 24), { dur: 3000, label: '飛び立つ' });
+        cap(d, 'パネルの中のランダムな場所へ、まっすぐ飛んで行きます。', 4200);
+        d.scene('fly-2', { fade: 400 }); d.mark(pad(P.fly.p2[0], 24), { dur: 3200, label: '空中で停止' });
+        cap(d, '着いたら、4秒ほど空中で止まります。そのあと、もう一度飛ぶか、真下へ降りてきます。', 6200);
+
+        d.chapter('掴んで動かす');
+        d.scene('drag-0', { fade: 400 }); var c0 = C(P.drag.r0);
+        d.cursor(c0[0], c0[1], { dur: 900 });
+        cap(d, 'ペットは、マウスの左ボタンで掴んで、動かせます。', 3200);
+        d.scene('drag-1', { fade: 1100 }); var c1 = C(P.drag.r1);
+        d.drag(c0[0], c0[1], c1[0], c1[1], { approach: 0, dur: 1100 });
+        cap(d, '掴んだまま、パネルの中の好きな場所へ持って行けます。', 3000);
+        d.scene('drag-2', { fade: 300 }); d.wait(900);
+        d.scene('drag-3', { fade: 700 });
+        cap(d, '空中で離すと、真下へ降りてきます。', 3800);
+
+        d.chapter('卵と💩');
+        d.cam(null, { dur: 700 }); d.scene('egg-0', { fade: 500 }); d.cam(PANEL, { dur: 500 });
+        d.mark(pad(P.eggs.p0[0], 26), { dur: 3200, label: 'パネルの上へ' });
+        cap(d, 'ときどき、ペットがパネルの上のほうまで飛んで行って、🥚 か 💩 を落とします。', 5500);
+        d.scene('egg-3', { fade: 500 }); d.mark(pad(P.eggs.e3, 20), { dur: 3200, label: 'ゆれている' });
+        cap(d, '🥚 は、約20秒たつと孵化します。孵化の少し前は、ゆれはじめます。クリックすると、すぐ孵化します。', 6500);
+        d.scene('egg-4', { fade: 300 }); d.mark(pad(P.eggs.e4, 20), { dur: 2600, label: '🐣 孵化' });
+        cap(d, '🐣 になって、少したつと消えます。💩 は、クリックすると消えます。', 5000);
+
+        d.chapter('おしゃべり');
+        d.scene('chat-morning', { fade: 500 });
+        cap(d, 'ペットは、約10秒に1回、吹き出しでひとこと話します。時間帯に合った言葉も混ざります。\n朝は「おはよ」「今日もがんばろ！」。', 7500);
+        d.scene('chat-night', { fade: 500 });
+        cap(d, '夜は「遅くまでおつかれさま」「夜ふかしはほどほどにね」。', 5000);
+
+        d.chapter('ぶつからない');
+        d.scene('avoid-0', { fade: 500 }); d.mark(pad(P.avoid.r0[P.avoid.hit[0]], 30), { dur: 3000, label: '近づいた' });
+        cap(d, 'ペット同士が近づくと、進路を変えます。重なったときは、押し離します。', 6000);
+        d.scene('clamp-1', { fade: 500 }); d.cam(null, { dur: 600 });
+        cap(d, 'パネルを小さくしても、ペット・吹き出し・卵は、はみ出さずに中に収まります。', 5500);
+
+        d.chapter('季節の背景');
+        d.cam(PANEL, { dur: 500 });
+        d.scene('theme-spring', { fade: 500 }); cap(d, '背景は、春・夏・秋・冬の絵から選べます。', 3200);
+        d.scene('theme-summer', { fade: 600 }); d.wait(1500);
+        d.scene('theme-autumn', { fade: 600 }); cap(d, '秋は落ち葉、冬は雪が舞います。', 3200);
+        d.scene('theme-winter', { fade: 600 }); d.wait(1500);
+
+        d.chapter('コマンド');
+        d.cam(null, { dur: 600 }); d.scene('pal-cmds', { fade: 400 });
+        cap(d, 'ペットの追加・削除、ボール投げ、点呼、テーマの変更などは、コマンドパレットで「Pet Coding」と入れて操作します。', 7500);
+        d.cam(PANEL, { dur: 600 }); d.scene('ball-1', { fade: 400 });
+        cap(d, '「ボールを投げる」を実行すると、ペットがボールを追いかけます。', 5000);
+
+        d.chapter('おわり'); d.cam(null, { dur: 700 }); d.scene('theme-spring', { fade: 600 });
+        cap(d, '以上が、VsCodePets の主な機能です。\n気になる機能は、「機能一覧」から1本ずつ見られます。', 6000);
+      } },
+
+    // ================= 種類・色・サイズ =================
+    { id: 'pets', icon: '🐾', title: 'ペットの種類・色・大きさ', sec: '機能ごとのデモ',
+      desc: '選べるペットは16種類。種類ごとの色と、nano〜large の4段階の大きさを見ます。すべてこのリポジトリで描いたオリジナルの絵です。',
+      script: function (d) {
+        d.chapter('1匹から'); d.scene('pets-1'); d.cam(PANEL, { dur: 800 });
+        cap(d, 'はじめは、設定した種類のペットが1匹だけ、パネルにいます。（既定は犬の茶色です）\nここからペットを足していけます。', 6500);
+        d.chapter('16種類');
+        d.scene('species', { fade: 500 });
+        cap(d, '選べる種類は16です。\nチキン・オカメインコ・カニ・犬・フォックス・馬・サル・パンダ・ラクーン・ネズミ・アヒルおもちゃ・秘書さん・スケルトン・カタツムリ・ヘビ・カメ。', 9000);
+        cap(d, '絵は、上流のものを使わず、すべて新しく描いたオリジナルです。（秘書さんは、SecretaryGadget の絵を切り出しています）', 6500);
+        d.chapter('色');
+        d.scene('colors', { fade: 500 });
+        cap(d, '色は、種類ごとに選べるものが決まっています。\n犬なら、秋田・黒・茶色・赤・白の5色です。', 7000);
+        d.chapter('大きさ');
+        d.cam(null, { dur: 700 });
+        var sizes = [['nano', 'nano（既定）'], ['small', 'small'], ['medium', 'medium'], ['large', 'large']];
+        sizes.forEach(function (s, i) {
+          d.scene('size-' + s[0], { fade: 400 });
+          d.cam(V(C(P.pets.sizes[s[0]][0])[0], C(P.pets.sizes[s[0]][0])[1] - 30, 700), { dur: 600 });
+          d.mark(pad(P.pets.sizes[s[0]][0], 8), { dur: 2600, label: s[1] });
+          cap(d, i === 0 ? '大きさは、設定の「petSize」で、nano・small・medium・large の4段階から選びます。' : (i === 3 ? 'large は、いちばん大きいサイズです。' : '次の大きさです。'), 3200);
+        });
+      } },
+
+    // ================= ペットを増やす =================
+    { id: 'spawn', icon: '➕', title: 'ペットを増やす', sec: '機能ごとのデモ',
+      desc: 'コマンドパレットの「ペットを生成」で、種類・色・名前を選んで、ペットを1匹足します。',
+      script: function (d) {
+        d.chapter('コマンドを開く'); d.scene('pets-1'); d.cursor(1000, 300, { dur: 0 });
+        cap(d, 'ペットを足すには、コマンドパレットを開いて「Pet Coding: ペットを生成」を選びます。', 5500);
+        d.scene('pal-spawn1', { fade: 250 }); var it = C(P.spawnflow.item1);
+        d.cursor(it[0], it[1], { dur: 1000 }); d.mark(P.spawnflow.item1, { dur: 2200 }); d.click(); d.wait(300);
+        d.chapter('種類を選ぶ');
+        d.scene('pal-spawn2', { fade: 250 });
+        cap(d, 'まず、ペットの種類を選びます。', 3000);
+        var pandaItem = C(P.spawnflow.pal2items[7]);
+        d.cursor(pandaItem[0], pandaItem[1], { dur: 1200 }); d.click(); d.wait(300);
+        d.chapter('色と名前');
+        d.scene('pal-spawn3', { fade: 250 });
+        cap(d, '色が選べる種類なら、続けて色も選びます。', 3200);
+        var black = C(P.spawnflow.pal3items[0]);
+        d.cursor(black[0], black[1], { dur: 1000 }); d.click(); d.wait(300);
+        cap(d, 'そのあと、ペットの名前を入れます。空のままにすると、名前はランダムに付きます。', 5500);
+        d.chapter('登場');
+        d.scene('spawned', { fade: 600 }); d.cursor(1500, 200, { dur: 0 }); d.cam(PANEL, { dur: 900 });
+        d.mark(pad(P.spawnflow.r[1], 24), { dur: 3500, label: 'ミケ（パンダ）' });
+        cap(d, 'パネルに、新しいペットが登場しました。ペットは何匹でも足せます。\n不要になったら、「ペットを削除」か「すべてのペットを削除」で減らせます。', 8000);
+      } },
+
+    // ================= 飛ぶ =================
+    { id: 'fly', icon: '🕊️', title: '飛び回る', sec: '機能ごとのデモ',
+      desc: '地上の動きが終わるたびに、ペットが飛び立ち、パネルの中を飛び回ります。飛ぶ→空中で停止→降りるまでの動きを見ます。',
+      script: function (d) {
+        d.chapter('地上を歩く'); d.scene('fly-0'); d.cam(PANEL, { dur: 800 });
+        d.mark(pad(P.fly.p0[0], 20), { dur: 3000, label: 'キツネ' }); d.mark(pad(P.fly.p0[1], 20), { dur: 3000, label: 'パンダ' });
+        cap(d, '上流の vscode-pets では、ペットは地面を歩くだけです。この改造版は、ペットが空も飛びます。', 6000);
+        d.chapter('飛び立つ');
+        d.scene('fly-1', { fade: 500 }); d.mark(pad(P.fly.p1[1], 26), { dur: 3600, label: '飛び立つ' });
+        cap(d, '地上の動きが終わるたびに、80%の確率で飛び立ちます。\nパネルの中のランダムな点へ、まっすぐ飛んで行きます。', 7000);
+        d.chapter('空中で止まる');
+        d.scene('fly-2', { fade: 500 }); d.mark(pad(P.fly.p2[0], 26), { dur: 4000, label: '空中で停止(約4秒)' });
+        cap(d, '目的地に着くと、約4秒、空中で止まります。', 4500);
+        d.chapter('もう一度、または降りる');
+        d.scene('fly-3', { fade: 500 }); d.mark(pad(P.fly.p3[1], 26), { dur: 4000, label: '真下へ降りる' });
+        cap(d, 'そのあと、70%の確率でもう一度飛び、30%の確率で、真下の地面へ降りてきます。', 6500);
+        d.cam(null, { dur: 800 });
+        cap(d, '飛ぶ動きは、パネルの大きさに合わせて決まります。パネルを小さくしても、外へ飛び出しません。', 5500);
+      } },
+
+    // ================= 掴む =================
+    { id: 'drag', icon: '✋', title: 'マウスで掴んで動かす', sec: '機能ごとのデモ',
+      desc: 'ペットをマウスの左ボタンで掴んで、パネルの中の好きな場所へ持って行きます。離すと、真下へ降りてきます。',
+      script: function (d) {
+        d.chapter('掴む'); d.scene('drag-0'); d.cam(PANEL, { dur: 800 });
+        var c0 = C(P.drag.r0);
+        cap(d, 'ペットの上にマウスを乗せて、左ボタンを押したままにします。', 3500);
+        d.cursor(c0[0], c0[1], { dur: 1100 });
+        d.chapter('持ち上げる');
+        d.scene('drag-1', { fade: 1300 }); var c1 = C(P.drag.r1);
+        cap(d, '押したまま動かすと、ペットも一緒に動きます。パネルの中なら、どこへでも持って行けます。', 5200);
+        d.drag(c0[0], c0[1], c1[0], c1[1], { approach: 0, dur: 1300 });
+        d.wait(1800);
+        d.chapter('離す');
+        d.scene('drag-2', { fade: 300 }); d.mark(pad(P.drag.r2, 24), { dur: 1600, label: '降りてくる' });
+        cap(d, 'ボタンを離すと、ペットは真下へ降りてきます。', 3200);
+        d.scene('drag-3', { fade: 1000 }); d.wait(1600);
+        d.cam(null, { dur: 800 });
+        cap(d, '掴んでいるあいだは、ペットはおしゃべりも産卵もしません。パネルの外へ出ないように、位置は端で止まります。', 6500);
+      } },
+
+    // ================= 卵と💩 =================
+    { id: 'eggs', icon: '🥚', title: '卵と💩', sec: '機能ごとのデモ',
+      desc: 'ペットがパネルの上まで飛んで行って、🥚 か 💩 を落とします。🥚 は孵化して 🐣 に、💩 はクリックで消えます。',
+      script: function (d) {
+        d.chapter('産みに行く'); d.scene('egg-0'); d.cam(PANEL, { dur: 800 });
+        d.mark(pad(P.eggs.p0[0], 28), { dur: 3600, label: 'パネルの上へ飛ぶ' });
+        cap(d, 'ときどき、ペットが、パネルの上のほうまで飛んで行きます。そこで、🥚 か 💩 を落とします。', 6500);
+        d.chapter('落ちる');
+        d.scene('egg-1', { fade: 400 }); d.mark(pad(P.eggs.e1, 22), { dur: 2600, label: '落ちてくる' });
+        cap(d, '落ちた 🥚 が、地面に着くまでを待ちます。3回に1回は 💩 です。', 5200);
+        d.scene('egg-2', { fade: 400 }); d.mark(pad(P.eggs.e2, 22), { dur: 2400, label: '地面に着いた' });
+        cap(d, '卵は、パネルに同時に5個までです。', 3600);
+        d.chapter('孵化');
+        d.scene('egg-3', { fade: 400 }); d.mark(pad(P.eggs.e3, 22), { dur: 3200, label: 'ゆれはじめる' });
+        cap(d, '約20秒たつと孵化します。孵化の約3秒前から、卵がゆれはじめます。', 5200);
+        var ce = C(P.eggs.e3);
+        d.cursor(ce[0], ce[1], { dur: 900 }); d.click();
+        d.scene('egg-4', { fade: 150 }); d.mark(pad(P.eggs.e4, 22), { dur: 3000, label: '🐣 すぐ孵化' });
+        cap(d, '卵をクリックすると、すぐに孵化して 🐣 になります。🐣 は少したつと消えます。', 5500);
+        d.chapter('💩');
+        d.cam(null, { dur: 600 }); d.scene('poop-1', { fade: 350 }); d.cam(PANEL, { dur: 600 });
+        d.mark(pad(P.eggs.poop1, 22), { dur: 2800, label: '💩' });
+        cap(d, '落ちたのが 💩 だったときは、放っておくと約20秒で消えます。', 4600);
+        var cp = C(P.eggs.poop1);
+        d.cursor(cp[0], cp[1], { dur: 1000 }); d.click();
+        d.scene('poop-2', { fade: 200 });
+        cap(d, 'クリックすると、すぐに消えます。', 3500);
+      } },
+
+    // ================= おしゃべり =================
+    { id: 'chat', icon: '💬', title: 'おしゃべり', sec: '機能ごとのデモ',
+      desc: 'ペットが約10秒に1回、吹き出しでひとこと話します。朝・昼・夕方・夜には、時間帯に合った言葉も混ざります。',
+      script: function (d) {
+        d.chapter('吹き出し'); d.scene('chat-morning'); d.cam(PANEL, { dur: 800 });
+        cap(d, 'ペットは、約10秒に1回、頭の上に吹き出しを出して、ひとこと話します。吹き出しは3秒ほどで消えます。', 6500);
+        d.chapter('朝');
+        d.mark(pad(P.chat.morning.rects[1], 30, 90), { dur: 3500 });
+        cap(d, '朝（5〜10時）は、「おはよ」「今日もがんばろ！」が混ざります。', 5500);
+        d.chapter('昼');
+        d.scene('chat-noon', { fade: 500 });
+        cap(d, '昼（11〜13時）は、「おひるごはんなに食べる？」。', 4800);
+        d.chapter('夕方');
+        d.scene('chat-evening', { fade: 500 });
+        cap(d, '夕方（17〜20時）は、「そろそろ定時？」。', 4800);
+        d.chapter('夜');
+        d.scene('chat-night', { fade: 500 });
+        cap(d, '夜（20時〜翌5時）は、「遅くまでおつかれさま」「夜ふかしはほどほどにね」。', 5600);
+        d.cam(null, { dur: 800 });
+        cap(d, 'いつでも出る言葉もあります。「ビルド通った？」「ちゃんと保存した？」「ひとやすみしよ？」など。\n卵を産んでいるあいだと、掴まれているあいだは、話しません。', 8000);
+      } },
+
+    // ================= ぶつからない・はみ出さない =================
+    { id: 'avoid', icon: '🤝', title: 'ぶつからない・はみ出さない', sec: '機能ごとのデモ',
+      desc: 'ペット同士が近づくと進路を変え、重なると押し離します。パネルを小さくしても、ペット・吹き出し・卵が外へはみ出しません。',
+      script: function (d) {
+        var a = P.avoid.hit[0], b = P.avoid.hit[1];
+        d.chapter('近づいたら'); d.scene('avoid-0'); d.cam(PANEL, { dur: 800 });
+        d.mark(pad(P.avoid.r0[a], 26), { dur: 3600, label: 'ペットA' }); d.mark(pad(P.avoid.r0[b], 26), { dur: 3600, label: 'ペットB' });
+        cap(d, 'ペットが増えると、飛んでいる2匹が近づくことがあります。', 4500);
+        d.scene('avoid-1', { fade: 900 }); d.mark(pad(P.avoid.r1[a], 26), { dur: 3200, label: '進路を変えた' });
+        cap(d, '近づくと、進路を変えて避けます。それでも重なったときは、少しずつ押し離します。', 6500);
+        cap(d, '壁に張りついているペットや、掴まれているペットは、押しません。（壁から剥がれたり、手から離れたりしないためです）', 6500);
+        d.chapter('パネルを小さく');
+        d.cam(null, { dur: 700 }); d.scene('clamp-0', { fade: 400 });
+        cap(d, 'パネルの大きさは、VS Code で自由に変えられます。', 3500);
+        d.scene('clamp-1', { fade: 700 }); d.mark(P.avoid.c1, { dur: 4200, label: '小さくしたパネル' });
+        cap(d, 'パネルを小さくしても、ペット・吹き出し・卵は、パネルの中に収まります。外へ飛び出すことはありません。', 7000);
+      } },
+
+    // ================= 季節の背景 =================
+    { id: 'themes', icon: '🌸', title: '季節の背景', sec: '機能ごとのデモ',
+      desc: '背景は春・夏・秋・冬の絵から選べます。コマンドで切り替えられ、秋は落ち葉、冬は雪が舞います。',
+      script: function (d) {
+        d.chapter('背景なし'); d.scene('theme-none'); d.cam(PANEL, { dur: 800 });
+        cap(d, '初期設定の背景は「none」で、絵はありません。', 4200);
+        d.chapter('テーマを変える');
+        d.cam(null, { dur: 700 }); d.scene('pal-theme', { fade: 300 });
+        cap(d, 'コマンドパレットの「Pet Coding: テーマを変更」を選ぶと、背景の一覧が出ます。', 5200);
+        var w = C(P.themes.items[4]);
+        d.cursor(w[0], w[1], { dur: 1100 }); d.click(); d.wait(300);
+        d.chapter('春・夏');
+        d.cam(PANEL, { dur: 600 });
+        d.scene('theme-spring', { fade: 600 }); cap(d, '春は、桜の並木道です。', 3600);
+        d.scene('theme-summer', { fade: 600 }); cap(d, '夏は、海辺の縁側です。', 3600);
+        d.chapter('秋・冬');
+        d.scene('theme-autumn', { fade: 600 }); cap(d, '秋は、紅葉の湖畔です。落ち葉が舞います。', 4200);
+        d.scene('theme-winter', { fade: 600 }); cap(d, '冬は、雪の里です。雪が降ります。', 4200);
+        cap(d, '選んだテーマと、飼っているペットは、ワークスペースごとに覚えておきます。\n落ち葉や雪を止めたいときは、設定の「disableEffects」で切れます。', 8000);
+      } },
+
+    // ================= コマンド =================
+    { id: 'cmds', icon: '⌨️', title: 'コマンドとパネルの位置', sec: '機能ごとのデモ',
+      desc: 'コマンドパレットの「Pet Coding」から、ボール投げ・点呼・ペットの削除などを実行します。パネルは、下のパネルか左のエクスプローラーに置けます。',
+      script: function (d) {
+        d.chapter('コマンド一覧'); d.scene('pal-cmds'); d.cursor(1000, 400, { dur: 0 });
+        cap(d, 'コマンドパレットに「Pet Coding」と入れると、ペットのコマンドが並びます。', 5000);
+        d.mark(P.cmds.pal, { dur: 3500, label: 'Pet Coding のコマンド' });
+        cap(d, 'ボールを投げる・マウスでボールを投げる・ペットを生成・ペットを削除・すべてのペットを削除・点呼・テーマを変更、などがあります。', 8000);
+        d.chapter('ボールを投げる');
+        var bi = C(P.cmds.items[1]);
+        d.cursor(bi[0], bi[1], { dur: 1000 }); d.click(); d.wait(300);
+        d.scene('ball-0', { fade: 250 }); d.cam(PANEL, { dur: 600 });
+        cap(d, '「ボールを投げる」を実行します。', 2600);
+        d.scene('ball-1', { fade: 300 });
+        cap(d, 'ボールが弾みはじめて、ペットが追いかけます。', 3400);
+        d.scene('ball-2', { fade: 500 });
+        cap(d, '設定の「マウスでボールを投げる」（throwBallWithMouse）を入れると、マウスの操作でボールを投げることもできます。', 7000);
+        d.chapter('点呼');
+        d.cam(null, { dur: 700 }); d.scene('roll', { fade: 300 });
+        d.mark(P.cmds.toast, { dur: 3600, label: '通知で返事' });
+        cap(d, '「点呼」を実行すると、全員が名前と一言を、通知で返します。\n（一言は、種類ごとに決まっています）', 7000);
+        d.chapter('パネルの位置');
+        d.scene('side', { fade: 500 }); d.mark(P.cmds.side, { dur: 4000, label: 'エクスプローラー内' });
+        cap(d, '設定の「position」を「explorer」にすると、パネルは、左のエクスプローラーの中に出ます。\n「panel」なら、下のパネル（問題・ターミナルと並ぶ位置）です。', 8000);
+      } }
+  ];
+
+  // 台本では画像名を拡張子なしで書いている(実体は demo-img/<名前>.jpg)
+  FEATURES.forEach(function (f) {
+    var body = f.script;
+    f.script = function (d) { var sc = d.scene; d.scene = function (name, o) { return sc.call(d, name + '.jpg', o); }; body(d); };
+  });
+
+  DesktopDemo.start({
+    title: 'VsCodePets 機能デモ', icon: '🐶', back: 'index.html', backLabel: '← VsCodePets の図解にもどる',
+    lead: 'VS Code のパネルにペットを住まわせる拡張機能「VsCodePets（vscode-pets 改造版 Flying）」の機能デモです。最初に全体紹介（約2分）を見ると、できることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。<br>ペットのパネルは、拡張機能の本物の表示をそのまま動かして撮っています。まわりのエディタやコマンドパレットは、撮影用のダミーの画面です（コードも架空です）。',
+    frame: { w: 1920, h: 1080, title: 'VS Code（ダミー）＋ VsCodePets' },
+    imgBase: 'demo-img/',
+    features: FEATURES
+  });
+})();
+</script>
+</body>
+</html>
