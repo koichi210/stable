@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlurPaint 機能デモ</title>
+<!--
+  BlurPaintの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=blur のように機能を指定します。
+  ・画面は、実際のBlurPaintを動かして撮ったスクショ(demo-img/)に、カーソル・キー操作・目印・字幕を重ねています。
+  ・画像の中身(売上ダッシュボード・名前・住所・カード番号)はすべて架空のダミーです。
+  ・クリックやドラッグの位置は demo-pts.js(撮影時にDOMから測った値。自動生成)から読みます。
+  ・画面の見た目を変えたら、素材を撮り直してください(撮影スクリプトはリポジトリ外)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var B = window.BPPTS;
+  var FW = 1440, FH = 810;
+  // 位置・枠の取り出し(撮影時の測定値)
+  function R(n, pad) { var r = B[n]; pad = pad || 0; return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }; }
+  function at(d, n, o) { var p = B[n]; d.cursor(p[0], p[1], o); }
+  function pt(d, p, o) { d.cursor(p[0], p[1], o); }
+  function press(d, n) { at(d, n); d.click(); }
+  function tool(d, name, scene) { press(d, 'tool_' + name); if (scene) d.scene(scene); }
+  // 図形を描く: 始点へ動く → ドラッグ → 完成の絵に切り替え
+  function draw(d, from, to, doneScene, o) { d.drag(B[from][0], B[from][1], B[to][0], B[to][1], o); d.scene(doneScene); }
+  // 途中の絵(ドラッグ中)も見せる
+  function drawMid(d, from, to, midScene, doneScene) {
+    var f = B[from], t = B[to], m = [(f[0] + t[0]) / 2, (f[1] + t[1]) / 2];
+    d.drag(f[0], f[1], m[0], m[1], { dur: 500 }); d.scene(midScene, { fade: 0 });
+    d.cursor(t[0], t[1], { dur: 450 }); d.scene(doneScene, { fade: 120 }); d.click({ dur: 200 });
+  }
+  // 台本では scene('arrow-done') のように拡張子なしで書く(実体は demo-img/arrow-done.png)
+  function W(fn) { return function (d) { var s = d.scene; d.scene = function (f, o) { return s(f.indexOf('.') < 0 ? f + '.png' : f, o); }; fn(d); }; }
+  var CAM_TOP ={ x: 0, y: 0, w: 960, h: 540 };       // 左上(上段バー・プロパティバー)
+  var CAM_CANVAS = { x: 160, y: 100, w: 1120, h: 630 };
+
+  // ================== 画像を入れる ==================
+  function S_start(d) {
+    d.chapter('画像を入れる');
+    d.scene('empty'); d.cap('BlurPaintを開くと、最初は画像が無い画面です。\nここへ、注釈を入れたい画像を入れます。');
+    d.wait(4200);
+    d.mark(R('emptyMainR', 14), { label: 'いちばん簡単な方法', dur: 3800 });
+    d.cap('いちばん簡単なのは、スクリーンショットを貼り付ける方法です。\nWin + Shift + S で画面を撮ったら、BlurPaintで Ctrl + V を押します。');
+    d.wait(1500); d.key('Ctrl + V', { dur: 600 }); d.wait(1800);
+    d.chapter('入れる方法はほかにも');
+    d.cap('「貼り付け」ボタン、「ファイルを開く」ボタン(Ctrl + O)、\nファイルのドラッグ&ドロップでも入れられます。');
+    at(d, 'btnPaste', { dur: 900 }); d.mark(R('btnPaste', 0), { label: '貼り付け', dur: 2200 }); d.wait(2600);
+    at(d, 'btnOpen', { dur: 700 }); d.mark(R('btnOpen', 0), { label: '開く (Ctrl+O)', dur: 2200 }); d.wait(2500);
+    d.cap('対応している形式は、PNG・JPEG・WebP・BMP・GIF・ICO・SVG・AVIFです。\n画像は、ブラウザの外へは送られません。');
+    d.wait(4200);
+    d.chapter('画像が入った');
+    d.scene('loaded'); d.cap('画像が入りました。画像の大きさは、右上に「960 × 560 px」のように出ます。');
+    d.mark(R('sizeLabel', 4), { label: '画像の大きさ', dur: 3000 }); d.wait(3600);
+    d.chapter('貼り付けのしかた');
+    at(d, 'pasteMode', { dur: 900 }); d.click(); d.scene('paste-overlay');
+    d.cam({ x: 700, y: 40, w: 740, h: 416 }, { dur: 700 }); d.mark(R('pasteModeR', 4), { label: '貼り付け・ドロップ時', dur: 4200 });
+    d.cap('右上の「貼り付け・ドロップ時」で、貼った画像の扱いを選べます。\n「新しい画像として開く」は画像を置き換え、\n「今の画像に重ねる」は、今の画像の上に1つの図形として重ねます。');
+    d.wait(6500); d.cam(null, { dur: 600 }); d.wait(800);
+  }
+
+  // ================== 図形と文字 ==================
+  function S_shapes(d) {
+    d.chapter('矢印');
+    d.scene('loaded'); d.cap('左のツールバーから、描きたい図形を選びます。\nまずは矢印です(ショートカットは A)。');
+    d.wait(2500); tool(d, 'arrow', 'arrow-sel');
+    d.cap('ツールを選ぶと、上のプロパティバーに、そのツールで使える設定(色・太さ・縁取り・影)だけが出ます。');
+    d.mark(R('propsR', 0), { label: 'プロパティバー', dur: 4500 }); d.wait(4800);
+    d.cap('画像の上をドラッグすると、矢印が引けます。\nShift を押しながらなら、45度ずつに揃います。');
+    drawMid(d, 'arrow_from', 'arrow_to', 'arrow-drag', 'arrow-done'); d.wait(3500);
+    d.chapter('矩形・楕円');
+    d.cap('矩形(R)と楕円(E)は、注目してほしい所を囲むときに使います。\nShift を押すと、正方形・正円になります。');
+    tool(d, 'rect', 'rect-sel'); d.wait(1500); draw(d, 'rect_from', 'rect_to', 'rect-done'); d.wait(1800);
+    tool(d, 'ellipse'); draw(d, 'ell_from', 'ell_to', 'ellipse-done'); d.wait(3000);
+    d.chapter('蛍光ペン');
+    d.cap('蛍光ペン(H)は、なぞった範囲を黄色などで塗ります。\n下の文字が透けて見える塗り方です。');
+    tool(d, 'highlight', 'hl-sel'); d.wait(1200); draw(d, 'hl_from', 'hl_to', 'hl-done'); d.wait(3600);
+    d.chapter('文字');
+    d.cap('文字(T)は、入れたい場所をクリックして入力します。\nEnterで確定、Shift + Enterで改行、Escで取り消しです。');
+    tool(d, 'text', 'text-sel'); d.wait(1000); pt(d, B.text_at); d.click(); d.wait(300);
+    d.scene('text-typing'); d.wait(2800); d.key('Enter', { dur: 500 }); d.scene('text-done'); d.wait(3200);
+    d.chapter('番号');
+    d.cap('番号(N)は、クリックするたびに ①、②、③… と順番に置けます。\n手順書の「ここを押す」の順番を示すのに便利です。');
+    tool(d, 'step', 'step-sel'); d.wait(1200); pt(d, B.step1); d.click(); pt(d, B.step2, { dur: 800 }); d.click(); d.scene('step-done'); d.wait(4200);
+    d.cap('このほか、直線(L)とフリーハンド(P)も同じ要領で使えます。');
+    d.wait(3800);
+  }
+
+  // ================== ぼかし・モザイク ==================
+  function S_blur(d) {
+    d.chapter('ぼかしツール');
+    d.scene('loaded'); d.cap('画像の中の、見せたくない部分を隠すのが「ぼかし・モザイク」ツールです(ショートカットは B)。\nこの画像のお客さまの名前と、カード番号を隠してみます。');
+    d.wait(4500); tool(d, 'blur', 'blur-sel');
+    d.cam({ x: 0, y: 0, w: 960, h: 540 }, { dur: 800 });
+    d.mark(R('blurModeR', 6), { label: '方式', dur: 3600 }); d.mark(R('blurLevelR', 6), { label: '強さ(2〜40)', dur: 3600 });
+    d.cap('プロパティバーに、「方式」(ぼかし/モザイク)と「強さ」が出ます。\n強さは 2 〜 40 で、大きいほどよく隠れます。');
+    d.wait(5800); d.cam(null, { dur: 700 });
+    d.chapter('ぼかしを入れる');
+    d.cap('隠したい範囲を、ドラッグで囲みます。\nまずはお客さまの名前を、ぼかしてみます。');
+    drawMid(d, 'blur_from', 'blur_to', 'blur-drag', 'blur-done'); d.wait(3600);
+    d.chapter('モザイクに変える');
+    d.cap('次は方式を「モザイク」に変えて、カード番号を隠します。');
+    at(d, 'blurMode', { dur: 900 }); d.click(); d.scene('mosaic-sel'); d.wait(2200);
+    draw(d, 'mos_from', 'mos_to', 'mosaic-done'); d.wait(3200);
+    d.cap('パスワードや個人情報のように、確実に隠したいものは、\nぼかしより「モザイク(強さ大きめ)」か、塗りつぶしを使ってください。\nぼかしは、強さが弱いと文字が読めてしまうことがあります。');
+    d.wait(7500);
+    d.chapter('あとから強さを変える');
+    d.cap('入れたあとでも、変えられます。選択ツール(V)でぼかしの範囲をクリックし、\n「強さ」のスライダーを動かすと、その範囲の強さが変わります。');
+    tool(d, 'select'); pt(d, B.blurobj, { dur: 800 }); d.click(); d.scene('blur-selected'); d.wait(2500);
+    at(d, 'blurLevel', { dur: 900 }); d.scene('blur-strong'); d.mark(R('blurLevelR', 6), { label: '強さを上げた', dur: 3000 }); d.wait(4200);
+  }
+
+  // ================== 選択・移動・変形 ==================
+  function S_select(d) {
+    d.chapter('選択する');
+    d.scene('sel-start'); d.cap('描いた図形は、あとから動かしたり、大きさを変えたりできます。\nここでは、矩形を1つ描いてあります。');
+    d.wait(3800);
+    d.cap('選択・移動ツール(V)で、図形をクリックします。\n選ぶと、四隅と辺にハンドル(■)が出ます。');
+    tool(d, 'select'); pt(d, B.sel_click, { dur: 800 }); d.click(); d.scene('sel-click'); d.wait(3400);
+    d.chapter('移動する');
+    d.cap('図形をドラッグすると、移動できます。\n矢印キーなら1pxずつ、Shift + 矢印キーなら10pxずつ動きます。');
+    d.drag(B.sel_click[0], B.sel_click[1], B.sel_move_to[0], B.sel_move_to[1]); d.scene('sel-moved'); d.wait(3800);
+    d.chapter('大きさを変える');
+    d.cap('四隅や辺のハンドルをドラッグすると、大きさを変えられます。');
+    d.drag(B.sel_handle[0], B.sel_handle[1], B.sel_handle_to[0], B.sel_handle_to[1]); d.scene('sel-resized'); d.wait(3200);
+    d.chapter('複製・削除');
+    d.cap('Ctrl + D で、選んだ図形を複製できます。');
+    d.key('Ctrl + D', { dur: 600 }); d.scene('sel-dup'); d.wait(3000);
+    d.cap('Delete キーで、選んだ図形を削除できます。');
+    d.key('Delete', { dur: 600 }); d.scene('sel-del'); d.wait(3000);
+    d.cap('文字は、ダブルクリックで書き直せます。');
+    d.wait(3200);
+  }
+
+  // ================== トリミング ==================
+  function S_crop(d) {
+    d.chapter('トリミング');
+    d.scene('loaded'); d.cap('画像の必要な部分だけを残すのが、トリミングです(ショートカットは C)。');
+    d.wait(3600); tool(d, 'crop', 'crop-sel');
+    d.cap('トリミングツールを選んで、残したい範囲をドラッグします。');
+    d.wait(2600); d.drag(B.crop_from[0], B.crop_from[1], B.crop_to[0], B.crop_to[1], { dur: 1200 }); d.scene('crop-range');
+    d.mark(R('cropSizeR', 6), { label: '残る大きさ', dur: 3500 });
+    d.cap('範囲の外側が暗くなり、残る大きさが上に出ます。');
+    d.wait(4200);
+    d.chapter('実行する');
+    d.cap('「トリミング実行」ボタンか、Enterキーで確定します。\nEscキーなら、範囲を解除できます。');
+    at(d, 'cropRun', { dur: 900 }); d.wait(1500); d.key('Enter', { dur: 600 }); d.scene('crop-done'); d.wait(1000);
+    d.cap('指定した範囲だけが残りました。\nトリミングも「元に戻す」(Ctrl + Z)で戻せます。');
+    d.wait(4500);
+  }
+
+  // ================== 元に戻す・ズーム ==================
+  function S_undo(d) {
+    d.chapter('元に戻す・やり直し');
+    d.scene('ur-before'); d.cap('矢印と矩形を描いたところです。\n間違えたときは、「元に戻す」(Ctrl + Z)で1つ前の状態に戻せます。');
+    d.wait(3800); at(d, 'btnUndo', { dur: 900 }); d.mark(R('btnUndo', 0).x ? { x: B.btnUndo[0] - 18, y: B.btnUndo[1] - 18, w: 36, h: 36 } : null, { dur: 1800 });
+    d.key('Ctrl + Z', { dur: 600 }); d.scene('ur-undo'); d.wait(3200);
+    d.cap('戻しすぎたら、「やり直し」(Ctrl + Y または Ctrl + Shift + Z)で進められます。\n履歴は最大100件ぶん残ります。');
+    at(d, 'btnRedo', { dur: 800 }); d.key('Ctrl + Y', { dur: 600 }); d.scene('ur-redo'); d.wait(4200);
+    d.chapter('拡大・縮小');
+    d.cap('細かい所に注釈を入れたいときは、拡大して作業できます。\n「+」「−」ボタン、または Ctrl + ホイール(カーソル位置が中心)です。');
+    at(d, 'btnZoomIn', { dur: 900 }); d.click(); d.click(); d.scene('zoom-in'); d.mark(R('zoomLabel', 6), { label: '拡大率', dur: 3000 }); d.wait(4500);
+    d.cap('「全体」(Ctrl + 0)で、画面にちょうど収まる大きさに戻ります。\n「100%」(Ctrl + 1)なら、等倍です。');
+    at(d, 'btnFit', { dur: 900 }); d.click(); d.scene('zoom-fit'); d.wait(4500);
+  }
+
+  // ================== コピー・保存 ==================
+  function S_export(d) {
+    d.chapter('出来上がり');
+    d.scene('ex-ready'); d.cap('矢印・矩形・ぼかしを入れ終えました。\n仕上がった画像は、コピーするか、ファイルに保存して使います。');
+    d.wait(4500);
+    d.chapter('コピー');
+    d.cap('「コピー」(Ctrl + C)を押すと、注釈を入れた画像がPNGでクリップボードに入ります。\nあとは、メールやチャットに貼り付けるだけです。');
+    at(d, 'btnCopy', { dur: 1000 }); d.mark(R('btnCopyR', 4), { dur: 2200 }); d.wait(2400); d.click(); d.scene('ex-copied'); d.wait(4200);
+    d.chapter('保存');
+    d.cap('保存の形式は、PNG・JPEG・WebPから選べます。');
+    at(d, 'saveFormat', { dur: 900 }); d.click(); d.scene('ex-jpeg'); d.mark(R('saveFormatR', 4), { label: '保存形式', dur: 3000 }); d.wait(3800);
+    d.cap('「保存」(Ctrl + S)で、選んだ形式のファイルに書き出します。\nファイル名の初めの候補は、「元の名前_edit.png」か「image_日付_時刻.png」です。');
+    at(d, 'btnSave', { dur: 900 }); d.mark(R('btnSaveR', 4), { dur: 3000 }); d.wait(5500);
+    d.cap('画像はブラウザの外へは出ません。保存されるのは、ツール・色・太さなどの設定だけです。');
+    d.wait(4500);
+  }
+
+  // ================== 全体紹介(約2分) ==================
+  function S_overview(d) {
+    d.chapter('はじめに');
+    d.scene('empty'); d.cap('BlurPaintは、スクリーンショットに矢印・枠・文字・番号・ぼかしなどを入れる、\nブラウザだけで動く軽いペイントエディタです。\nインストールは要りません。');
+    d.wait(6500); d.cap('このデモでは、画像を入れてから、書き出すまでの流れを、2分ほどで紹介します。');
+    d.wait(4000);
+    d.chapter('画像を入れる');
+    d.mark(R('emptyMainR', 14), { dur: 3800 });
+    d.cap('Win + Shift + S で撮ったスクリーンショットは、BlurPaintで Ctrl + V を押すだけで入ります。\nファイルを開く・ドラッグ&ドロップでも入れられます。');
+    d.wait(2000); d.key('Ctrl + V', { dur: 600 }); d.wait(3000);
+    d.scene('loaded'); d.cap('画像が入りました。');
+    d.wait(3500);
+    d.chapter('矢印と枠');
+    d.cap('左のツールバーから図形を選んで、画像の上をドラッグします。\nまずは矢印を引いて、注目してほしい所を示します。');
+    tool(d, 'arrow', 'arrow-sel'); d.wait(1500); drawMid(d, 'arrow_from', 'arrow_to', 'arrow-drag', 'arrow-done'); d.wait(2800);
+    d.cap('矩形や楕円で囲んだり、蛍光ペンで塗ったりもできます。');
+    tool(d, 'rect', 'rect-sel'); draw(d, 'rect_from', 'rect_to', 'rect-done'); tool(d, 'ellipse'); draw(d, 'ell_from', 'ell_to', 'ellipse-done');
+    tool(d, 'highlight', 'hl-sel'); draw(d, 'hl_from', 'hl_to', 'hl-done'); d.wait(2600);
+    d.chapter('文字と番号');
+    d.cap('文字は、クリックして入力します。\n番号は、クリックするたびに ①②③ と順番に置けます。');
+    tool(d, 'text', 'text-sel'); pt(d, B.text_at); d.click(); d.scene('text-typing'); d.wait(2000); d.key('Enter', { dur: 500 }); d.scene('text-done'); d.wait(1500);
+    tool(d, 'step', 'step-sel'); pt(d, B.step1); d.click(); pt(d, B.step2, { dur: 700 }); d.click(); d.scene('step-done'); d.wait(3000);
+    d.chapter('ぼかし');
+    d.scene('loaded'); d.cap('見せたくない部分は、ぼかしやモザイクで隠せます。\nここでは、新しく読み込み直した画像で試します。');
+    d.wait(3500); tool(d, 'blur', 'blur-sel'); d.wait(800); drawMid(d, 'blur_from', 'blur_to', 'blur-drag', 'blur-done'); d.wait(1500);
+    d.cap('方式を「モザイク」にすると、さらに確実に隠せます。強さも、あとから変えられます。');
+    at(d, 'blurMode', { dur: 800 }); d.click(); d.scene('mosaic-sel'); draw(d, 'mos_from', 'mos_to', 'mosaic-done'); d.wait(4500);
+    d.chapter('選択・変形');
+    d.scene('sel-click'); d.cap('描いた図形は、選択ツール(V)でクリックすると、\n移動・変形(ハンドル)・複製(Ctrl + D)・削除(Delete)ができます。');
+    d.wait(1500); d.drag(B.sel_click[0], B.sel_click[1], B.sel_move_to[0], B.sel_move_to[1]); d.scene('sel-moved'); d.wait(1500);
+    d.drag(B.sel_handle[0], B.sel_handle[1], B.sel_handle_to[0], B.sel_handle_to[1]); d.scene('sel-resized'); d.wait(3000);
+    d.chapter('トリミング');
+    d.scene('crop-sel'); d.cap('トリミングツール(C)で、残したい範囲を囲んで Enter を押すと、その範囲だけが残ります。');
+    d.wait(1500); d.drag(B.crop_from[0], B.crop_from[1], B.crop_to[0], B.crop_to[1], { dur: 1100 }); d.scene('crop-range'); d.wait(2000);
+    d.key('Enter', { dur: 500 }); d.scene('crop-done'); d.wait(3000);
+    d.chapter('元に戻す');
+    d.scene('ur-before'); d.cap('失敗しても大丈夫です。Ctrl + Z で元に戻せて、Ctrl + Y でやり直せます。\n拡大・縮小も使えます。');
+    d.wait(1500); d.key('Ctrl + Z', { dur: 600 }); d.scene('ur-undo'); d.wait(1500); d.key('Ctrl + Y', { dur: 600 }); d.scene('ur-redo'); d.wait(2800);
+    d.chapter('コピー・保存');
+    d.scene('ex-ready'); d.cap('出来上がったら、「コピー」でクリップボードに入れるか、「保存」でファイルにします。\n形式は、PNG・JPEG・WebPから選べます。');
+    at(d, 'btnCopy', { dur: 1000 }); d.mark(R('btnCopyR', 4), { dur: 2200 }); d.wait(2000); d.click(); d.scene('ex-copied'); d.wait(2800);
+    at(d, 'saveFormat', { dur: 900 }); d.click(); d.scene('ex-jpeg'); d.wait(3000);
+    d.chapter('おわり');
+    d.cap('以上が、BlurPaintの主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。');
+    d.wait(5500);
+  }
+
+  DesktopDemo.start({
+    title: 'BlurPaint 機能デモ', icon: '🖍️', back: 'index.html', backLabel: '← BlurPaint の図解にもどる',
+    lead: 'スクリーンショットに注釈やぼかしを入れる BlurPaint の使い方を、実際の画面で見られます。最初に全体紹介(約2分)を見ると、ひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。画像の中身はすべてダミーです。',
+    frame: { w: FW, h: FH, title: 'BlurPaint' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🌟', title: '全体紹介', sec: 'まずは全体を見る', desc: '画像を入れる → 矢印・枠・文字・番号 → ぼかし → 選択 → トリミング → 元に戻す → コピー・保存、までを一通り。', script: W(S_overview) },
+      { id: 'start', icon: '📥', title: '画像を入れる', sec: '機能ごとのデモ', desc: 'Ctrl+V・貼り付けボタン・開く・ドラッグ&ドロップ。貼り付け時の扱い(置き換え/重ねる)。', script: W(S_start) },
+      { id: 'shapes', icon: '➡️', title: '矢印・枠・文字・番号', sec: '機能ごとのデモ', desc: '矢印・矩形・楕円・蛍光ペン・文字・番号の描き方と、プロパティバー。', script: W(S_shapes) },
+      { id: 'blur', icon: '🟦', title: 'ぼかし・モザイク', sec: '機能ごとのデモ', desc: '見せたくない所を隠す。方式と強さ、確実に隠すときの注意、あとから強さを変える。', script: W(S_blur) },
+      { id: 'select', icon: '🖱️', title: '選択・移動・変形', sec: '機能ごとのデモ', desc: '図形を選んで、移動・大きさ変更・複製(Ctrl+D)・削除(Delete)。', script: W(S_select) },
+      { id: 'crop', icon: '✂️', title: 'トリミング', sec: '機能ごとのデモ', desc: '残したい範囲を囲んで Enter。範囲の解除は Esc。', script: W(S_crop) },
+      { id: 'undo', icon: '↩️', title: '元に戻す・拡大縮小', sec: '機能ごとのデモ', desc: 'Ctrl+Z / Ctrl+Y(最大100件)と、拡大・縮小・全体表示・等倍。', script: W(S_undo) },
+      { id: 'export', icon: '💾', title: 'コピー・保存', sec: '機能ごとのデモ', desc: 'PNGでコピー(Ctrl+C)、PNG・JPEG・WebPで保存(Ctrl+S)。', script: W(S_export) }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
