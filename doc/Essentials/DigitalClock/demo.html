@@ -10,7 +10,7 @@
     メモの内容・名前は、すべてデモ用に作った架空のものです。実際のデスクトップは写していません。
   ・窓は1枚ずつ PrintWindow で撮って合成しています(この環境では画面全体の撮影ができないため)。窓の移動は SetWindowPos で行い、
     ドラッグ中の見た目は「途中の位置」の画像で見せています。マウスにカーソルを重ねたときのツールチップは、撮っていません(字幕で説明しています)。
-  ・素材は demo-img/ (3倍に拡大した画像。撮影元は 480x300) と demo-pts.js (窓の位置。画像上の画素)。画面を変えたら撮り直してください。
+  ・素材は demo-img/ (撮影したままの 1280x720。拡大していない) と demo-pts.js (窓の位置。画像上の画素)。画面を変えたら撮り直してください。
   ・再生部品は ../lib/demo-player.js(Essentials共通)。
 -->
 <script src="../lib/demo-player.js"></script>
@@ -19,17 +19,17 @@
 <body>
 <script>
 (function () {
-  var FW = 1440, FH = 900, K = 3;
-  var CLOSE_DX = 55, CLOSE_DY = 52; // 窓の右端・上端から、×ボタンの中心まで(画像の画素)
+  var FW = 1280, FH = 720;
+  var CLOSE_DX = 18, CLOSE_DY = 17; // 窓の右端・上端から、×ボタンの中心まで(画像の画素)
 
   // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
   function P(s) { var r = window.DCPts[s]; if (!r) throw new Error('座標なし: ' + s); return r; }
   function ctr(s) { var c = P(s).client; return { x: c[0] + c[2] / 2, y: c[1] + c[3] / 2 }; }
   function closeBtn(s) { var w = P(s).win; return { x: w[0] + w[2] - CLOSE_DX, y: w[1] + CLOSE_DY }; }
-  function boxOf(s) { var w = P(s).win, c = P(s).client; return { x: w[0] + 6, y: w[1] + 3, w: w[2] - 12, h: c[1] + c[3] - w[1] - 2, cx: w[0] + w[2] / 2, cy: (w[1] + c[1] + c[3]) / 2 }; }
-  function markClock(d, s, label, dur) { var b = boxOf(s); d.mark({ x: b.x - 10, y: b.y - 8, w: b.w + 20, h: b.h + 16 }, { label: label || '', dur: dur || 3500 }); }
+  function boxOf(s) { var w = P(s).win, c = P(s).client; return { x: w[0] + 2, y: w[1] + 1, w: w[2] - 4, h: c[1] + c[3] - w[1] - 1, cx: w[0] + w[2] / 2, cy: (w[1] + c[1] + c[3]) / 2 }; }
+  function markClock(d, s, label, dur) { var b = boxOf(s); d.mark({ x: b.x - 6, y: b.y - 5, w: b.w + 12, h: b.h + 10 }, { label: label || '', dur: dur || 3500 }); }
   function zoomClock(d, s, o) { // 時計のまわりへズーム(画面と同じ縦横比)
-    o = o || {}; var b = boxOf(s), w = o.w || 560, h = w * FH / FW;
+    o = o || {}; var b = boxOf(s), w = o.w || 520, h = w * FH / FW;
     var x = Math.min(Math.max(b.cx - w / 2, 0), FW - w), y = Math.min(Math.max(b.cy - h / 2, 0), FH - h);
     d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
   }
@@ -38,7 +38,7 @@
 
   // ================= 部品(全体紹介と、機能別の動画で共用) =================
   function segTick(d, detail) {
-    d.scene('tick1.jpg'); d.cam(null, { dur: 0 });
+    d.scene('tick1.jpg'); zoomClock(d, 'tick1', { w: 520, dur: 0 });
     d.cap('時刻は「時:分:秒」の形で出ます。24時間表示で、1桁の数字も 07:04:09 のように0を付けて2桁にそろえます。');
     zoomClock(d, 'tick1', { w: 520 }); markClock(d, 'tick1', '時:分:秒', 3200); d.wait(4200);
     d.scene('tick2.jpg', { fade: 120 });
@@ -48,28 +48,24 @@
       d.cap('設定画面やボタンは、ありません。起動すれば、すぐに時刻が出ます。\n窓の大きさは固定で、変えられません(閉じる「×」だけがあります)。');
       d.wait(5600);
     }
-    d.cam(null);
   }
 
   function segOverlay(d, detail) {
-    d.scene('overlay.jpg'); d.cam(null, { dur: 0 });
+    d.scene('overlay.jpg'); zoomClock(d, 'overlay', { w: 520, dur: 0 });
     d.cap('時計の窓は、いつも最前面です。ほかのウィンドウを重ねても、時計は隠れません。\n' + NOTE);
     markClock(d, 'overlay', '最前面', 3400); d.wait(5000);
-    zoomClock(d, 'overlay', { w: 540 });
     d.cap('そして、半透明です(透明度は半分ほど)。\n後ろにある文字が、時計を通してうっすらと見えています。');
     markClock(d, 'overlay', '半透明', 3400); d.wait(5200);
     d.scene('overlay2.jpg'); d.cap('すこし場所を変えても、同じです。作業中の画面の上に出しておいても、後ろの文字が読めます。');
-    zoomClock(d, 'overlay2', { w: 540, dur: 600 }); d.wait(5000);
+    zoomClock(d, 'overlay2', { w: 520, dur: 600 }); markClock(d, 'overlay2', '後ろの文字が透ける', 4200); d.wait(5000);
     if (detail) {
-      d.cam(null);
       d.cap('文字を読むじゃまにならないように、半透明にしています。\nタイトルバー付きのまま半透明にしているので、窓の上端のタイトルと「×」も、うっすらと見えます。');
       d.wait(6200);
     }
-    d.cam(null);
   }
 
   function segDrag(d, detail) {
-    d.scene('drag-a.jpg'); d.cam(null, { dur: 0 }); d.cursor(ctr('drag-a').x + 420, ctr('drag-a').y + 260, { dur: 0 });
+    d.scene('drag-a.jpg'); zoomClock(d, 'drag-a', { w: 520, dur: 0 }); d.cursor(ctr('drag-a').x + 160, ctr('drag-a').y + 100, { dur: 0 });
     d.cap('時計は、時刻の部分をドラッグして、好きな場所へ動かせます。\nじゃまな場所に出ていたら、動かしましょう。');
     d.wait(3200);
     d.cap('時刻の文字に、マウスを合わせます。\n(マウスを重ねたままにすると、「時刻の部分を左ドラッグするとウィンドウを移動できる」と、ツールチップで教えてくれます)');
@@ -77,8 +73,8 @@
     d.cap('時刻の文字を、左ボタンで押したまま動かします。');
     d.click(); d.wait(300);
     var a = ctr('drag-a'), b = ctr('drag-b'), c = ctr('drag-c');
-    d.scene('drag-b.jpg', { fade: 120 }); d.cursor(b.x, b.y, { dur: 1100 });
-    d.scene('drag-c.jpg', { fade: 120 }); d.cursor(c.x, c.y, { dur: 1100 });
+    d.scene('drag-b.jpg', { fade: 120 }); zoomClock(d, 'drag-b', { w: 520, dur: 1100 }); d.cursor(b.x, b.y, { dur: 1100 });
+    d.scene('drag-c.jpg', { fade: 120 }); zoomClock(d, 'drag-c', { w: 520, dur: 1100 }); d.cursor(c.x, c.y, { dur: 1100 });
     d.cap('ボタンを離したところに、窓が止まります。');
     d.wait(3600);
     if (detail) {
@@ -88,22 +84,20 @@
   }
 
   function segRemember(d, detail) {
-    d.scene('drag-c.jpg'); d.cam(null, { dur: 0 }); var c = ctr('drag-c'); d.cursor(c.x, c.y, { dur: 0 });
+    d.scene('drag-c.jpg'); zoomClock(d, 'drag-c', { w: 520, dur: 0 }); var c = ctr('drag-c'); d.cursor(c.x, c.y, { dur: 0 });
     d.cap('位置は、閉じるときに自動で覚えます。\n窓の右上の「×」で、時計を閉じてみます。');
     d.wait(2800);
     var x = closeBtn('drag-c'); d.cursor(x.x, x.y, { dur: 1100 }); markClock(d, 'drag-c', '「×」で閉じる', 2800); d.wait(1500); d.click();
-    d.scene('closed.jpg');
+    d.scene('closed.jpg'); d.cam(null, { dur: 300 });
     d.cap('閉じたときの左上の位置(Left と Top)が、設定ファイルに保存されます。\n場所は %LOCALAPPDATA%\\DigitalClock\\DigitalClock.json です。\n(いまの画面は、その中身を、架空のメモ帳で開いたものです)');
     d.cursor(FW * 0.72, FH * 0.8, { dur: 600 }); d.wait(7600);
-    d.scene('restored.jpg'); d.cam(null);
+    d.scene('restored.jpg');
     d.cap('次に起動したときは、保存した位置に、そのまま出ます。\n前に動かした場所を、覚えていてくれます。');
-    zoomClock(d, 'restored', { w: 620 }); markClock(d, 'restored', '同じ場所に出る', 3600); d.wait(5600);
+    zoomClock(d, 'restored', { w: 520, dur: 600 }); markClock(d, 'restored', '同じ場所に出る', 3600); d.wait(5600);
     if (detail) {
-      d.cam(null);
       d.cap('保存した位置が、画面の外になっているとき(モニターを外したあとなど)は、見えない場所に出ないように、初期位置(左上から 100,100 の位置)から始まります。\n設定ファイルが無い・壊れているときも、同じです。');
       d.wait(9000);
     }
-    d.cam(null);
   }
 
   // ================= 台本 =================
@@ -111,7 +105,7 @@
 
   SCRIPTS.overview = function (d) {
     d.chapter('はじめに');
-    d.scene('start.jpg'); d.cam(null, { dur: 0 });
+    d.scene('start.jpg'); zoomClock(d, 'start', { w: 520, dur: 0 });
     d.cap('DigitalClock は、時刻だけを出しておく、小さなデジタル時計です。\n画面の隅に置いて、ちらっと見るための道具です。\n' + NOTE);
     markClock(d, 'start', 'この小さな窓が時計', 4200); d.wait(6500);
     d.cap('このデモでは、時刻の出かた・最前面と半透明・動かしかた・位置の記憶を、順に見ていきます。');
@@ -123,7 +117,7 @@
     d.chapter('位置を覚える'); segRemember(d, false);
 
     d.chapter('おわり');
-    d.scene('restored.jpg'); d.cam(null);
+    d.scene('restored.jpg'); zoomClock(d, 'restored', { w: 520 });
     d.cap('以上が、DigitalClock のできることです。\n時刻だけを出して、最前面・半透明で、位置も覚える、シンプルな時計です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。');
     d.wait(7000);
   };
