@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeifToPng 機能デモ</title>
+<!--
+  HeifToPng の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=convert のように機能を指定します。
+  ・実際のアプリ(Release の HeifToPng.exe)を動かして撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+    画面を1.5倍の大きさで描いて撮っていますが、アプリ本体は無改変です(撮影用の小さなランチャーで読み込んだだけ)。
+  ・変換している写真はすべて、デモ用に作った架空のイラストです(実際の写真・撮影場所・個人名は使っていません)。
+    フォルダ名(春の遠足など)もダミーで、ドライブ文字は仮想ドライブ(S:)に見立てています。
+  ・「フォルダを追加…」「ファイルを追加…」で開くWindows標準の選択画面は、PC内のフォルダ名が写るため撮っていません(字幕で説明)。
+  ・エクスプローラーからのドラッグ&ドロップも、操作の実演はせず字幕で説明しています(ソースの Window_PreviewDrop が実装)。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = window.HP_FRAME.w, FH = window.HP_FRAME.h; // 1216 x 802 (画面を1.5倍で撮った画素)
+  var DUMMY = '※ 変換している写真とフォルダ名は、すべてデモ用に作ったダミー(架空)です。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function R(k) {
+    var r = window.HP_PTS[k]; if (!r) throw new Error('座標なし: ' + k);
+    return { x: r.x, y: r.y, w: r.w, h: r.h, cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+  }
+  function U() { // 複数の要素を囲む枠
+    var x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 0; i < arguments.length; i++) { var r = R(arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function toR(d, r, o) { o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function to(d, k, o) { toR(d, R(k), o); }
+  function tap(d, k, o) { to(d, k, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる 画面と同じ縦横比 の範囲へズーム
+    o = o || {}; var pad = o.pad != null ? o.pad : 50, minW = o.minW || 640;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d) { zoomR(d, U.apply(null, Array.prototype.slice.call(arguments, 1))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 6, y: r.y - 5, w: r.w + 12, h: r.h + 10 }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, k, label, dur) { markR(d, R(k), label, dur); }
+  function start(d, k, dx, dy) { var r = R(k); d.cursor(r.cx + (dx == null ? 220 : dx), r.cy + (dy == null ? 130 : dy), { dur: 0 }); }
+  // 結果ダイアログ(実物を撮ったもの)の「OK」ボタンの位置
+  function okR(name) { var o = window.HP_DLG[name].ok; return { x: o.x, y: o.y, w: o.w, h: o.h, cx: o.x + o.w / 2, cy: o.y + o.h / 2 }; }
+  function dlgR(name) { var o = window.HP_DLG[name]; return { x: o.x, y: o.y, w: o.w, h: o.h, cx: o.x + o.w / 2, cy: o.y + o.h / 2 }; }
+  var STATUS = null; // (使わない)
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  // ---------- 変換元を追加する ----------
+  SCRIPTS.add = function (d) {
+    d.chapter('変換元の追加'); d.scene('empty.png'); start(d, 'AddFolderButton', -380, 220);
+    d.cap(DUMMY + '\nHeifToPng は、HEIF形式の写真(.heic / .heif / .hif)を、PNGにまとめて変換するツールです。\nまず、変換したい写真が入った場所を「変換元」に追加します。');
+    d.wait(6200);
+    d.cap('追加のしかたは3つあります。\n・「フォルダを追加…」\n・「ファイルを追加…」\n・エクスプローラーからのドラッグ&ドロップ');
+    markR(d, U('AddFolderButton', 'AddFileButton'), '追加ボタン', 5200); d.wait(600);
+    to(d, 'AddFolderButton', { dur: 900 }); d.wait(4800);
+    d.chapter('フォルダを追加');
+    d.cap('「フォルダを追加…」を押すと、フォルダを選ぶ画面が開きます。\nここでは、写真の入った「春の遠足」を選びます。\n(Windows標準の選択画面です。ここでは省略します)');
+    d.wait(600); d.click(); d.wait(4200);
+    d.scene('one.png', { fade: 350 });
+    d.cap('選んだフォルダが、変換元の一覧に入りました。\n「サブフォルダも含める」がオンなら、フォルダの中のフォルダにある写真もまとめて対象になります。');
+    markR(d, R('row0'), '追加された', 4200); d.wait(6200);
+    d.cap('続けて「夏のキャンプ」も追加します。\nフォルダは何個でも追加でき、同じ場所は2重に入りません。');
+    d.wait(1200); to(d, 'AddFolderButton', { dur: 700 }); d.wait(150); d.click(); d.wait(900);
+    d.scene('two.png', { fade: 350 }); markR(d, U('row0', 'row1'), '2つのフォルダ', 3800); d.wait(5200);
+    d.chapter('ファイルを追加');
+    d.cap('写真を1枚だけ変換したいときは、「ファイルを追加…」を使います。\nHEIFファイルを選ぶ画面が開き、複数のファイルを一度に選べます。');
+    to(d, 'AddFileButton', { dur: 800 }); d.wait(300); d.click(); d.wait(3800);
+    d.scene('three.png', { fade: 350 });
+    d.cap('フォルダとファイルは、一覧にまぜて入れられます。\nHEIF以外のファイルが入っていても、変換のときに自動で無視されます。');
+    markR(d, R('row2'), 'ファイルも追加できる', 4200); d.wait(6200);
+    d.chapter('ドラッグ&ドロップ');
+    d.cap('エクスプローラーから、フォルダやファイルを、このウィンドウへドラッグ&ドロップしても追加できます。\n複数まとめて落としても構いません。');
+    markR(d, R('SourceList'), 'ここへドロップ', 5200); d.wait(6200);
+    d.chapter('外す');
+    d.cap('一覧から外したいときは、行を選んで「外す」(Deleteキーでも可)を押します。\n外すのは変換元の一覧からだけで、写真のファイルは消えません。');
+    d.cam(null, { dur: 400 }); toR(d, R('row2'), { dur: 900 }); d.wait(150); d.click(); d.scene('sel.png', { fade: 150 }); d.wait(1600);
+    markR(d, R('row2'), '選んだ行', 2200); tap(d, 'RemoveSourceButton', { dur: 900 }); d.wait(300);
+    d.scene('removed.png', { fade: 250 }); d.wait(3200);
+    d.cap('「すべて外す」を押すと、一覧を空にします。');
+    tap(d, 'ClearSourceButton', { dur: 900 }); d.wait(300); d.scene('cleared.png', { fade: 250 }); d.wait(3800);
+  };
+
+  // ---------- 変換の設定 ----------
+  SCRIPTS.options = function (d) {
+    d.chapter('設定の場所'); d.scene('opt.png'); start(d, 'SubfolderCheck', 120, 160);
+    d.cap(DUMMY + '\n変換元の下に、4つの設定があります。\n変換のしかたは、ここで決めます。');
+    markR(d, U('SubfolderCheck', 'OverwriteCheck', 'TimestampCheck', 'ParallelCombo'), '4つの設定', 4800); d.wait(5600);
+    d.chapter('サブフォルダ');
+    d.cap('「サブフォルダも含める」(初期値はオン)\nオンのときは、追加したフォルダの中のフォルダも、順にたどって写真を探します。\nオフにすると、フォルダ直下の写真だけが対象です。');
+    zoomR(d, U('SourceList', 'ParallelCombo'), { minW: 900, pad: 20 }); to(d, 'SubfolderCheck', { dur: 900 }); d.wait(300); d.click();
+    mark(d, 'SubfolderCheck', 'オン', 3200); d.wait(5200);
+    d.scene('opt-nosub.png', { fade: 200 }); d.wait(500); mark(d, 'SubfolderCheck', 'オフ', 2600); d.wait(2800);
+    d.scene('opt.png', { fade: 200 });
+    d.chapter('上書き');
+    d.cap('「同じ名前のPNGがあれば上書きする」(初期値はオフ)\nオフのときは、同じ名前のPNGがすでにあるファイルを飛ばします。\n途中で中止してから、続きだけ変換したいときにも使えます。');
+    to(d, 'OverwriteCheck', { dur: 900 }); d.wait(300); d.click(); d.scene('opt-over.png', { fade: 150 });
+    mark(d, 'OverwriteCheck', 'オン', 3200); d.wait(6600);
+    d.scene('opt.png', { fade: 200 });
+    d.chapter('日時');
+    d.cap('「日時を元ファイルに合わせる」(初期値はオン)\n作ったPNGの作成日時・更新日時を、元のHEIFと同じにします。\n撮影順に並べたいとき(更新日時で並べ替えたいとき)に便利です。');
+    to(d, 'TimestampCheck', { dur: 900 }); d.wait(300); d.click(); d.scene('opt-nots.png', { fade: 150 });
+    mark(d, 'TimestampCheck', 'オフにすると、変換した時刻になる', 3600); d.wait(6600);
+    d.scene('opt.png', { fade: 200 });
+    d.chapter('並列数');
+    d.cap('「並列数」(初期値は4)\n同時に変換するファイルの数です。1・2・4・8・16から選びます。\n増やすと速くなりますが、そのぶんCPUとメモリを使います。');
+    to(d, 'ParallelCombo', { dur: 900 }); d.wait(300); d.click(); d.scene('opt-par8.png', { fade: 150 });
+    mark(d, 'ParallelCombo', '8にした例', 3200); d.wait(6600);
+    d.chapter('設定は覚えられる');
+    d.scene('opt.png', { fade: 200 }); d.cam(null, { dur: 700 });
+    d.cap('変換元の一覧と、この4つの設定は、アプリを閉じるときに保存され、次に開いたときにそのまま復元されます。\n毎回入れ直す必要はありません。');
+    markR(d, U('SourceList', 'ParallelCombo'), '次回も、そのまま', 5200); d.wait(7000);
+  };
+
+  // ---------- 一括変換と進行表示 ----------
+  SCRIPTS.convert = function (d) {
+    d.chapter('変換の前'); d.scene('conv-ready.png'); start(d, 'ConvertButton', 300, 200);
+    d.cap(DUMMY + '\n変換元を追加して設定を決めたら、「変換開始」を押すだけです。\nここでは、2つのフォルダ(サブフォルダ込みで21枚)を変換します。');
+    zoom(d, 'SourceList', 'ConvertButton'); mark(d, 'ConvertButton', '変換開始', 4200); to(d, 'ConvertButton', { dur: 1000 }); d.wait(5600);
+    d.chapter('変換中');
+    d.cap('押すと、まずHEIFファイルを探します。\n画面下の表示が「HEIFファイルを探しています…」になります。');
+    d.click(); d.cam(null, { dur: 500 }); d.scene('conv-find.png', { fade: 150 }); mark(d, 'StatusText', '探している', 3800); d.wait(5000);
+    d.cap('見つかったら、変換が始まります。\n下の進行バーが伸びて、「変換中… 1 / 21」のように、何枚目かと、いま変換中のファイルが出ます。');
+    d.scene('conv-p1.png', { fade: 150 }); zoomR(d, { x: 0, y: 740, w: FW, h: 62, cx: FW / 2, cy: 771 }, { pad: 40, minW: 760 });
+    markR(d, U('StatusText', 'WorkProgressBar'), '何枚目か', 4200); d.wait(5600);
+    d.cam(null, { dur: 700 }); d.scene('conv-p2.png', { fade: 250 });
+    d.cap('変換中は、追加・設定・「変換開始」のボタンが押せなくなり、「中止」だけが押せます。\nログには、変換を始めた時刻が出ます。');
+    d.wait(1200); markR(d, U('AddFolderButton', 'ClearSourceButton'), '押せない', 3000); markR(d, R('CancelButton'), '押せるのは中止だけ', 3000); d.wait(5200);
+    d.scene('conv-p3.png', { fade: 250 }); d.wait(2200); d.scene('conv-p4.png', { fade: 250 }); d.wait(2000);
+    d.chapter('完了');
+    d.scene('conv-done.png', { fade: 350 });
+    d.cap('全部終わると、進行バーが満タンになり、結果が出ます。\n「対象 21 件 / 変換 21 件 / スキップ 0 件 / 失敗 0 件」\n対象の数・変換できた数・飛ばした数・失敗した数です。');
+    zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, R('StatusText'), '結果', 5000); d.wait(7600);
+    d.cam(null, { dur: 700 });
+    d.cap('PNGは、元のHEIFと同じフォルダに、同じ名前(拡張子だけ .png)で作られます。\n元のファイルはそのまま残ります。');
+    markR(d, { x: 300, y: R('ConvertButton').y - 2, w: 760, h: 42 }, '', 3600); d.wait(5600);
+    d.cap('ログは、右クリックで「選んだ行をコピー」「ログを消去」ができます(Ctrl+Cでもコピーできます)。');
+    markR(d, R('LogList'), 'ログ', 4000); d.wait(5600);
+    d.chapter('撮影場所は残さない');
+    d.cap('変換したPNGには、色のプロファイルだけを引き継ぎ、EXIFの撮影位置(GPS)などのメタデータは書き出しません。\nPNGを人に渡しても、撮影場所までは伝わりません。');
+    d.wait(8200);
+  };
+
+  // ---------- 変換済みのスキップと上書き ----------
+  SCRIPTS.skip = function (d) {
+    d.chapter('もう一度変換する'); d.scene('conv-done.png'); start(d, 'ConvertButton', 300, 200);
+    d.cap(DUMMY + '\nいま変換したフォルダを、もう一度変換してみます。\n「上書き」はオフ(初期値)のままです。');
+    zoom(d, 'OverwriteCheck', 'ConvertButton'); mark(d, 'OverwriteCheck', '上書き: オフ', 4200); d.wait(5000);
+    tap(d, 'ConvertButton', { dur: 1100 }); d.wait(300); d.cam(null, { dur: 500 }); d.scene('skip-done.png', { fade: 300 });
+    d.chapter('スキップ');
+    d.cap('「変換 0 件 / スキップ(PNGあり) 21 件」\n同じ名前のPNGがすでにあるファイルは、変換せずに飛ばします。\nログには、1回目と2回目の結果が並びます。');
+    zoomR(d, R('LogList'), { pad: 20, minW: 780 }); markR(d, { x: R('LogList').x + 8, y: R('LogList').y + 12, w: 640, h: 126 }, '', 5400); d.wait(7600);
+    d.cap('写真を足したあとの変換や、途中で中止したあとの続きは、新しい分だけが変換されるので、早く終わります。');
+    d.wait(6400);
+    d.chapter('上書き');
+    d.cam(null, { dur: 500 }); d.scene('conv-done.png', { fade: 200 });
+    d.cap('変換し直したいとき(元の写真を差し替えたときなど)は、「同じ名前のPNGがあれば上書きする」をオンにします。');
+    toR(d, R('OverwriteCheck'), { dur: 1000 }); d.wait(300); d.click(); d.scene('over-ready.png', { fade: 150 });
+    mark(d, 'OverwriteCheck', 'オン', 3400); d.wait(5200);
+    tap(d, 'ConvertButton', { dur: 1000 }); d.wait(300); d.scene('over-done.png', { fade: 300 });
+    d.cap('「変換 21 件 / スキップ 0 件」\n今度は、すでにあったPNGも含めて、すべて作り直しました。');
+    zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, R('StatusText'), '全部、作り直し', 4200); d.wait(7200);
+  };
+
+  // ---------- 中止・失敗・うまくいかないとき ----------
+  SCRIPTS.trouble = function (d) {
+    d.chapter('変換元がない'); d.scene('nosrc.png'); start(d, 'ConvertButton', 320, 220);
+    d.cap(DUMMY + '\nうまくいかないときの画面を見ていきます。\nまず、変換元を追加しないまま「変換開始」を押した場合です。');
+    d.wait(5000); tap(d, 'ConvertButton', { dur: 1000 }); d.wait(200);
+    d.scene('nosrc-w.png', { fade: 150 }); zoomR(d, dlgR('nosrc'), { pad: 120, minW: 640 });
+    d.cap('「変換元のフォルダかファイルを追加してください。」と出て、変換は始まりません。');
+    d.wait(3000); toR(d, okR('nosrc'), { dur: 900 }); d.wait(200); d.click(); d.cam(null, { dur: 500 }); d.scene('nosrc.png', { fade: 150 }); d.wait(900);
+    d.chapter('HEIFがない');
+    d.scene('nofound-w.png', { fade: 250 });
+    d.cap('追加したフォルダに、HEIFファイルが1枚もなかった場合です。\n(ここでは、メモのファイルだけが入ったフォルダを追加しました)');
+    zoomR(d, dlgR('nofound'), { pad: 120, minW: 640 }); d.wait(5400);
+    d.cap('「HEIFファイル(.heic / .heif / .hif)が見つかりませんでした。」\n対象のファイルの形式も、ここで確認できます。');
+    d.wait(4400); toR(d, okR('nofound'), { dur: 900 }); d.wait(200); d.click(); d.cam(null, { dur: 500 }); d.scene('nofound.png', { fade: 150 }); d.wait(900);
+    d.chapter('壊れたファイル');
+    d.scene('fail-w.png', { fade: 250 });
+    d.cap('HEIFのふりをした壊れたファイルが混ざっていた場合です。\n(ここでは、中身がHEIFではないファイルを1つ入れています)');
+    zoomR(d, dlgR('fail'), { pad: 120, minW: 640 }); d.wait(5400);
+    d.cap('「変換 1 件 / 失敗 1 件」\n読めないファイルがあっても、ほかのファイルの変換は最後まで続けます。\n失敗したファイルは、ログに出ます。');
+    d.wait(5200); toR(d, okR('fail'), { dur: 900 }); d.wait(200); d.click(); d.cam(null, { dur: 500 }); d.scene('fail.png', { fade: 150 }); d.wait(900);
+    d.cap('ログの「失敗:」の行に、ファイル名と理由が出ます。\n「画像として読めません(ファイルが壊れているか、中身がHEIFではありません)」');
+    zoomR(d, { x: 22, y: 332, w: 900, h: 90, cx: 470, cy: 377 }, { pad: 30, minW: 800 }); markR(d, { x: 30, y: 358, w: 810, h: 32 }, '失敗の理由', 5400); d.wait(7400);
+    d.cam(null, { dur: 600 });
+    d.chapter('途中で中止');
+    d.scene('cancel-run.png', { fade: 250 });
+    d.cap('変換の途中でやめたいときは、「中止」を押します。\n(ここでは、21枚のうち、8枚目まで進んだところで押します)');
+    start(d, 'CancelButton', 250, 260); tap(d, 'CancelButton', { dur: 1200 }); d.wait(200);
+    d.scene('cancel-ing.png', { fade: 150 });
+    d.cap('「中止しています…(変換中のファイルが終わるまでお待ちください)」\n変換中の1枚が終わるのを待って止まります。書きかけのPNGは残りません。');
+    zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, R('StatusText'), '中止しています', 4200); d.wait(7000);
+    d.cam(null, { dur: 600 }); d.scene('cancel-done.png', { fade: 300 });
+    d.cap('「中止: 対象 21 件 / 変換 13 件」\n止まるまでに作ったPNGは、そのまま残ります。');
+    markR(d, R('StatusText'), '', 3600); d.wait(5800);
+    d.chapter('続きから');
+    d.cap('もう一度「変換開始」を押すと、続きから変換できます。\n作ってあるPNGは飛ばし、残りの分だけが変換されます。');
+    tap(d, 'ConvertButton', { dur: 1000 }); d.wait(300); d.scene('resume-done.png', { fade: 300 });
+    zoomR(d, R('LogList'), { pad: 20, minW: 780 }); markR(d, { x: R('LogList').x + 8, y: R('LogList').y + 12, w: 640, h: 126 }, '', 5000); d.wait(5600);
+    d.cap('「変換 8 件 / スキップ 13 件」\n中止したときの13枚はそのままで、残りの8枚だけを変換しました。');
+    d.wait(6400);
+  };
+
+  // ---------- 全体紹介 ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('empty.png'); start(d, 'AddFolderButton', -380, 220);
+    d.cap(DUMMY + '\nHeifToPng は、iPhoneなどで撮った HEIF形式の写真(.heic / .heif / .hif)を、PNGにまとめて変換するWindowsのツールです。');
+    d.wait(8400);
+    d.cap('使い方は3ステップです。\n1. 変換元(写真のあるフォルダ)を追加する\n2. 設定を確かめる\n3. 「変換開始」を押す');
+    markR(d, U('SourceList', 'AddFileButton'), '1. 変換元', 3200); d.wait(2600);
+    markR(d, U('SubfolderCheck', 'ParallelCombo'), '2. 設定', 3000); d.wait(1800);
+    markR(d, R('ConvertButton'), '3. 変換開始', 3000); d.wait(6200);
+    d.chapter('変換元を追加');
+    d.cap('「フォルダを追加…」で、写真の入ったフォルダを選びます。\nフォルダの中のフォルダにある写真もまとめて対象です。');
+    tap(d, 'AddFolderButton', { dur: 900 }); d.wait(900); d.scene('one.png', { fade: 350 }); d.wait(900);
+    markR(d, R('row0'), '追加された', 3000); d.wait(3800);
+    to(d, 'AddFolderButton', { dur: 700 }); d.wait(150); d.click(); d.wait(700); d.scene('two.png', { fade: 350 }); d.wait(1800);
+    d.cap('「ファイルを追加…」なら、写真を1枚ずつ選べます。\nエクスプローラーからのドラッグ&ドロップでも追加できます。');
+    tap(d, 'AddFileButton', { dur: 900 }); d.wait(900); d.scene('three.png', { fade: 350 }); d.wait(900);
+    markR(d, R('row2'), 'ファイルも', 3000); d.wait(4600);
+    d.scene('two.png', { fade: 250 });
+    d.chapter('設定');
+    d.scene('opt.png', { fade: 250 });
+    d.cap('設定は4つです。\n・サブフォルダも含める\n・同じ名前のPNGがあれば上書きする\n・日時を元ファイルに合わせる\n・並列数(同時に変換する数)');
+    zoomR(d, U('SourceList', 'ParallelCombo'), { minW: 900, pad: 20 }); markR(d, U('SubfolderCheck', 'ParallelCombo'), '4つの設定', 6200); d.wait(7400);
+    d.cap('初期値のままで、ほとんどの場合そのまま使えます。\n設定は、アプリを閉じるときに保存されます。');
+    d.wait(7200); d.cam(null, { dur: 600 });
+    d.chapter('変換');
+    d.scene('conv-ready.png', { fade: 250 });
+    d.cap('「変換開始」を押します。');
+    tap(d, 'ConvertButton', { dur: 1000 }); d.wait(300);
+    d.scene('conv-find.png', { fade: 150 }); d.wait(1400);
+    d.cap('まず写真を探し、見つかったら、変換が始まります。\n進行バーと「変換中… 5 / 21」で、何枚目かが分かります。');
+    d.scene('conv-p2.png', { fade: 250 }); zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, U('StatusText', 'WorkProgressBar'), '何枚目か', 4200); d.wait(5200);
+    d.cam(null, { dur: 600 }); d.scene('conv-p3.png', { fade: 250 }); d.wait(1800); d.scene('conv-p4.png', { fade: 250 }); d.wait(1600);
+    d.scene('conv-done.png', { fade: 350 });
+    d.cap('終わると、「対象 21 件 / 変換 21 件 / スキップ 0 件 / 失敗 0 件」と出ます。\nPNGは、元の写真と同じフォルダに、同じ名前で作られます。元の写真は、そのまま残ります。');
+    zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, R('StatusText'), '結果', 4200); d.wait(8200);
+    d.cam(null, { dur: 600 });
+    d.chapter('2回目以降');
+    d.cap('同じフォルダをもう一度変換すると、PNGがすでにあるものは飛ばします(スキップ)。\n新しく足した写真だけが変換されるので、早く終わります。');
+    tap(d, 'ConvertButton', { dur: 1000 }); d.wait(300); d.scene('skip-done.png', { fade: 300 });
+    zoomR(d, R('StatusText'), { pad: 40, minW: 760 }); markR(d, R('StatusText'), 'スキップ 21 件', 4200); d.wait(9500);
+    d.cam(null, { dur: 600 });
+    d.chapter('撮影場所は残さない');
+    d.cap('変換したPNGには、色のプロファイルだけを引き継ぎ、EXIFの撮影位置(GPS)などは書き出しません。\nPNGを人に渡しても、撮影場所までは伝わりません。');
+    d.scene('conv-done.png', { fade: 300 }); d.wait(9000);
+    d.chapter('途中で中止・失敗');
+    d.cap('途中でやめたいときは「中止」を押します。作ったPNGは残り、もう一度押すと、続きから変換できます。');
+    d.scene('cancel-done.png', { fade: 300 }); markR(d, R('StatusText'), '中止', 3400); d.wait(6200);
+    d.cap('壊れたファイルが混ざっていても、ほかの写真の変換は続けます。失敗したものは、ログに理由が出ます。');
+    d.scene('fail.png', { fade: 300 }); markR(d, { x: 30, y: 358, w: 810, h: 32 }, '失敗の理由', 4000); d.wait(6600);
+    d.chapter('おわり');
+    d.scene('empty.png', { fade: 300 });
+    d.cap('以上が、HeifToPng の使い方です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。');
+    d.wait(6000);
+  };
+
+  DesktopDemo.start({
+    title: 'HeifToPng 機能デモ', icon: '🖼️', back: 'index.html', backLabel: '← HeifToPng の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、HeifToPng でできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。実際のアプリの画面を動かして撮ったスクショに、カーソルと字幕を重ねています。変換している写真は、すべてデモ用に作った架空の画像です。',
+    frame: { w: FW, h: FH, title: 'HEIF→PNG 一括変換 (HeifToPng) ― ダミーの写真で動作' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', desc: '変換元を追加 → 設定 → 変換 → 2回目のスキップ → 中止・失敗まで、主な使い方をひととおり。', sec: 'まずは全体を見る', script: SCRIPTS.overview },
+      { id: 'add', icon: '📂', title: '変換元を追加する', desc: 'フォルダ・ファイルの追加、ドラッグ&ドロップ、一覧から外す。', sec: '機能ごとのデモ', script: SCRIPTS.add },
+      { id: 'options', icon: '⚙️', title: '変換の設定', desc: 'サブフォルダ・上書き・日時・並列数。設定は閉じるときに保存される。', sec: '機能ごとのデモ', script: SCRIPTS.options },
+      { id: 'convert', icon: '▶️', title: '一括変換と進行表示', desc: '「変換開始」から、進行バー・ログ・結果まで。撮影場所(GPS)はPNGに残さない。', sec: '機能ごとのデモ', script: SCRIPTS.convert },
+      { id: 'skip', icon: '⏭️', title: '変換済みのスキップと上書き', desc: '同じ名前のPNGがあれば飛ばす。変換し直したいときは上書きをオンに。', sec: '機能ごとのデモ', script: SCRIPTS.skip },
+      { id: 'trouble', icon: '🛟', title: '中止・失敗・うまくいかないとき', desc: '変換元がない・HEIFがない・壊れたファイル。途中で中止して、続きから変換する。', sec: '機能ごとのデモ', script: SCRIPTS.trouble }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
