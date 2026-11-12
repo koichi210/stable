@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>箱庭ダッシュボード 機能デモ</title>
+<!--
+  箱庭ダッシュボード(Claude Office)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=presence のように機能を指定します。
+  ・画面は、実際のアプリを動かして撮ったスクショ(demo-img/)に、カーソル・クリック・ズーム・目印・字幕を時間軸で重ねたものです。
+  ・撮影に使ったのは、架空のプロジェクト名・架空の会話・架空の使用率だけを入れた「ダミーの ~/.claude」です(本物の会話記録は使っていません)。
+  ・再生部分は ../lib/demo-player.js(Essentials共通)。座標はスクショ(1600x900)の画素です。
+  ・アプリの見た目を変えたら、スクショを撮り直してください。
+-->
+<script src="../lib/demo-player.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  // 画面を (cx, cy) 中心で幅 w ぶん映す(縦横比は16:9、はみ出さないよう寄せる)
+  function V(cx, cy, w) {
+    var h = w * 9 / 16;
+    return { x: Math.max(0, Math.min(1600 - w, cx - w / 2)), y: Math.max(0, Math.min(900 - h, cy - h / 2)), w: w, h: h };
+  }
+  var ROOM = V(690, 330, 1000); // 教室の様子
+  // 実測した位置(スクショ上)
+  var P = {
+    tagKakeibo: [387, 447], tagRecipe: [578, 463],
+    card: { kakeibo: { x: 1264, y: 96, w: 310, h: 73 }, recipe: { x: 1264, y: 176, w: 310, h: 73 }, star: { x: 1264, y: 256, w: 310, h: 73 }, garden: { x: 1264, y: 336, w: 310, h: 93 }, photo: { x: 1264, y: 436, w: 310, h: 93 }, typing: { x: 1264, y: 536, w: 310, h: 93 } },
+    bubEdit: { x: 323, y: 351, w: 128, h: 22 }, bubBash: { x: 496, y: 365, w: 154, h: 22 }, bubThink: { x: 636, y: 410, w: 97, h: 22 },
+    bubWaitA: { x: 549, y: 454, w: 115, h: 22 }, bubWaitB: { x: 702, y: 370, w: 115, h: 22 }, bubSleep: { x: 482, y: 264, w: 123, h: 22 },
+    hud: { x: 16, y: 16, w: 300, h: 275 }, acct: { x: 30, y: 156, w: 272, h: 123 }, chips: { x: 30, y: 115, w: 272, h: 20 }, gear: [282, 41],
+    side: { x: 1254, y: 16, w: 330, h: 868 }, tabHistory: [1523, 39], tabLive: [1315, 39], summary: { x: 1254, y: 640, w: 330, h: 205 },
+    search: [1419, 73], found0: [1419, 171], archive: { x: 431, y: 156, w: 76, h: 21 }, book: [449, 278],
+    timeline: { x: 16, y: 560, w: 1222, h: 324 }, tlPrev: [45, 583], tlToday: [280, 583], tlTodayB: [247, 713], tlPv: [1027, 583],
+    win: { x: 360, y: 70, w: 440, h: 560 }, winX: [775, 92], winTa: [580, 347], winSend: { x: 740, y: 386, w: 48, h: 27 }, winVsc: { x: 372, y: 280, w: 219, h: 27 },
+    modeStd: [150, 408], modeLight: [211, 408], modeUltra: [273, 408], skin: [212, 336], notify: [212, 368], settingsPanel: { x: 30, y: 289, w: 272, h: 282 },
+    fsUp: [253, 73]
+  };
+  function cap(d, text, ms) { d.cap(text); d.wait(ms); }
+
+  var FEATURES = [
+    // ================= 全体紹介 =================
+    { id: 'overview', icon: '🎬', title: '全体紹介（約2分）', sec: 'まずは全体を見る', top: true,
+      desc: '箱庭ダッシュボードでできることを、人の様子・詳細・履歴・タイムライン・スキン・動作モード・通知の順に、ひととおり見ます。',
+      script: function (d) {
+        d.chapter('はじめに'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        cap(d, '「箱庭ダッシュボード」は、Claude Code の会話を、3Dの教室の中にいる「人」として見渡せるダッシュボードです。', 5500);
+        d.mark({ x: 230, y: 100, w: 760, h: 470 }, { dur: 3800, label: '3Dの箱庭(浮島の教室)' });
+        cap(d, '開いている会話1つにつき、1人が机に座ります。いま何をしているかが、頭の上の吹き出しで分かります。\n（画面の中身は、すべて架空のプロジェクトのダミーです）', 6000);
+
+        d.chapter('在席の様子');
+        d.cam(ROOM, { dur: 900 });
+        d.mark(P.bubEdit, { dur: 3000, label: '作業中' }); d.mark(P.bubThink, { dur: 3000, label: '考え中' });
+        cap(d, 'ツールを使っているあいだは「作業中」、返事を考えているあいだは「考え中」。使っているツールと、その経過時間も出ます。', 6000);
+        d.mark(P.bubWaitB, { dur: 3000, label: '入力待ち' }); d.mark(P.bubSleep, { dur: 3000, label: 'おやすみ' });
+        cap(d, '人の返事を待っているときは「入力待ち」。30分以上そのままだと「おやすみ」になって、机で眠ります。', 6000);
+        d.cam(null, { dur: 800 });
+        d.mark(P.side, { dur: 4000, label: '在席のメンバー一覧' });
+        cap(d, '右の一覧にも、同じ顔ぶれが状態つきで並びます。「返事待ち」や「裏で作業中」のバッジも付きます。', 5500);
+
+        d.chapter('詳細を見る');
+        d.cursor(P.tagKakeibo[0], P.tagKakeibo[1], { dur: 900 }); d.click(); d.scene('detail', { fade: 500 });
+        cap(d, '人（名札）をクリックすると、カメラがその席に寄って、詳細の窓が開きます。いつ始まったか、何回依頼したか、どのツールをよく使ったかが分かります。', 7000);
+        d.cursor(P.winTa[0], P.winTa[1], { dur: 900 }); d.click(); d.scene('detail-typed', { fade: 100 });
+        d.mark(P.winSend, { dur: 3500, label: '送信' });
+        cap(d, '窓の「続きを送る」欄に書いて送ると、その会話の続きとして指示を送れます。（このデモでは送信はしていません）', 6500);
+
+        d.chapter('履歴と本棚');
+        d.cursor(P.winX[0], P.winX[1], { dur: 700 }); d.click();
+        d.cursor(P.tabHistory[0], P.tabHistory[1], { dur: 800 }); d.click(); d.scene('history', { fade: 150 });
+        cap(d, '右上の「履歴」タブには、過去の会話が日付ごとに並びます。', 4000);
+        d.cursor(P.search[0], P.search[1], { dur: 700 }); d.click(); d.scene('history-search', { fade: 150 });
+        cap(d, '検索欄に言葉を入れると、題名・依頼文・プロジェクト名などから絞り込めます。', 4500);
+        d.scene('book-tip', { fade: 150 }); d.cursor(P.book[0], P.book[1], { dur: 1000 });
+        d.mark(P.archive, { dur: 3000, label: '本棚=過去の会話' });
+        cap(d, '部屋の本棚の本も、過去の会話です。マウスを乗せると題名と日付が出て、クリックすると詳細が開きます。', 6500);
+
+        d.chapter('タイムライン');
+        d.scene('base', { fade: 200 }); d.cursor(P.tlPrev[0], P.tlPrev[1], { dur: 900 }); d.click(); d.scene('tl-prev', { fade: 250 });
+        cap(d, '下の「日別タイムライン」では、いつ、どの会話を動かしていたかが棒で分かります。◀▶で前の日・次の日へ移れます。', 6500);
+        d.cursor(P.tlTodayB[0], P.tlTodayB[1], { dur: 900 }); d.click(); d.scene('base', { fade: 300 });
+        d.cursor(P.tlPv[0], P.tlPv[1], { dur: 900 }); d.click(); d.scene('pv-night', { fade: 500 });
+        cap(d, '「時間プレビュー」を入れて時刻を動かすと、その時刻の空（朝・昼・夕方・夜）で箱庭を眺められます。', 6500);
+
+        d.chapter('スキン');
+        d.scene('settings', { fade: 250 }); d.cursor(P.gear[0], P.gear[1], { dur: 900 }); d.click();
+        d.cursor(P.skin[0], P.skin[1], { dur: 800 }); d.click();
+        cap(d, '左上の ⚙️ 設定から、スキンを変えられます。', 3500);
+        d.scene('skin-isekai', { fade: 700 }); cap(d, '🍺 冒険者の酒場。丸テーブルとステンドグラスの酒場に変わります。', 4500);
+        d.scene('skin-makai', { fade: 700 }); cap(d, '💀 魔界。溶岩のひびが走る黒い島と、魔王の館です。', 4500);
+
+        d.chapter('動作モード');
+        d.scene('mode-ultra', { fade: 400 }); d.cursor(P.modeUltra[0], P.modeUltra[1], { dur: 900 }); d.click();
+        d.mark(P.settingsPanel, { dur: 3500, label: '動作モード' });
+        cap(d, 'パソコンが重いときは、動作モードを「軽量」「超軽量」にできます。超軽量では、人はプロジェクトの色の玉になります。', 7000);
+
+        d.chapter('通知');
+        d.scene('notify', { fade: 300 }); d.cursor(P.notify[0], P.notify[1], { dur: 700 }); d.click();
+        cap(d, '「通知」の設定では、返事が終わったときに Windows の通知を出すかどうか、文面、出さない時間帯などを決められます。', 7000);
+
+        d.chapter('おわり'); d.scene('base', { fade: 400 }); d.cursor(800, 480, { dur: 900 });
+        cap(d, '以上が、箱庭ダッシュボードの主な機能です。\n気になる機能は、「機能一覧」から1本ずつ見られます。', 6000);
+      } },
+
+    // ================= いま何をしているか =================
+    { id: 'presence', icon: '🧑‍💻', title: '人の様子を見る', sec: '機能ごとのデモ',
+      desc: '開いている会話が、机に座った「人」になります。作業中・考え中・入力待ち・おやすみと、裏で作業中などのバッジを、吹き出しと一覧で見分けます。',
+      script: function (d) {
+        d.chapter('机に座る人'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        cap(d, '開いている Claude Code の会話1つにつき、1人が教室の机に座ります。\n人の頭の上の吹き出しが、いまの様子です。', 5500);
+        d.cam(ROOM, { dur: 900 });
+        d.chapter('作業中');
+        d.mark(P.bubEdit, { dur: 3500, label: '✏️ 作業中' }); d.mark(P.bubBash, { dur: 3500, label: '💻 作業中' });
+        cap(d, 'ファイルを書き換えたり、コマンドを動かしたり、ツールを使っているあいだは「作業中」です。吹き出しには、使っているツールと経過時間が出ます。', 7000);
+        d.chapter('考え中');
+        d.mark(P.bubThink, { dur: 3500, label: '💭 考え中' });
+        cap(d, 'ツールの結果を受け取って、次に何をするか考えているあいだは「考え中」です。', 5000);
+        d.chapter('入力待ち');
+        d.mark(P.bubWaitA, { dur: 3500, label: '✋ 入力待ち' }); d.mark(P.bubWaitB, { dur: 3500 });
+        cap(d, '返事を書き終えて、人の次の指示を待っているときは「入力待ち」です。待っている時間も出ます。', 5500);
+        d.chapter('おやすみ');
+        d.mark(P.bubSleep, { dur: 3500, label: '💤 おやすみ' });
+        cap(d, '入力待ちのまま30分以上たつと、「おやすみ」になって、机で眠ります。', 5000);
+        d.cam(null, { dur: 800 });
+        d.chapter('一覧のバッジ');
+        d.mark(P.card.garden, { dur: 3500, label: '❓ 返事待ち' });
+        cap(d, '右の一覧では、最後が質問で終わっている会話に「❓ 返事待ち」のバッジが付きます。', 5000);
+        d.mark(P.card.photo, { dur: 3500, label: '⏳ 裏で作業中' });
+        cap(d, '裏でコマンドや別の作業を動かしている会話や、あとで再開する予約のある会話には、「⏳ 裏で作業中」と、その時刻が出ます。', 6500);
+        d.mark(P.card.typing, { dur: 3500, label: '✅ 完了' });
+        cap(d, '終わっている会話は「✅ 完了」です。どの会話に自分の返事が要るのかが、ひと目で分かります。', 5500);
+      } },
+
+    // ================= 詳細の窓 =================
+    { id: 'detail', icon: '🔍', title: '会話の詳細と続きを送る', sec: '機能ごとのデモ',
+      desc: '人をクリックして詳細の窓を開き、開始時刻・依頼の回数・よく使ったツール・アクティビティを見ます。「続きを送る」欄の使い方も紹介します。',
+      script: function (d) {
+        d.chapter('人をクリック'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        cap(d, '部屋の人の名札、または右の一覧をクリックすると、その会話の詳細が開きます。', 4500);
+        d.cursor(P.tagKakeibo[0], P.tagKakeibo[1], { dur: 1000 }); d.click(); d.scene('zoom-working', { fade: 600 });
+        cap(d, 'カメラがその人の席へ寄って、詳細の窓が開きます。', 3800);
+        d.scene('detail', { fade: 400 });
+        d.chapter('詳細の中身');
+        d.mark({ x: 372, y: 127, w: 416, h: 44 }, { dur: 3500, label: 'プロジェクト・ブランチ・状態' });
+        cap(d, '上には、プロジェクト名、ブランチ、使っているモデル、いまの状態が並びます。', 5000);
+        d.mark({ x: 372, y: 179, w: 416, h: 93 }, { dur: 3500, label: '開始・最終・回数' });
+        cap(d, 'その下に、開始と最終の時刻、依頼とツールを使った回数、実際に動いていた時間が出ます。', 5500);
+        d.chapter('続きを送る');
+        d.cursor(P.winTa[0], P.winTa[1], { dur: 1000 }); d.click(); d.scene('detail-typed', { fade: 100 });
+        cap(d, '「続きを送る」欄に書いて、「送信」を押すか Ctrl+Enter で、この会話の続きとして指示を送れます。\n（このデモでは、実際には送信していません）', 7500);
+        d.mark(P.winSend, { dur: 3000, label: '送信' });
+        d.mark(P.winVsc, { dur: 3000, label: 'VSCodeで開く' }); d.wait(3200);
+        cap(d, '「VSCode の Claude Code で開く」を押すと、その会話を VSCode で開き直せます。', 5000);
+        d.chapter('アクティビティ');
+        d.scene('detail-scroll', { fade: 150 });
+        d.mark({ x: 372, y: 520, w: 416, h: 100 }, { dur: 3500, label: '時系列のアクティビティ' });
+        cap(d, '窓を下へ送ると、よく使ったツールの棒グラフと、依頼・ツール使用・返事が新しい順に並ぶ「アクティビティ」が見られます。', 7000);
+        d.cursor(P.winX[0], P.winX[1], { dur: 900 }); d.click();
+        cap(d, '右上の ✕ で窓を閉じます。窓は何枚でも同時に開けます。', 4000);
+      } },
+
+    // ================= 履歴・検索・本棚 =================
+    { id: 'history', icon: '📚', title: '過去の会話を探す', sec: '機能ごとのデモ',
+      desc: '「履歴」タブで過去の会話を日付ごとに眺めて、言葉で絞り込みます。部屋の本棚の本からも開けます。',
+      script: function (d) {
+        d.chapter('履歴タブ'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        cap(d, '右上の「履歴」タブを押すと、これまでの会話が日付ごとに並びます。', 4500);
+        d.cursor(P.tabHistory[0], P.tabHistory[1], { dur: 1000 }); d.click(); d.scene('history', { fade: 150 });
+        d.mark({ x: 1264, y: 138, w: 310, h: 300 }, { dur: 3500, label: '今日・昨日・日付ごと' });
+        cap(d, '今日・昨日・それ以前、と日付ごとに分かれて、新しい順に並びます。🟢 は、いま開いている会話です。', 6500);
+        d.chapter('検索');
+        d.cursor(P.search[0], P.search[1], { dur: 900 }); d.click(); d.scene('history-search', { fade: 150 });
+        cap(d, '検索欄に言葉を入れると、会話の題名・依頼文・プロジェクト名などから絞り込めます。ここでは「レシピ」と入れています。', 6000);
+        d.mark({ x: 1264, y: 59, w: 310, h: 66 }, { dur: 3000, label: '検索・プロジェクトで絞り込み' });
+        cap(d, 'その下のプルダウンで、プロジェクトごとに絞ることもできます。', 4500);
+        d.chapter('詳細を開く');
+        d.cursor(P.found0[0], P.found0[1], { dur: 900 }); d.click(); d.scene('history-detail', { fade: 400 });
+        cap(d, '見つかった会話をクリックすると、詳細の窓が開きます。', 4500);
+        d.chapter('本棚');
+        d.cursor(P.winX[0], P.winX[1], { dur: 800 }); d.click(); d.scene('book-tip', { fade: 200 });
+        d.mark(P.archive, { dur: 3500, label: '本棚＝過去の会話' });
+        d.cursor(P.book[0], P.book[1], { dur: 1100 });
+        cap(d, '部屋の奥の本棚にある本も、過去の会話です。本にマウスを乗せると、題名・プロジェクト・日付が出ます。', 6500);
+        d.click(); d.scene('book-detail', { fade: 500 });
+        cap(d, '本をクリックすると、その日付へタイムラインが移って、詳細が開きます。終わった会話なので、状態は「終了」です。', 7000);
+      } },
+
+    // ================= 日別タイムライン =================
+    { id: 'timeline', icon: '🗓️', title: '日別タイムラインと時間プレビュー', sec: '機能ごとのデモ',
+      desc: '下のタイムラインで、いつ・どの会話を動かしていたかを日別に見ます。時間プレビューで、朝・夕方・夜の箱庭も眺められます。',
+      script: function (d) {
+        d.chapter('今日のタイムライン'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        d.mark(P.timeline, { dur: 4200, label: '日別タイムライン' });
+        cap(d, '画面の下は「日別タイムライン」です。横軸が時刻で、会話ごとの稼働が棒で並びます。赤い縦線が、いまの時刻です。', 7000);
+        d.mark(P.summary, { dur: 3800, label: '今日のまとめ' });
+        cap(d, '右の「今日のまとめ」には、その日の会話数・依頼数・ツールの回数・稼働時間と、よく使ったツールが出ます。', 6000);
+        d.chapter('日付を動かす');
+        d.cursor(P.tlPrev[0], P.tlPrev[1], { dur: 1000 }); d.click(); d.scene('tl-prev', { fade: 300 });
+        cap(d, '◀ を押すと前の日へ。タイムラインも、右の「まとめ」も、その日のものに変わります。', 5500);
+        d.cursor(P.tlTodayB[0], P.tlTodayB[1], { dur: 900 }); d.click(); d.scene('base', { fade: 300 });
+        cap(d, '「今日」を押すと、今日に戻ります。', 3500);
+        d.chapter('時間プレビュー');
+        d.cursor(P.tlPv[0], P.tlPv[1], { dur: 900 }); d.click(); d.scene('pv-morning', { fade: 500 });
+        d.mark({ x: 1021, y: 570, w: 170, h: 28 }, { dur: 3500, label: '時刻のスライダー' });
+        cap(d, '「時間プレビュー」にチェックを入れて、スライダーを動かすと、その時刻の空で箱庭が見られます。これは朝7時です。', 7000);
+        d.scene('pv-evening', { fade: 700 });
+        cap(d, '18時半。夕焼けの空になります。', 3800);
+        d.scene('pv-night', { fade: 700 });
+        d.mark({ x: 30, y: 115, w: 272, h: 45 }, { dur: 3500, label: '表示中の時刻' });
+        cap(d, '22時。夜の空になって、箱庭が暗くなります。左上には、どの時刻を表示しているかが出ます。', 6500);
+      } },
+
+    // ================= 使用率と今日のまとめ =================
+    { id: 'usage', icon: '📊', title: '使用率と文字サイズ', sec: '機能ごとのデモ',
+      desc: '左上で、時計・在席の人数・使用率（5時間／週）とリセットまでの残り時間を確認します。文字の大きさも変えられます。',
+      script: function (d) {
+        d.chapter('左上のパネル'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        d.cam(V(166, 150, 560), { dur: 1000 });
+        d.mark({ x: 30, y: 59, w: 272, h: 70 }, { dur: 3500, label: '時計・日付' });
+        cap(d, '左上のパネルには、時計と日付、いまの時間帯（朝・昼・夕方・夜）が出ます。', 6500);
+        d.mark(P.chips, { dur: 3500, label: '在席・稼働の人数' });
+        cap(d, '「6人在席・3人稼働」は、いま開いている会話の数と、そのうち作業中の数です。人数は、会話が増えたり終わったりすると、すぐに変わります。', 7500);
+        d.chapter('使用率');
+        d.mark(P.acct, { dur: 4500, label: '使用率' });
+        cap(d, 'その下は、アカウントの使用率です。「5h」は5時間ごとの枠、「週」は1週間の枠で、使った割合と、リセットまでの残り時間が出ます。\n（数字はダミーです）', 9500);
+        d.cam(null, { dur: 900 });
+        d.chapter('文字サイズ');
+        d.cursor(P.fsUp[0], P.fsUp[1], { dur: 900 }); d.click(); d.scene('font-up', { fade: 400 }); d.cursor(325, 82, { dur: 700 }); d.click();
+        cap(d, '右の大きい「A」を押すと、パネルの文字が大きくなります。小さい「A」で小さくできます。画面が大きいときや、離れて見るときに便利です。', 7500);
+      } },
+
+    // ================= スキン =================
+    { id: 'skins', icon: '🎨', title: 'スキン（教室・酒場・魔界）', sec: '機能ごとのデモ',
+      desc: '設定から、箱庭の見た目を「教室」「冒険者の酒場」「魔界」に切り替えます。',
+      script: function (d) {
+        d.chapter('設定を開く'); d.scene('base'); d.cursor(800, 480, { dur: 0 });
+        d.cursor(P.gear[0], P.gear[1], { dur: 1000 }); d.click(); d.scene('settings', { fade: 200 });
+        d.mark(P.settingsPanel, { dur: 3500, label: '設定パネル' });
+        cap(d, '左上の ⚙️ を押すと、設定パネルが開きます。', 4500);
+        d.chapter('スキンを選ぶ');
+        d.cursor(P.skin[0], P.skin[1], { dur: 900 }); d.click();
+        d.mark({ x: 121, y: 323, w: 182, h: 27 }, { dur: 3500, label: 'スキン' });
+        cap(d, '「スキン」のプルダウンから、箱庭の見た目を選べます。いまは「🏫 教室」です。', 5500);
+        d.scene('skin-isekai', { fade: 800 });
+        cap(d, '🍺 冒険者の酒場。ステンドグラスと酒瓶の棚、丸テーブルの酒場になります。席のメンバーも、猫耳やエルフなどの冒険者の姿に変わります。', 8000);
+        d.scene('skin-makai', { fade: 800 });
+        cap(d, '💀 魔界。溶岩のひびが走る黒い島と、魔王の館です。', 6000);
+        d.chapter('もとに戻す');
+        d.scene('settings', { fade: 800 });
+        cap(d, 'プルダウンで「教室」を選べば、もとの見た目に戻ります。選んだスキンはブラウザが覚えているので、次に開いたときも同じです。', 6500);
+      } },
+
+    // ================= 動作モード =================
+    { id: 'modes', icon: '⚡', title: '動作モード（標準・軽量・超軽量）', sec: '機能ごとのデモ',
+      desc: 'パソコンが重いときに、エフェクトや影を減らす「軽量」「超軽量」へ切り替えます。',
+      script: function (d) {
+        d.chapter('標準'); d.scene('settings'); d.cursor(P.gear[0], P.gear[1], { dur: 0 });
+        d.cursor(P.modeStd[0], P.modeStd[1], { dur: 1000 });
+        d.mark({ x: 121, y: 387, w: 182, h: 42 }, { dur: 3500, label: '動作モード' });
+        cap(d, '設定パネルの「動作」では、箱庭の描き方を3段階から選べます。いちばん左の「☀️ 標準」は、エフェクトも影もある、ふだんの見た目です。', 8000);
+        d.chapter('軽量');
+        d.cursor(P.modeLight[0], P.modeLight[1], { dur: 900 }); d.click(); d.scene('mode-light', { fade: 400 });
+        cap(d, '「🍃 軽量」は、きらきらなどの演出と影を止めます。見た目はほぼそのままで、パソコンの負担が軽くなります。', 7000);
+        d.chapter('超軽量');
+        d.cursor(P.modeUltra[0], P.modeUltra[1], { dur: 900 }); d.click(); d.scene('mode-ultra', { fade: 400 });
+        cap(d, '「🪶 超軽量」は、壁・時計・人の玉だけを描きます。人はプロジェクトの色の玉になりますが、吹き出しと一覧はそのままなので、状況は確認できます。', 8500);
+        d.chapter('細かい設定');
+        d.mark({ x: 30, y: 435, w: 272, h: 135 }, { dur: 4000, label: '細かく設定' });
+        cap(d, 'その下の「細かく設定」で、エフェクト・フレームレート(60/30 fps)・影・画質を1つずつ変えることもできます。', 6500);
+        d.chapter('標準に戻す');
+        d.cursor(P.modeStd[0], P.modeStd[1], { dur: 900 }); d.click(); d.scene('mode-standard', { fade: 400 });
+        cap(d, '「標準」を押せば、もとに戻ります。', 4000);
+      } },
+
+    // ================= 通知 =================
+    { id: 'notify', icon: '🔔', title: '通知の設定', sec: '機能ごとのデモ',
+      desc: '返事が終わったときに出す Windows 通知の、文面・表示時間・出さない時間帯などを決めます。',
+      script: function (d) {
+        d.chapter('設定画面を開く'); d.scene('settings'); d.cursor(P.gear[0], P.gear[1], { dur: 0 });
+        d.cursor(P.notify[0], P.notify[1], { dur: 1000 }); d.click(); d.scene('notify', { fade: 300 });
+        cap(d, '設定パネルの「通知」から「設定画面を開く」を押すと、通知の設定が開きます。', 5000);
+        d.chapter('通知する場面');
+        d.mark({ x: 583, y: 301, w: 434, h: 130 }, { dur: 4500, label: '通知する場面と文面' });
+        cap(d, '返事が終わったときに通知を出すかどうかを、「完了したとき」と「質問で終わったとき」に分けて選べます。通知の文面も、自由に書き換えられます。', 8000);
+        cap(d, '文面の {name} は会話の名前、{title} はタイトルに置き換わります。', 4500);
+        d.chapter('表示時間・時間帯');
+        d.mark({ x: 583, y: 435, w: 434, h: 95 }, { dur: 4500, label: '表示時間・音・時間帯・重複' });
+        cap(d, '表示時間（短め／長め／閉じるまで）や音、夜中など通知を出さない時間帯、同じ内容を何分間は出さないか、も決められます。', 8000);
+        d.chapter('Stopフック');
+        d.mark({ x: 583, y: 575, w: 434, h: 34 }, { dur: 4000, label: 'Stopフック' });
+        cap(d, '通知を出すには、Claude Code の設定（Stop フック）に、ここに書かれた1行を足します。足すと、返事が終わるたびに箱庭へ知らせが届きます。', 8500);
+        d.chapter('保存');
+        d.cursor(936, 553, { dur: 1000 });
+        cap(d, '「テスト」で出し方を確かめてから、「保存」を押します。（このデモでは、保存もテストもしていません）', 6000);
+      } }
+  ];
+
+  DesktopDemo.start({
+    title: '箱庭ダッシュボード 機能デモ', icon: '🏰', back: 'index.html', backLabel: '← 箱庭ダッシュボードの図解にもどる',
+    lead: '最初に全体紹介（約2分）を見ると、できることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ（30秒〜1分ほど）で見られます。実際のアプリを動かして撮った画面に、カーソルの動きと字幕を重ねています。画面の中身（プロジェクト名・会話・使用率）は、すべて架空のダミーです。',
+    frame: { w: 1600, h: 900, title: 'Claude Office（ダミーデータ）' }, imgBase: 'demo-img/',
+    // 台本では画像を拡張子なしの名前(base など)で書く。ここで .jpg を足す
+    features: FEATURES.map(function (f) {
+      var body = f.script;
+      f.script = function (d) {
+        var sc = d.scene, om = d.mark, ow = d.wait, pend = [];
+        d.scene = function (n, o) { sc(n + '.jpg', o); };
+        // 目印は、そのあとに続く字幕(wait)が終わるまで出しておく
+        d.mark = function (r, o) { pend.push([r, o]); };
+        d.wait = function (ms) { pend.forEach(function (p) { om(p[0], { label: p[1] && p[1].label, dur: Math.max(1500, ms - 300) }); }); pend = []; ow(ms); };
+        body(d);
+      };
+      return f;
+    })
+  });
+})();
+</script>
+</body>
+</html>
