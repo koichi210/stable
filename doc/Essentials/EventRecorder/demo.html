@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EventRecorder 機能デモ</title>
+<!--
+  EventRecorder の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=record のように機能を指定します。
+  ・画面は、実際の EventRecorder.exe を「テスト用の起動」(グローバルフック無し・SendInput無し)で動かして撮ったスクショです。
+    このPCのキーボード・マウスには一切作用していません。記録・再生の「実行中の画面」は、同じ画面の状態(ボタンの表示・黄色い行など)を作って撮っています。
+  ・ファイル名・座標・メモは、すべてデモ用に作ったダミーです(実際のマクロ・設定は使っていません)。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = window.ER_FRAME.w, FH = window.ER_FRAME.h;
+  var DUMMY = '※ 画面の中身(ファイル名・座標・メモ)は、すべてデモ用のダミーです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) {
+    var a = window.ER_PTS[s + ':' + k];
+    if (!a) throw new Error('座標なし: ' + s + ':' + k);
+    return { x: a[0], y: a[1], w: a[2], h: a[3], cx: a[0] + a[2] / 2, cy: a[1] + a[3] / 2 };
+  }
+  function U() { // 複数の要素を囲む矩形(s, k1, k2, ...)
+    var s = arguments[0], x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 1; i < arguments.length; i++) { var r = P(s, arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function at(d, x, y, o) { d.cursor(x, y, o); }
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(120); d.click(); }
+  function tapXY(d, x, y, o) { d.cursor(x, y, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる(画面と同じ縦横比の)範囲へズーム
+    o = o || {}; var pad = o.pad != null ? o.pad : 50, minW = o.minW || 760;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d, s) { zoomR(d, U.apply(null, [s].concat(Array.prototype.slice.call(arguments, 2)))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 6, y: r.y - 5, w: r.w + 12, h: r.h + 10 }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  // 字幕を出して、読める長さだけ待つ
+  function say(d, text, extra) { d.cap(text); d.wait(Math.max(2600, text.replace(/\n/g, '').length * 112) + (extra || 0)); }
+  function start(d, s, k, dx, dy) { var r = P(s, k); d.cursor(r.cx + (dx || 300), r.cy + (dy || 160), { dur: 0 }); }
+  // メニュー・ダイアログ内の位置(スクショ上の画素)
+  function menuItem(s, off) { var m = P(s, 'menu'); return { x: m.x + m.w * 0.35, y: m.y + off }; }
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  // ---------- 全体紹介(約2分) ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('main.jpg'); start(d, 'main', 'button_record');
+    say(d, DUMMY + '\nEventRecorder は、マウスのクリック・ホイールとキー入力を「記録」して、あとから同じ操作を「自動で再生」するツールです。', 1800);
+    say(d, '毎日同じ手順でアプリを操作するような、単調な繰り返し作業を自動にするために使います。\nこのデモでは、主な機能を2分ほどで、ひととおり紹介します。');
+
+    d.chapter('画面の見かた');
+    say(d, '画面は、左が「レコード」(記録した操作の表)、右が「プレイバック」(再生するファイルの一覧)です。');
+    mark(d, 'main', 'group_record', 'レコード(記録した操作)', 3600); d.wait(2000);
+    mark(d, 'main', 'group_playback', 'プレイバック(再生するファイル)', 3600); d.wait(2000);
+    say(d, '上のラジオボタンで、「今どちらを使うか」を切り替えます。使わない側の枠は薄く見えます。');
+    mark(d, 'main', 'radio_record', '', 3000); to(d, 'main', 'radio_record'); d.wait(1500); mark(d, 'main', 'radio_playback', '', 2400); to(d, 'main', 'radio_playback'); d.wait(1500);
+
+    d.chapter('記録する');
+    d.scene('rec-empty.jpg'); start(d, 'rec-empty', 'button_record');
+    say(d, '操作を記録するには、「記録」ボタンを押すか、ホットキー(既定は F1)を押します。');
+    tap(d, 'rec-empty', 'button_record'); d.scene('rec-start.jpg'); d.wait(1200);
+    say(d, '記録が始まると、ボタンは「記録中…」に変わります。マウスのクリックやキー入力をすると、表に1行ずつ追加されます。');
+    d.scene('rec-b.jpg'); d.wait(500); markR(d, P('rec-b', 'ev10'), '最新の行は黄色', 3800); d.wait(1800);
+    say(d, '操作と操作の間の時間は、WAIT_MS という行が自動で入ります。マウスの移動は記録せず、クリックだけを記録します。');
+    d.scene('rec-c.jpg'); d.key('F1'); d.wait(300); d.scene('rec-stop.jpg'); d.wait(1400);
+
+    d.chapter('編集する');
+    d.scene('edit-sel.jpg'); to(d, 'edit-sel', 'ev1_1', { dur: 900 });
+    say(d, '記録した内容は、あとから直せます。Detail の値(座標やキー)を直接書き換えると、再生にそのまま反映されます。');
+    d.scene('edit-done.jpg'); markR(d, U('edit-done', 'ev1_1', 'ev1_2'), '書き換えた', 3000); d.wait(800);
+    d.scene('edit-menu.jpg'); to(d, 'edit-menu', 'ev3_1'); d.wait(500);
+    say(d, '右クリックすると、行の追加・削除や、WAIT 時間のまとめて変更ができます。');
+    d.scene('find-dialog.jpg'); d.key('Ctrl+F', { dur: 700 });
+    say(d, 'Ctrl+F の検索と、Ctrl+H の置換も使えます。ヒットした行が一覧で出ます。');
+
+    d.chapter('保存と読み込み');
+    d.scene('save-done.jpg'); start(d, 'save-done', 'button_save', -300, -250);
+    say(d, '「プロファイル保存」(Ctrl+S)で、記録・ループ数・プレイリストなどが1つのファイルに保存されます。');
+    tap(d, 'save-done', 'button_save'); d.wait(500);
+    d.scene('combo-open.jpg'); mark(d, 'combo-open', 'combo_profile', '', 2500);
+    say(d, '下のプルダウンで、保存したファイルを選ぶと、その内容に切り替わります。');
+
+    d.chapter('再生する');
+    d.scene('play-ready.jpg'); to(d, 'play-ready', 'textbox_loop');
+    say(d, '「ループ数」を決めて、「再生」を押すかホットキー(既定は変換キー)を押すと、記録した操作が自動で再生されます。');
+    tap(d, 'play-ready', 'button_play'); d.scene('play-1.jpg'); d.wait(900);
+    d.scene('play-2.jpg'); d.wait(900);
+    say(d, '再生中は、実行中の行が黄色になり、ボタンは「停止」に変わります。もう一度押すと、いつでも止められます。');
+
+    d.chapter('プレイリスト');
+    d.scene('pl-main.jpg'); to(d, 'pl-main', 'group_playback', { dur: 800 });
+    say(d, '右の「プレイバック」には、複数のファイルを並べて、順番に再生できます。\n実行するファイルにチェックを入れ、ファイルごとにループ数も決められます。');
+    markR(d, P('pl-main', 'pl3_1'), 'ファイルが見つからない行はピンク', 3600);
+    d.scene('pl-run.jpg'); d.wait(500);
+    say(d, '再生中は、いま動いているファイルが黄色になり、下に進み具合が出ます。');
+
+    d.chapter('ホットキー');
+    d.scene('hotkey.jpg');
+    say(d, '記録と再生のホットキーは、設定画面で好きなキーに変えられます。\n画面ロックやユーザー切り替えをすると、記録・再生は自動で止まります。');
+
+    d.chapter('おわり');
+    d.scene('main.jpg'); d.cam(null);
+    say(d, '以上が EventRecorder の主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。', 1500);
+  };
+
+  // ---------- 画面の見かた ----------
+  SCRIPTS.layout = function (d) {
+    d.chapter('全体'); d.scene('main.jpg'); start(d, 'main', 'button_record');
+    say(d, DUMMY + '\nEventRecorder の画面は、大きく4つの部分に分かれています。');
+    d.chapter('モード');
+    markR(d, U('main', 'radio_record', 'radio_playback'), 'モード切り替え', 4500); to(d, 'main', 'radio_record');
+    say(d, '一番上のラジオボタンで、今のモードを選びます。\n「レコード」は、左の記録データを再生します。「プレイバック」は、右のプレイリストを上から順に再生します。');
+    d.chapter('レコード表');
+    zoom(d, 'main', 'group_record'); mark(d, 'main', 'grid_events', '', 5200); to(d, 'main', 'grid_events', { dy: -230 });
+    say(d, '左の表が、記録した操作です。\nEvent=操作の種類、Detail=座標やキー(WAIT_MS の行は待つ時間)、備考=自由なメモです。', 1200);
+    markR(d, U('main', 'button_record', 'button_clear'), '記録 / クリア', 3600); to(d, 'main', 'button_record');
+    say(d, '「記録」で記録を始め・止め、「クリア」で表を空にします。');
+    d.chapter('プレイリスト表'); d.cam(null);
+    zoom(d, 'main', 'group_playback'); mark(d, 'main', 'grid_playlist', '', 5200); to(d, 'main', 'grid_playlist', { dy: -200 });
+    say(d, '右の表が、プレイリストです。\n「実行」にチェックしたファイルだけを、「プレイリスト」の欄に出ている順に、「ループ数」の回数ずつ再生します。', 1200);
+    d.chapter('下の段'); d.cam(null);
+    markR(d, U('main', 'textbox_loop', 'button_play', 'check_min'), 'ループ数・再生・最小化', 4200); to(d, 'main', 'button_play');
+    say(d, '「ループ数」で何回くり返すか、「再生」で開始・停止します。\n「実行時にウィンドウを最小化する」にチェックすると、再生中はこの画面が邪魔になりません。', 800);
+    markR(d, U('main', 'combo_profile', 'button_save'), 'プロファイル', 4200); to(d, 'main', 'combo_profile', { dx: -300 });
+    say(d, '一番下は「プロファイル」です。記録データ・ループ数・プレイリスト・モードを、まとめて1つのファイルに保存・読み込みします。');
+  };
+
+  // ---------- 記録する ----------
+  SCRIPTS.record = function (d) {
+    d.chapter('記録を始める'); d.scene('main.jpg'); start(d, 'main', 'button_clear');
+    say(d, DUMMY + '\n操作を記録します。まず「クリア」で表を空にします。\n(記録は、今ある行の後ろに追記されます。)');
+    tap(d, 'main', 'button_clear'); d.scene('rec-empty.jpg'); d.wait(1200);
+    say(d, '「記録」ボタンを押します。ホットキー(既定は F1)でも始められます。\nボタンで止めると、そのクリックも記録に入ってしまうため、ホットキーがおすすめです。');
+    tap(d, 'rec-empty', 'button_record', { dur: 900 }); d.scene('rec-start.jpg'); d.wait(600);
+    mark(d, 'rec-start', 'button_record', '記録中…', 3200);
+    say(d, 'ボタンが「記録中…」に変わりました。この間は、プルダウンも選べなくなります。');
+    d.chapter('記録される内容');
+    d.cap('マウスをクリックしてみます。クリックした座標が1行ずつ入ります。');
+    d.scene('rec-a.jpg', { fade: 300 }); d.wait(1000); markR(d, U('rec-a', 'ev1', 'ev2'), 'クリックと座標', 3600); d.wait(3000);
+    d.cap('キーを押すと、キーの名前が入ります。押したときが KEY_DOWN、離したときが KEY_UP です。');
+    d.scene('rec-b.jpg', { fade: 300 }); d.wait(900); markR(d, P('rec-b', 'ev4'), '', 3000); markR(d, P('rec-b', 'ev6'), '', 3000); d.wait(3600);
+    d.cap('操作と操作のあいだは、WAIT_MS の行が自動で入ります。再生のときも、この間隔のまま動きます。');
+    markR(d, U('rec-b', 'ev3'), 'WAIT_MS', 3000); d.wait(3800);
+    d.cap('いちばん新しい行は、薄い黄色になります。行が増えたら、自動でスクロールします。');
+    d.scene('rec-c.jpg', { fade: 300 }); d.wait(600); markR(d, P('rec-c', 'ev16'), '最新の行', 3200); d.wait(3600);
+    d.cap('ホイールを回すと、WHEEL_DOWN などの行が入ります。マウスの移動そのものは記録しません。');
+    d.wait(3800);
+    d.chapter('止める');
+    d.cap('もう一度 F1 を押すと、記録が止まります。');
+    d.key('F1', { dur: 800 }); d.scene('rec-stop.jpg'); d.wait(600); mark(d, 'rec-stop', 'button_record', '記録', 2600); d.wait(1800);
+    say(d, '止めると、ボタンは「記録」に戻ります。ホットキーの F1 自体は、記録データには入りません。');
+  };
+
+  // ---------- 記録を編集する ----------
+  SCRIPTS.edit = function (d) {
+    d.chapter('値を書き換える'); d.scene('edit-0.jpg'); start(d, 'edit-0', 'button_play', 400, -300);
+    say(d, DUMMY + '\n記録したあとから、内容を直せます。クリックの座標を直してみます。');
+    tap(d, 'edit-0', 'ev1_1', { dur: 900 }); d.scene('edit-sel.jpg'); d.wait(500);
+    mark(d, 'edit-sel', 'ev1_1', 'Detail', 3000);
+    say(d, 'Detail の欄をクリックして、値を直接書き換えます。マウスは「X:座標 Y:座標」、キーは「Key:名前」の形です。');
+    d.key('X:400 Y:260 と入力 → Enter', { dur: 900 }); d.scene('edit-done.jpg'); d.wait(500);
+    markR(d, U('edit-done', 'ev1_1', 'ev2_1'), '書き換えた', 3400);
+    say(d, 'クリックの行(LEFT_DOWN)を直すと、対になる LEFT_UP の座標も一緒に直ります。備考には、あとで見返すためのメモも書けます。', 400);
+    d.chapter('右クリックの操作');
+    to(d, 'edit-done', 'ev3_1', { dur: 900 }); d.wait(300); d.scene('edit-menu.jpg', { fade: 120 });
+    markR(d, P('edit-menu', 'menu'), '右クリックメニュー', 5200);
+    say(d, '行の上で右クリックすると、メニューが出ます。\n「行の追加」「行の削除」と、「WAIT時間を一括変更」です。KEY_DOWN の行を消すと、対になる KEY_UP の行も一緒に消えます。', 600);
+    d.chapter('WAIT 時間をまとめて変更');
+    var it = menuItem('edit-menu', 128); tapXY(d, it.x, it.y, { dur: 800 }); d.wait(300);
+    d.scene('edit-bulk.jpg', { fade: 140 });
+    say(d, '「WAIT時間を一括変更」を選ぶと、この画面が開きます。\n対象のイベント名(例: LEFT_DOWN)と、変更後の時間(ミリ秒)を入れます。');
+    markR(d, { x: 356, y: 360, w: 410, h: 62 }, '', 3000); markR(d, { x: 356, y: 358, w: 210, h: 56 }, '', 1); d.wait(200);
+    tapXY(d, 992, 441, { dur: 1000 }); d.wait(200); d.scene('edit-bulk-done.jpg', { fade: 140 });
+    markR(d, P('edit-bulk-done', 'ev0'), '500ms に変わった', 3600);
+    say(d, 'LEFT_DOWN の「直前の WAIT_MS 行」が、すべて指定した時間に変わります。\n再生を速くしたい・ゆっくりにしたいときに便利です。');
+  };
+
+  // ---------- 検索・置換 ----------
+  SCRIPTS.find = function (d) {
+    d.chapter('検索'); d.scene('edit-0.jpg'); start(d, 'edit-0', 'button_play', 300, -350);
+    say(d, DUMMY + '\n行数が多い記録でも、探したい行にすぐたどり着けます。');
+    d.key('Ctrl+F', { dur: 900 }); d.scene('find-dialog.jpg', { fade: 140 }); d.wait(300);
+    say(d, 'Ctrl+F を押すと、検索の画面が開きます。Event・Detail・備考のどの欄でも探せます。\n開いたとき、選んでいたセルの文字が最初から入っています。');
+    tapXY(d, 985, 235, { dur: 900 }); d.wait(200);
+    markR(d, { x: 276, y: 340, w: 914, h: 120 }, '3 件ヒット', 4800);
+    say(d, '「検索」を押すと、ヒットした行が一覧で出ます(ここでは KEY_DOWN が3件)。\nヒットした欄は薄い黄色です。「大文字/小文字を区別する」もできます。', 600);
+    d.chapter('置換'); d.key('Ctrl+H', { dur: 900 }); d.scene('replace-dialog.jpg', { fade: 140 }); d.wait(300);
+    say(d, 'Ctrl+H を押すと「置換」に切り替わります。\n「検索文字列」と「置換後の文字列」を入れて、1件ずつ置換するか、「すべて置換」を押します。');
+    tapXY(d, 983, 594, { dur: 1100 }); d.wait(300);
+    say(d, '置換した内容は、あとから Ctrl+Z で元に戻せます。\n(記録中・再生中は、検索・置換は開きません。)');
+  };
+
+  // ---------- 保存・プロファイル ----------
+  SCRIPTS.profile = function (d) {
+    d.chapter('保存する'); d.scene('edit-done.jpg'); start(d, 'edit-done', 'button_save', -300, -350);
+    say(d, DUMMY + '\n記録したデータは、「プロファイル」として1つのファイルに保存します。');
+    markR(d, P('edit-done', 'button_save'), 'プロファイル保存', 3800); tap(d, 'edit-done', 'button_save', { dur: 1000 });
+    say(d, '「プロファイル保存」を押すか、Ctrl+S を押します。\n記録データのほか、ループ数・プレイリスト・モード・最小化の設定も、まとめて保存されます。', 400);
+    d.scene('save-done.jpg'); d.wait(500); markR(d, P('save-done', 'combo_profile'), '保存したファイル名', 3400);
+    say(d, '保存すると、下のプルダウンに、そのファイルの名前が入ります。ファイルは JSON 形式で、保存先のフォルダにまとまります。');
+    d.chapter('読み込む');
+    tap(d, 'save-done', 'combo_profile', { dur: 1000 }); d.wait(200); d.scene('combo-open.jpg', { fade: 140 });
+    markR(d, P('combo-open', 'menu'), '保存したファイルの一覧', 3800);
+    say(d, '下のプルダウンを開くと、保存したファイルが並びます。');
+    var m = P('combo-open', 'menu'); tapXY(d, m.x + 300, m.y + 64, { dur: 900 }); d.wait(200); d.scene('switch-02.jpg', { fade: 160 });
+    say(d, 'ひとつ選ぶと、その内容がすぐ読み込まれて、いまの表が置き換わります。\n記録中・再生中は、プルダウンは選べません。', 500);
+  };
+
+  // ---------- 再生する ----------
+  SCRIPTS.play = function (d) {
+    d.chapter('再生の準備'); d.scene('play-ready.jpg'); start(d, 'play-ready', 'button_play', 300, -400);
+    say(d, DUMMY + '\n記録した操作を再生します。まず、くり返す回数を決めます。');
+    mark(d, 'play-ready', 'textbox_loop', 'ループ数', 3400); to(d, 'play-ready', 'textbox_loop'); d.wait(300);
+    say(d, '「ループ数」に回数を入れます(ここでは 3)。右端の小さな矢印のほか、上下のキーでも増減できます。');
+    mark(d, 'play-ready', 'check_min', '最小化', 3600); to(d, 'play-ready', 'check_min'); d.wait(300);
+    say(d, '「実行時にウィンドウを最小化する」にチェックすると、再生の間はこの画面が隠れて、終わると元に戻ります。');
+    d.chapter('再生する');
+    tap(d, 'play-ready', 'button_play', { dur: 1000 }); d.scene('play-1.jpg', { fade: 160 }); d.wait(500);
+    say(d, '「再生」を押すか、ホットキー(既定は変換キー)を押すと、再生が始まります。\n再生中は、ボタンが「停止」に変わります。', 400);
+    mark(d, 'play-1', 'button_play', '停止', 3000);
+    d.scene('play-2.jpg', { fade: 200 }); d.wait(500); markR(d, P('play-2', 'ev5'), '実行中の行', 3600);
+    say(d, '今実行している行は、薄い黄色になります。操作と操作の間は、記録したときの間隔(WAIT_MS)のまま動きます。');
+    d.scene('play-3.jpg', { fade: 200 });
+    d.chapter('止める');
+    say(d, 'もう一度ボタンかホットキーを押すと、いつでも止められます。長い待ち時間の途中でも、すぐ止まります。');
+    d.key('変換キー', { dur: 800 }); d.scene('play-ready.jpg', { fade: 200 }); d.wait(400);
+    say(d, '止めたときは、押しっぱなしのキーやマウスのボタンも、きちんと離します。\n※ 再生は、実際にマウスとキーを動かします。再生中は、パソコンを触らないでください。', 600);
+  };
+
+  // ---------- プレイリスト ----------
+  SCRIPTS.playlist = function (d) {
+    d.chapter('プレイバックにする'); d.scene('main.jpg'); start(d, 'main', 'radio_playback', 300, 150);
+    say(d, DUMMY + '\n複数のファイルを順番に再生するときは、プレイリストを使います。');
+    tap(d, 'main', 'radio_playback', { dur: 900 }); d.scene('pl-main.jpg', { fade: 200 }); d.wait(600);
+    say(d, '上のラジオボタンを「プレイバック」にすると、右側の枠が緑になり、プレイリストが再生の対象になります。', 300);
+    d.chapter('ファイルを並べる');
+    markR(d, U('pl-main', 'pl0', 'pl3'), 'プレイリスト', 3800); to(d, 'pl-main', 'pl0_1');
+    say(d, '1行が1つのファイルです。\n「実行」のチェックが入った行だけが、上から順に再生されます。', 300);
+    markR(d, U('pl-main', 'pl0_1', 'pl3_1'), 'ファイルを選ぶ(プルダウン)', 3600); tap(d, 'pl-main', 'pl1_1', { dur: 900 });
+    say(d, 'ファイルの欄は、クリックするとプルダウンになります。保存したプロファイルの一覧から選びます。');
+    markR(d, U('pl-main', 'pl0_2', 'pl3_2'), 'ループ数', 3400); to(d, 'pl-main', 'pl0_2');
+    say(d, '「ループ数」は、そのファイルを続けて何回再生するかです。ファイル自身に保存された回数よりも、こちらが優先されます。');
+    markR(d, P('pl-main', 'pl3_1'), 'ファイルが見つからない', 3600); to(d, 'pl-main', 'pl3_1');
+    say(d, 'ファイルが見つからない行は、ピンクで表示されます。\nピンクの行が1つでもあると、プレイリスト全体の再生が始まりません。', 300);
+    d.chapter('再生する');
+    d.scene('pl-run.jpg', { fade: 200 }); to(d, 'pl-run', 'button_play', { dur: 900 }); d.wait(200); d.click(); d.wait(300);
+    markR(d, P('pl-run', 'pl1'), '実行中のファイル', 3400);
+    say(d, '「再生」で、チェックした行を上から順に再生します。\n今動いているファイルが黄色になり、下には「実行中(全体1/2): ファイル名 (2/3)」と出ます。', 400);
+    markR(d, P('pl-run', 'label_status'), '進み具合', 3600); d.wait(2800);
+    say(d, '下の「ループ数」は、プレイリスト全体を何周するかです(上の表のループ数は、ファイルごとの回数)。');
+    d.chapter('並べ替え・絞り込み');
+    d.scene('pl-menu.jpg', { fade: 160 }); to(d, 'pl-menu', 'pl1_1'); d.wait(300);
+    markR(d, P('pl-menu', 'menu'), '右クリックメニュー', 5400);
+    say(d, '右クリックのメニューでは、ファイルを開く・プレイリストの更新・行の追加と削除・全チェックの ON/OFF ができます。', 400);
+    var it = menuItem('pl-menu', 367); tapXY(d, it.x, it.y, { dur: 1000 }); d.wait(200); d.scene('pl-filter.jpg', { fade: 160 });
+    markR(d, U('pl-filter', 'pl0', 'pl3'), 'チェックONの行だけ', 3600);
+    say(d, '「チェックONのみ表示」を選ぶと、実行する行だけが並びます。行が多いときに見やすくなります。');
+    d.scene('pl-moved.jpg', { fade: 200 }); d.wait(300); markR(d, U('pl-moved', 'pl0', 'pl1'), '行を入れ替えた', 3800);
+    say(d, '行は、ドラッグして上下に入れ替えられます。再生の順番が、そのまま変わります。', 300);
+  };
+
+  // ---------- ホットキー ----------
+  SCRIPTS.hotkey = function (d) {
+    d.chapter('ホットキー'); d.scene('main.jpg'); start(d, 'main', 'button_record');
+    say(d, DUMMY + '\n記録と再生は、ボタンのほか、キーボードのホットキーでも切り替えられます。');
+    d.key('F1', { dur: 900 }); say(d, '既定では、F1 で「記録」の開始・停止、変換キーで「再生」の開始・停止です。', 200);
+    mark(d, 'main', 'button_record', '記録 = F1', 3000); mark(d, 'main', 'button_play', '再生 = 変換キー', 3000); d.wait(3200);
+    say(d, 'ホットキーを使うと、ボタンをクリックしたときの「マウスのクリック」が記録に混ざりません。\nまた、ホットキー自体のキー入力も、記録データには入りません。', 300);
+    d.chapter('キーを変える');
+    say(d, 'キーを変えたいときは、ウィンドウの左上のアイコンを押して、システムメニューから「キーバインドを設定」を選びます。');
+    d.scene('hotkey.jpg', { fade: 160 }); d.wait(400);
+    markR(d, { x: 466, y: 330, w: 536, h: 130 }, '記録・再生のキー', 4200); tapXY(d, 796, 349, { dur: 1000 }); d.wait(200);
+    say(d, '「記録」「再生」の欄をクリックして、割り当てたいキーを押します。Ctrl や Shift との組み合わせも使えます。\n「初期値に戻す」で、F1 と変換キーに戻ります。', 500);
+    tapXY(d, 903, 548, { dur: 1000 }); d.wait(200);
+    say(d, '「保存」で決定です。設定は、次に起動したときも残ります。\n(記録中・再生中は、設定を変えられません。)');
+  };
+
+  // ================= 一覧と動画の登録 =================
+  var FEATS = [
+    { id: 'overview', icon: '🎬', title: '全体紹介(約2分)', sec: 'まずは全体を見る', desc: 'EventRecorder でできることを、画面の見かた・記録・編集・保存・再生・プレイリスト・ホットキーまで、ひととおり。', script: SCRIPTS.overview },
+    { id: 'layout', icon: '🖥️', title: '画面の見かた', sec: '機能ごとのデモ', desc: 'レコード表・プレイリスト表・ループ数と再生・プロファイル。どこに何があるか。', script: SCRIPTS.layout },
+    { id: 'record', icon: '⏺️', title: '操作を記録する', sec: '機能ごとのデモ', desc: '「記録」を押して(F1)、クリックとキー入力が行になる様子。WAIT_MS が自動で入ること。', script: SCRIPTS.record },
+    { id: 'edit', icon: '✏️', title: '記録を編集する', sec: '機能ごとのデモ', desc: 'Detail の書き換え・備考・右クリックメニュー・WAIT時間のまとめて変更。', script: SCRIPTS.edit },
+    { id: 'find', icon: '🔍', title: '検索・置換', sec: '機能ごとのデモ', desc: 'Ctrl+F で行を探し、Ctrl+H でまとめて置換。', script: SCRIPTS.find },
+    { id: 'profile', icon: '💾', title: '保存と読み込み', sec: '機能ごとのデモ', desc: 'プロファイル保存(Ctrl+S)と、プルダウンでの読み込み。', script: SCRIPTS.profile },
+    { id: 'play', icon: '▶️', title: '再生する', sec: '機能ごとのデモ', desc: 'ループ数・最小化・再生と停止(変換キー)。実行中の行が黄色になる。', script: SCRIPTS.play },
+    { id: 'playlist', icon: '📋', title: 'プレイリスト', sec: '機能ごとのデモ', desc: '複数のファイルを順番に再生。ループ数・見つからないファイル・並べ替え・絞り込み。', script: SCRIPTS.playlist },
+    { id: 'hotkey', icon: '⌨️', title: 'ホットキーの設定', sec: '機能ごとのデモ', desc: 'F1 と変換キーの既定と、キーバインドの変更。', script: SCRIPTS.hotkey }
+  ];
+
+  DesktopDemo.start({
+    title: 'EventRecorder 機能デモ', icon: '🎬', back: 'index.html', backLabel: '← EventRecorder の図解にもどる',
+    lead: 'まずは全体紹介(約2分)で、EventRecorder でできることをひととおり見られます。そのあと、気になる機能を1本ずつの短いデモ(30秒〜1分ほど)で見られます。' +
+      '画面は実際のアプリの画面で、ファイル名・座標・メモはすべてダミーです。デモのために、このPCのキーボード・マウスは動かしていません。',
+    frame: { w: FW, h: FH, title: 'EventRecorder(ダミーのデータで動作)' }, imgBase: 'demo-img/',
+    features: FEATS
+  });
+})();
+</script>
+</body>
+</html>
