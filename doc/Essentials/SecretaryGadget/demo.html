@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>秘書さんガジェット 機能デモ</title>
+<!--
+  秘書さんガジェットの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=call のように機能を指定します。
+  ・吹き出しと秘書さん、トレイのメニュー、タイマーの入力画面は、本物の SecretaryGadget の画面部品を、ダミーのデータで描いて撮ったものです
+    (撮影用ハーネスで SecretaryGadget.dll の窓・メニュー・ダイアログをそのまま呼び出し。実際に常駐している秘書さんは使っていません)。
+  ・名前・件名・会議名・時刻はすべてダミーです。背景のデスクトップとタスクバー、作業中の窓は、文字を入れない絵で再現したものです。
+  ・画面の座標は demo-pts.js(自動生成)。再生の仕組みは ../lib/demo-player.js。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var P = window.SG_PTS;
+  var RB = { x: 960, y: 540, w: 960, h: 540 };      // 右下(吹き出しと秘書さん)
+  var MB = { x: 1100, y: 619, w: 820, h: 461 };     // 右下のメニュー
+  var DLG = { x: 552, y: 285, w: 816, h: 459 };     // 画面中央のダイアログ
+  var TRAY = [P.tray.x, P.tray.y];
+  var TRAYMARK = { x: P.tray.x - 22, y: P.tray.y - 20, w: 44, h: 40 };
+
+  function ctr(r) { return [r.x + r.w / 2, r.y + r.h / 2]; }
+  function to(d, r, o) { var c = ctr(r); d.cursor(c[0], c[1], o); }
+  function tap(d, r, o) { to(d, r, o); d.click(); }
+  function S(d, name, fade) { d.scene('s-' + name + '.jpg', { fade: fade == null ? 250 : fade }); }
+  function item(menu, prefix) {
+    var m = P.menu[menu];
+    for (var k in m) if (k.indexOf(prefix) === 0) return m[k];
+    throw new Error('menu item not found: ' + menu + ' / ' + prefix);
+  }
+  function ctl(dlg, text, nth) {
+    var n = 0, cs = P.dialog[dlg].controls;
+    for (var i = 0; i < cs.length; i++) if (cs[i].text === text) { if (n === (nth || 0)) return cs[i]; n++; }
+    throw new Error('control not found: ' + text);
+  }
+  // 吹き出しが読みやすいよう、吹き出しのまわりへ寄る(16:9で、吹き出しが入る最小の範囲。上は秘書さんの顔まで入る)
+  function zoomFor(d, name, dur) {
+    var w = P.win[name];
+    if (!w || !w.bubble) return;
+    var b = w.bubble, cw = Math.max(b.w + 150, 640), ch = cw * 9 / 16;
+    if (ch < b.h + 70) { ch = b.h + 70; cw = ch * 16 / 9; }
+    var x = Math.min(P.frame.w - cw, Math.max(0, b.x - 40)), y = Math.min(P.frame.h - ch, Math.max(0, b.y - 36));
+    d.cam({ x: Math.round(x), y: Math.round(y), w: Math.round(cw), h: Math.round(ch) }, { dur: dur == null ? 700 : dur });
+  }
+  // 秘書さんが下からせり上がる(約0.5秒)。last を渡すとその絵を最後に重ねて、その吹き出しへ寄る
+  function riseUp(d, last, withBubbleStart) {
+    S(d, 'rise-100', 60); d.wait(110);
+    S(d, 'rise-070', 90); d.wait(110);
+    S(d, 'rise-040', 90); d.wait(110);
+    if (withBubbleStart) { S(d, 'rise-015', 90); d.wait(130); }
+    S(d, last, 220);
+    zoomFor(d, last, 800);
+  }
+  // 引っ込む(約0.5秒)。右下の全体へ戻す
+  function retract(d) {
+    d.cam(RB, { dur: 500 });
+    S(d, 'rise-040', 150); d.wait(130);
+    S(d, 'rise-070', 90); d.wait(110);
+    S(d, 'rise-100', 90); d.wait(110);
+    d.scene('desk.jpg', { fade: 120 });
+  }
+  function trayLeftClick(d) { to(d, TRAYMARK); d.click(); }
+  function openMenu(d, name) { d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 600 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); }
+
+  var DUMMY = '(このデモの名前・件名・時刻はすべてダミーです)';
+
+  // ---------------------------------------------------------------- 全体紹介
+  function overview(d) {
+    d.scene('desk.jpg');
+    d.chapter('はじめに');
+    d.cap('秘書さんガジェットは、Outlook の新着メール・会議の開始前・Teams のメンションを、\n画面の右下からせり上がってくる「秘書さん」の吹き出しで知らせる、Windows 用の常駐ガジェットです。\n' + DUMMY);
+    d.wait(8500);
+    d.cam(RB, { dur: 900 }); d.mark(TRAYMARK, { dur: 6000, label: 'ふだんはトレイにだけ常駐' });
+    d.cap('ふだんは、タスクトレイにアイコンがあるだけです。\nお知らせがあるときだけ秘書さんが現れて、少したつと引っ込みます。');
+    d.wait(6500);
+
+    d.chapter('起動とあいさつ');
+    d.cap('起動すると、あいさつの吹き出しと一緒に、秘書さんが下からせり上がります。');
+    d.wait(1500);
+    riseUp(d, 'startup', true);
+    d.wait(2500);
+    d.cap('吹き出しは、既定で20秒たつと自動的に引っ込みます。');
+    d.wait(4500);
+    retract(d);
+    d.wait(700);
+
+    d.chapter('秘書さんを呼ぶ');
+    d.cap('トレイのアイコンを左クリックすると、秘書さんを呼べます。');
+    d.wait(900); trayLeftClick(d);
+    d.wait(300);
+    riseUp(d, 'call');
+    d.cap('いまの状況を聞けます。メールとTeamsメンションの未読と、このあとの会議が出ます。');
+    d.wait(6500);
+    retract(d); d.wait(500);
+
+    d.chapter('新着のお知らせ');
+    d.cap('新着メールが届くと、差出人と件名を吹き出しで知らせます。');
+    d.wait(600); riseUp(d, 'mail'); d.wait(4500);
+    d.cap('吹き出しをクリックすると、秘書さんが引っ込んで、そのメールが開きます。');
+    d.wait(3500); to(d, P.win.mail.bubble, { dur: 800 }); d.click(); d.wait(700);
+    retract(d); d.wait(600);
+    d.cap('会議の開始前(既定5分前)にも知らせます。');
+    riseUp(d, 'meeting'); d.wait(4500); retract(d); d.wait(500);
+    d.cap('Teams では、メンションされたときだけ知らせます。');
+    riseUp(d, 'teams-mention'); d.wait(4500); retract(d); d.wait(500);
+
+    d.chapter('本日の予定');
+    d.cap('トレイを右クリックしてメニューから「本日の予定」を選ぶと、今日の会議が一覧で出ます。');
+    d.wait(900); openMenu(d, 'main'); d.wait(1200);
+    tap(d, item('main', '本日の予定'), { dur: 900 }); d.wait(300);
+    d.scene('desk.jpg', { fade: 100 }); d.cam(RB, { dur: 500 }); d.wait(200);
+    riseUp(d, 'schedule');
+    d.cap('開催中・終了済みの会議も分かります。8件を超えると「ほか N 件」にまとめます。');
+    d.wait(7500); retract(d); d.wait(500);
+
+    d.chapter('タイマー');
+    d.cap('「タイマー」では、時刻を指定するか、〇時間〇分後を指定して、時間になったら知らせてもらえます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-timer.jpg', { fade: 120 }); d.wait(900);
+    tap(d, item('timer', 'タイマーをセット'), { dur: 900 }); d.wait(300);
+    d.cam(DLG, { dur: 500 }); d.scene('d-rel-set.jpg', { fade: 200 }); d.wait(2500);
+    tap(d, ctl('rel-set', 'セット'), { dur: 900 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 120 }); d.wait(200);
+    riseUp(d, 'timer-set'); d.wait(4000); retract(d); d.wait(700);
+    d.cap('時間になると、秘書さんが出てきます。タイマーの吹き出しは、クリックするまで消えません。');
+    riseUp(d, 'timer-due'); d.wait(5500); to(d, P.win['timer-due'].bubble, { dur: 800 }); d.click(); d.wait(300); retract(d); d.wait(500);
+
+    d.chapter('スキンと設定');
+    d.cap('秘書さんの絵(スキン)は、10種類から選べます。大きさや、隠れるまでの時間も変えられます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.scene('m-skin.jpg', { fade: 150 }); d.cursor(TRAY[0], TRAY[1], { dur: 0 }); d.wait(500);
+    tap(d, item('skin', '赤髪の秘書さん'), { dur: 1000 }); d.wait(200);
+    d.cam(RB, { dur: 500 }); S(d, 'skin-red', 250); d.cap('スキンを選ぶと、担当の交代を知らせる吹き出しと一緒に、すぐ切り替わります。'); d.wait(5500);
+    S(d, 'skin-maid', 250); d.wait(2500); S(d, 'skin-butler', 250); d.wait(2500);
+    retract(d); d.wait(500);
+
+    d.chapter('おわり');
+    d.cap('以上が、秘書さんガジェットの主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。');
+    d.cam(null, { dur: 600 }); d.wait(5500);
+  }
+
+  // ---------------------------------------------------------------- 起動とあいさつ・吹き出しの動き
+  function startup(d) {
+    d.scene('desk.jpg'); d.cam(RB, { dur: 10 });
+    d.chapter('せり上がる');
+    d.cap('秘書さんを起動すると、タスクトレイにアイコンが出て、秘書さんが画面の右下からせり上がります。' + '\n' + DUMMY);
+    d.wait(4800); d.mark(TRAYMARK, { dur: 3000, label: 'トレイのアイコン' }); d.wait(1500);
+    riseUp(d, 'startup', true); d.wait(500);
+    d.cap('時間帯に合わせて、あいさつの言葉が変わります。\n(10:30まで「おはようございます」、18:00まで「お疲れさまです」、それ以降は「遅くまでお疲れさまです」)');
+    d.wait(7500);
+
+    d.chapter('引っ込める');
+    d.cap('引っ込めかたは3つあります。\n① 吹き出しをクリックする  ② 絵をクリックする  ③ そのまま待つ(既定20秒)');
+    d.wait(6500);
+    d.cap('吹き出しをクリックすると、秘書さんごと引っ込みます。\n(メールなど開く先があるお知らせでは、引っ込んでから、そのメールや Teams が開きます)');
+    to(d, P.win.startup.bubble, { dur: 900 }); d.click(); d.wait(300);
+    retract(d); d.wait(1500);
+    d.cap('もう一度出します。');
+    riseUp(d, 'startup', true); d.wait(1800);
+    d.cap('吹き出しの「×」を押すと、吹き出しだけが消えて、秘書さんは残ります。');
+    to(d, P.win.startup.close, { dur: 1000 }); d.mark(P.win.startup.close, { dur: 1800, label: '×' }); d.click(); d.wait(200);
+    S(d, 'nobubble', 150); d.wait(3500);
+    d.cap('秘書さんの絵をクリックすると、引っ込みます。');
+    to(d, P.win.startup.image, { dur: 900 }); d.click(); d.wait(200);
+    retract(d); d.wait(1500);
+    d.cap('どれも、トレイのアイコンを左クリックすれば、また呼び出せます。');
+    d.wait(3500);
+  }
+
+  // ---------------------------------------------------------------- 秘書さんを呼ぶ
+  function call(d) {
+    d.scene('desk.jpg'); d.cam(RB, { dur: 10 });
+    d.chapter('呼ぶ');
+    d.cap('お知らせが無いときでも、トレイのアイコンを左クリックすると、秘書さんを呼べます。\n' + DUMMY);
+    d.wait(5000); d.cursor(TRAY[0] + 60, TRAY[1] - 80, { dur: 0 }); trayLeftClick(d); d.wait(300);
+    riseUp(d, 'call'); d.wait(800);
+    d.cap('「いま、何が来ているか」を、まとめて教えてくれます。');
+    d.wait(3500);
+
+    d.chapter('見かた');
+    d.cap('メールの未読：件数と、送り主を「山田 太郎・佐藤 ほか 9 件」のようにまとめます。\n(送り主の名前の末尾の「(営業部)」などは外します)');
+    d.mark({ x: P.win.call.bubble.x + 6, y: P.win.call.bubble.y + 40, w: P.win.call.bubble.w - 12, h: 44 }, { dur: 8500 });
+    d.wait(8500);
+    d.cap('Teams のメンション未読：数えられた件数と、送り主をまとめます。');
+    d.mark({ x: P.win.call.bubble.x + 6, y: P.win.call.bubble.y + 78, w: P.win.call.bubble.w - 12, h: 44 }, { dur: 6000 });
+    d.wait(6000);
+    d.cap('本日のこのあとの会議：開催中のもの、これから始まるものを、時刻つきで出します。');
+    d.mark({ x: P.win.call.bubble.x + 6, y: P.win.call.bubble.y + 122, w: P.win.call.bubble.w - 12, h: 76 }, { dur: 6000 });
+    d.wait(6000);
+    d.cap('秘書さんを呼んだときは、「おやすみ」や「休憩」の最中でも表示されます。');
+    d.wait(5500);
+    retract(d); d.wait(1000);
+
+    d.chapter('メニューから呼ぶ');
+    d.cap('トレイを右クリックして、メニューの一番上の「秘書さんを呼ぶ」からも呼べます。');
+    d.wait(900); openMenu(d, 'main'); d.wait(1500);
+    tap(d, item('main', '秘書さんを呼ぶ'), { dur: 1000 }); d.wait(300);
+    d.scene('desk.jpg', { fade: 100 }); d.cam(RB, { dur: 500 }); d.wait(200);
+    riseUp(d, 'call'); d.wait(4500);
+  }
+
+  // ---------------------------------------------------------------- 新着・会議のお知らせ
+  function notice(d) {
+    d.scene('desk.jpg'); d.cam(RB, { dur: 10 });
+    d.chapter('新着メール');
+    d.cap('Outlook に新着メールが届くと、差出人と件名を吹き出しで知らせます。\n' + DUMMY);
+    d.wait(5200); riseUp(d, 'mail'); d.wait(3500);
+    d.cap('吹き出しの下に「クリックで開きます」と出ています。クリックすると、秘書さんが引っ込んでから、そのメールが開きます。');
+    d.mark({ x: P.win.mail.bubble.x, y: P.win.mail.bubble.y + P.win.mail.bubble.h - 34, w: P.win.mail.bubble.w, h: 30 }, { dur: 4000 });
+    d.wait(6500); to(d, P.win.mail.bubble, { dur: 900 }); d.click(); d.wait(300); retract(d); d.wait(900);
+
+    d.chapter('会議');
+    d.cap('会議の開始前(既定で5分前)に、件名と開始時刻を知らせます。会議室がある会議は、場所も出ます。');
+    riseUp(d, 'meeting'); d.wait(6500);
+    d.cap('Teams の会議の場合は、クリックすると会議に参加できます。');
+    d.wait(4000); retract(d); d.wait(900);
+
+    d.chapter('Teams');
+    d.cap('Teams では、自分へのメンションがあったときに、送り主とメッセージの先頭を知らせます。');
+    riseUp(d, 'teams-mention'); d.wait(6000);
+    d.cap('クリックすると、Teams のウィンドウが前に出ます。');
+    d.wait(3500); retract(d); d.wait(900);
+
+    d.chapter('たまったとき');
+    d.cap('続けて何件も届いたときは、「ほか N 件」と出して、順番に見せていきます。');
+    riseUp(d, 'mail-queue'); d.wait(5500); retract(d); d.wait(700);
+    d.cap('たまったお知らせが4件以上になると、1件にまとめて知らせます。');
+    riseUp(d, 'pile'); d.wait(6000); retract(d); d.wait(800);
+  }
+
+  // ---------------------------------------------------------------- 本日の予定
+  function schedule(d) {
+    d.scene('desk.jpg'); d.cam(RB, { dur: 10 });
+    d.chapter('開く');
+    d.cap('今日の会議を一覧で見たいときは、トレイを右クリックして「本日の予定」を選びます。\n' + DUMMY);
+    d.wait(5200); openMenu(d, 'main'); d.wait(1500);
+    tap(d, item('main', '本日の予定'), { dur: 1000 }); d.wait(300);
+    d.scene('desk.jpg', { fade: 100 }); d.cam(RB, { dur: 500 }); d.wait(200);
+    riseUp(d, 'schedule'); d.wait(1500);
+
+    d.chapter('見かた');
+    d.cap('「参加予定の会議は 10 件（このあと N 件）です」と、件数を最初に知らせます。');
+    d.mark({ x: P.win.schedule.bubble.x + 6, y: P.win.schedule.bubble.y + 36, w: P.win.schedule.bubble.w - 12, h: 44 }, { dur: 6500 });
+    d.wait(6500);
+    d.cap('一覧は、時刻の順に「開始時刻　会議名」で出ます。終わった会議には「（終了）」、いま開催中の会議には「（開催中）」がつきます。');
+    d.wait(8000);
+    d.cap('一覧に出るのは8件までです。それ以上ある日は、「ほか N 件」にまとめます。');
+    d.wait(6500);
+    d.cap('予定の一覧は、自動では消えません。クリックすると引っ込みます。');
+    d.wait(4500); to(d, P.win.schedule.bubble, { dur: 900 }); d.click(); d.wait(300); retract(d); d.wait(900);
+  }
+
+  // ---------------------------------------------------------------- タイマー
+  function timer(d) {
+    d.scene('desk.jpg'); d.cam(MB, { dur: 10 });
+    d.chapter('メニューから');
+    d.cap('タイマーは、トレイのメニューの「タイマー」から使います。\n' + DUMMY);
+    d.wait(5200); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(700);
+    tap(d, item('main', 'タイマー'), { dur: 900 }); d.scene('m-timer.jpg', { fade: 120 }); d.wait(900);
+    tap(d, item('timer', 'タイマーをセット'), { dur: 900 }); d.wait(300);
+
+    d.chapter('時刻を指定');
+    d.cam(DLG, { dur: 500 }); d.scene('d-clock.jpg', { fade: 200 });
+    d.cap('「タイマーをセット」の画面が開きます。最初は「時刻を指定」が選ばれていて、いまの時刻が入っています。');
+    d.wait(6500);
+    d.cap('時と分を、ドラムロールのように回して選びます。(マウスホイール・上下クリック・ドラッグ・↑↓キーで回ります)');
+    to(d, ctl('clock', 'wheel', 0), { dur: 900 }); d.wait(500);
+    d.scene('d-clock-set.jpg', { fade: 400 }); d.wait(5500);
+    d.cap('「セット」を押すと、その時刻にお知らせします。すでに過ぎている時刻は、翌日になります。');
+    d.wait(5000);
+
+    d.chapter('〇時間〇分後');
+    d.cap('「指定時間後を指定」を選ぶと、「〇時間〇分後」で指定できます。初期値は 0 時間 5 分です。');
+    tap(d, ctl('clock-set', '指定時間後を指定'), { dur: 1000 }); d.scene('d-rel.jpg', { fade: 150 }); d.wait(5500);
+    d.cap('たとえば「0 時間 15 分」にして、「セット」を押します。');
+    to(d, ctl('rel', 'wheel', 3), { dur: 900 }); d.wait(300); d.scene('d-rel-set.jpg', { fade: 400 }); d.wait(3200);
+    tap(d, ctl('rel-set', 'セット'), { dur: 900 }); d.wait(300);
+
+    d.chapter('セットしたとき');
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 120 }); d.wait(200);
+    riseUp(d, 'timer-set');
+    d.cap('セットすると、いつお知らせするかと、あと何分かを教えてくれます。');
+    d.wait(6000); retract(d); d.wait(800);
+
+    d.chapter('時間になったら');
+    d.cap('時間になると、秘書さんが出てきて、時間を知らせます。');
+    riseUp(d, 'timer-due'); d.wait(5500);
+    d.cap('このお知らせは、自動では引っ込みません。クリックするまで出しっぱなしです。');
+    d.mark(P.win['timer-due'].bubble, { dur: 4500 }); d.wait(5500);
+    to(d, P.win['timer-due'].bubble, { dur: 900 }); d.click(); d.wait(300); retract(d); d.wait(900);
+
+    d.chapter('取り消す');
+    d.cap('セット中のタイマーは、メニューの「タイマー（N 件）」から取り消せます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(500);
+    tap(d, item('main', 'タイマー'), { dur: 900 }); d.scene('m-timer.jpg', { fade: 120 }); d.wait(900);
+    tap(d, item('timer', '09:45'), { dur: 1000 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 100 }); d.wait(200);
+    riseUp(d, 'timer-cancel'); d.wait(5000); retract(d); d.wait(800);
+  }
+
+  // ---------------------------------------------------------------- トレイメニュー
+  function menu(d) {
+    d.scene('desk.jpg'); d.cam(MB, { dur: 10 });
+    d.chapter('開く');
+    d.cap('秘書さんの操作は、タスクトレイのアイコンを右クリックして出るメニューからします。\n' + DUMMY);
+    d.wait(5800); d.cursor(TRAY[0], TRAY[1], { dur: 800 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(800);
+
+    d.chapter('上のほう');
+    d.mark({ x: P.menu.main['秘書さんを呼ぶ'].x, y: P.menu.main['秘書さんを呼ぶ'].y, w: P.menu.main['秘書さんを呼ぶ'].w, h: 88 }, { dur: 8000 });
+    d.cap('一番上の4つは、呼び出しと、ほかのツールへの入口です。\n「秘書さんを呼ぶ」「本日の予定」。「箱庭」「株レーダー」は、同じ作者の別ツールをブラウザで開く項目です(ここでは押しません)。');
+    d.wait(9500);
+    d.mark(P.menu.main['タイマー（1 件）'], { dur: 5000 });
+    d.cap('「タイマー」は、時刻や〇時間〇分後で知らせてもらえます。セット中の件数が出ます。');
+    d.wait(5500);
+
+    d.chapter('真ん中');
+    d.mark({ x: P.menu.main['休憩'].x, y: P.menu.main['休憩'].y, w: P.menu.main['休憩'].w, h: 110 }, { dur: 9000 });
+    d.cap('「休憩」「大きさ」「スキン」「隠れるまでの時間」「自動的に隠さない」は、秘書さんの出かたや見た目を決める項目です。');
+    d.wait(9500);
+
+    d.chapter('下のほう');
+    d.mark(P.menu.main['設定'], { dur: 4500 });
+    d.cap('「設定」では、知らせる対象のON/OFFや、テスト通知ができます。');
+    d.wait(5000);
+    d.mark(P.menu.main['PC起動時に自動で起動'], { dur: 5000 });
+    d.cap('「PC起動時に自動で起動」にチェックを入れると、パソコンの起動と一緒に秘書さんも起動します。');
+    d.wait(5500);
+    d.mark(P.menu.main['終了'], { dur: 4500 });
+    d.cap('「終了」で、秘書さんを完全に終了します。(メニューの「終了」で終わらせるのが安全です)');
+    d.wait(5000);
+    d.cap('メニューは、開くたびに、いまのチェック状態(休憩の再開予定なども)を反映して作り直されます。');
+    d.wait(5500);
+  }
+
+  // ---------------------------------------------------------------- 休憩・おやすみ
+  function pause(d) {
+    d.scene('desk.jpg'); d.cam(MB, { dur: 10 });
+    d.chapter('休憩');
+    d.cap('少しのあいだ、お知らせを出さないでほしいときは、メニューの「休憩」を使います。\n' + DUMMY);
+    d.wait(5800); d.cursor(TRAY[0], TRAY[1], { dur: 800 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(700);
+    tap(d, item('main', '休憩'), { dur: 900 }); d.scene('m-break.jpg', { fade: 120 }); d.wait(900);
+    d.cap('「30分」「1時間」「2時間」から選びます。');
+    d.mark({ x: P.menu.break['30分'].x, y: P.menu.break['30分'].y, w: P.menu.break['30分'].w, h: 66 }, { dur: 4500 });
+    d.wait(5000);
+    tap(d, P.menu.break['1時間'], { dur: 1000 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 100 }); d.wait(200);
+    riseUp(d, 'break-start');
+    d.cap('休憩を始めると、再開する時刻を知らせてくれます。');
+    d.wait(5500); retract(d); d.wait(900);
+
+    d.chapter('休憩のあいだ');
+    d.cap('休憩のあいだは、新着メールなどのお知らせを出しません。休憩中は、メニューに再開の予定時刻が出ます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-break-on.jpg', { fade: 120 }); d.wait(500);
+    d.mark(P.menu['break-on']['休憩（10:15 再開予定）'], { dur: 5000, label: '再開予定' });
+    d.wait(6500);
+    d.cap('休憩の途中で戻りたいときは、「休憩終わり」を押します。');
+    tap(d, P.menu['break-on']['休憩終わり'], { dur: 1200 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 100 }); d.wait(200);
+    riseUp(d, 'break-end');
+    d.cap('休憩が終わると、「おかえりなさいませ」と出て、休憩中に届いたお知らせの件数を教えてくれます。');
+    d.wait(6500); retract(d); d.wait(900);
+
+    d.chapter('おやすみ');
+    d.cap('「おやすみ」は、休憩と同じ場所にあります。時間は決めずに、自分で戻すまで、お知らせを止めておきたいときに使います。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-break.jpg', { fade: 120 }); d.wait(500);
+    d.mark(P.menu.break['おやすみ'], { dur: 6000 });
+    d.wait(6800);
+    d.cap('秘書さんを自分で呼んだときや、タイマーの時間になったときは、おやすみ・休憩の最中でも出ます。');
+    d.wait(6500);
+  }
+
+  // ---------------------------------------------------------------- 設定
+  function settings(d) {
+    d.scene('desk.jpg'); d.cam(MB, { dur: 10 });
+    d.chapter('知らせる対象');
+    d.cap('メニューの「設定」で、何を知らせるかを決められます。\n' + DUMMY);
+    d.wait(5800); d.cursor(TRAY[0], TRAY[1], { dur: 800 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(600);
+    tap(d, item('main', '設定'), { dur: 900 }); d.scene('m-settings.jpg', { fade: 120 }); d.wait(900);
+    d.mark({ x: P.menu.settings['Outlook のメールを知らせる'].x, y: P.menu.settings['Outlook のメールを知らせる'].y, w: P.menu.settings['Outlook のメールを知らせる'].w, h: 68 }, { dur: 8000 });
+    d.cap('「Outlook のメールを知らせる」「会議の開始前に知らせる」「Teams のメンションを知らせる」を、それぞれON/OFFできます。');
+    d.wait(8500);
+    tap(d, P.menu.settings['Teams のメンションを知らせる'], { dur: 1100 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 100 }); d.wait(200);
+    riseUp(d, 'setting');
+    d.cap('切り替えると、何をどう変えたかを、吹き出しで確認できます。');
+    d.wait(5500); retract(d); d.wait(900);
+
+    d.chapter('テスト通知');
+    d.cap('「テスト通知を出す」を押すと、見た目と動きを確かめるための通知が出ます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(500);
+    tap(d, item('main', '設定'), { dur: 900 }); d.scene('m-settings.jpg', { fade: 120 }); d.wait(700);
+    tap(d, P.menu.settings['テスト通知を出す'], { dur: 1000 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); d.scene('desk.jpg', { fade: 100 }); d.wait(200);
+    riseUp(d, 'test'); d.wait(5500); retract(d); d.wait(900);
+
+    d.chapter('隠れるまでの時間');
+    d.cap('吹き出しが出てから引っ込むまでの時間は、「隠れるまでの時間」で、1秒・5秒・10秒・20秒から選べます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.cursor(TRAY[0], TRAY[1], { dur: 700 }); d.click(); d.scene('m-hide.jpg', { fade: 120 }); d.wait(500);
+    tap(d, item('main', '隠れるまでの時間'), { dur: 900 }); d.wait(5000);
+    d.cap('「自動的に隠さない」にすると、5分のあいだ、吹き出しが自動では引っ込まなくなります。\nメニューには、いつまでかが出ます。');
+    d.scene('m-main-on.jpg', { fade: 150 }); d.mark(P.menu['main-on']['自動的に隠さない（09:20 まで）'], { dur: 6000, label: '5分間' });
+    d.wait(7500);
+
+    d.chapter('設定ファイルの場所');
+    d.cap('そのほか、設定の「設定ファイルのフォルダを変更」で、settings.json を置くフォルダを選び直せます。\n共有フォルダにしておくと、複数のパソコンで設定をそろえられます。');
+    d.scene('m-settings.jpg', { fade: 150 }); d.mark(P.menu.settings['設定ファイルのフォルダを変更'], { dur: 6500 });
+    d.wait(8500);
+  }
+
+  // ---------------------------------------------------------------- スキン・大きさ
+  function skins(d) {
+    d.scene('desk.jpg'); d.cam(MB, { dur: 10 });
+    d.chapter('スキンを選ぶ');
+    d.cap('秘書さんの絵は、メニューの「スキン」から選べます。同梱は10種類です。\n' + DUMMY);
+    d.wait(5800); d.cursor(TRAY[0], TRAY[1], { dur: 800 }); d.click(); d.scene('m-main.jpg', { fade: 120 }); d.wait(600);
+    tap(d, item('main', 'スキン'), { dur: 900 }); d.scene('m-skin.jpg', { fade: 120 }); d.wait(900);
+    d.mark({ x: 1497, y: 759, w: 216, h: 242 }, { dur: 6000 });
+    d.cap('いまのスキンには、チェックが付いています。');
+    d.wait(4500);
+    tap(d, item('skin', '赤髪の秘書さん'), { dur: 1000 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); S(d, 'skin-red', 200); d.wait(200);
+    d.cap('選ぶと、すぐ切り替わって、「担当を交代しました」と知らせてくれます。');
+    d.wait(5500);
+
+    d.chapter('10種類');
+    var ids = ['enji', 'blue', 'red', 'brown', 'green', 'rose', 'maid', 'butler', 'megane', 'redboy'];
+    d.cap('同梱の10種類です。トレイのアイコンも、スキンに合わせて変わります。');
+    for (var i = 0; i < ids.length; i++) {
+      (function (id) {
+        S(d, 'skin-' + id, 250);
+        d.mark(P.win['skin-' + id].image, { dur: 2400 });
+        d.wait(2900);
+      })(ids[i]);
+    }
+
+    d.chapter('大きさ');
+    d.cap('秘書さんの大きさは、「大きさ」から、等倍・1/2・1/4に変えられます。');
+    d.wait(1500); d.cam(MB, { dur: 500 }); d.scene('m-size.jpg', { fade: 150 }); d.cursor(TRAY[0], TRAY[1], { dur: 0 }); d.wait(800);
+    tap(d, item('size', '1/2'), { dur: 1000 }); d.wait(300);
+    d.cam(RB, { dur: 500 }); S(d, 'size-050', 200); d.cap('1/2にしたところです。'); d.wait(4500);
+    S(d, 'size-025', 250); d.cap('1/4にしたところです。画面の隅で目立たせたくないときに使えます。'); d.wait(5000);
+    S(d, 'size-100', 250); d.cap('等倍に戻したところです。'); d.wait(3500);
+
+    d.chapter('スキンを足す');
+    d.cap('自分で作った絵も、スキンにできます。\n「スキンを追加するフォルダを開く」から開くフォルダに、背景を透明にした縦長の絵(secretary.png)を入れて、「スキン一覧を読み直す」を押します。');
+    d.cam(MB, { dur: 500 }); d.scene('m-skin.jpg', { fade: 200 });
+    d.mark(P.menu.skin['スキンを追加するフォルダを開く'], { dur: 7000 }); d.wait(4500);
+    d.mark(P.menu.skin['スキン一覧を読み直す'], { dur: 4000 }); d.wait(6500);
+  }
+
+  // ---------------------------------------------------------------- 守ってくれること
+  function safe(d) {
+    d.scene('desk.jpg'); d.cam(RB, { dur: 10 });
+    d.chapter('見せたくない場面');
+    d.cap('秘書さんには、「見せない」ための工夫があります。\n(画面共有そのものは、このデモでは再現できないので、文章で説明します。' + '\n' + DUMMY + ')');
+    d.wait(7500); riseUp(d, 'startup', true); d.wait(500);
+    d.cap('秘書さんは、画面のキャプチャから除外されます。Teams の画面共有やスクリーンショットには、映りません。');
+    d.wait(7500);
+    d.cap('ただし、メニューの「自動的に隠さない」を選んでいる5分のあいだだけは、画面に映ります。');
+    d.wait(6500); retract(d); d.wait(800);
+
+    d.chapter('出さない場面');
+    d.cap('プレゼン中・全画面表示中・画面のロック中は、お知らせを出しません。解除されたあとに、まとめて出します。');
+    d.wait(7500);
+    d.cap('そのとき、たまったお知らせが4件以上になっていたら、1件にまとめて知らせます。');
+    riseUp(d, 'pile'); d.wait(6500); retract(d); d.wait(800);
+
+    d.chapter('読まないもの');
+    d.cap('Outlook は、秘書さんが勝手に起動することはありません。Outlook が起動していないときに呼ぶと、起動していないことを知らせます。');
+    d.wait(7000);
+    d.cap('Teams の通知のデータベースは読みません。Teams が出す組み込みのポップアップの文字を、画面の部品として読み取っています。');
+    d.wait(7500);
+    d.cap('ログには、件名・差出人・本文・人名は書きません。');
+    d.wait(5000);
+  }
+
+  DesktopDemo.start({
+    title: '秘書さんガジェット 機能デモ',
+    icon: '🗂️',
+    back: 'index.html',
+    backLabel: '← 秘書さんガジェットの図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、秘書さんでできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ(30秒〜1分ほど)で見られます。' +
+      '吹き出しと秘書さん、トレイのメニュー、タイマーの入力画面は、本物の部品をダミーのデータで描いた画面です。名前・件名・会議名・時刻はすべてダミーです。',
+    frame: { w: P.frame.w, h: P.frame.h, title: '秘書さんガジェット — ダミーの画面で再現' },
+    imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', sec: 'まずは全体を見る', desc: 'あいさつ・呼び出し・新着・会議・予定・タイマー・スキンまで、主な機能をひととおり。', script: overview },
+      { id: 'startup', icon: '🌅', title: '起動とあいさつ・吹き出しの動き', sec: '機能ごとのデモ', desc: 'せり上がる動き、時間帯で変わるあいさつ、吹き出し・×・絵をクリックしたときの引っ込みかた。', script: startup },
+      { id: 'call', icon: '🙋', title: '秘書さんを呼ぶ', sec: '機能ごとのデモ', desc: 'トレイのクリックで、メールとTeamsの未読・このあとの会議をまとめて聞く。', script: call },
+      { id: 'notice', icon: '📨', title: '新着・会議のお知らせ', sec: '機能ごとのデモ', desc: '新着メール、会議の開始前、Teamsのメンション。たまったときの「ほか N 件」とまとめ表示。', script: notice },
+      { id: 'schedule', icon: '📅', title: '本日の予定', sec: '機能ごとのデモ', desc: '今日の会議を、開催中・終了つきの一覧で見る。8件を超えたら「ほか N 件」。', script: schedule },
+      { id: 'timer', icon: '⏰', title: 'タイマー', sec: '機能ごとのデモ', desc: '時刻の指定と〇時間〇分後。ドラムロールで選び、時間になったら知らせて、取り消しもできる。', script: timer },
+      { id: 'menu', icon: '📋', title: 'トレイメニューの見かた', sec: '機能ごとのデモ', desc: '右クリックで開くメニューの項目を、上から順に説明。', script: menu },
+      { id: 'pause', icon: '☕', title: '休憩・おやすみ', sec: '機能ごとのデモ', desc: '30分・1時間・2時間の休憩と、おやすみ。休憩中の見え方と、戻ったときの知らせ。', script: pause },
+      { id: 'settings', icon: '⚙️', title: '設定', sec: '機能ごとのデモ', desc: '知らせる対象のON/OFF、テスト通知、隠れるまでの時間、自動的に隠さない、設定ファイルの場所。', script: settings },
+      { id: 'skins', icon: '🎨', title: 'スキンと大きさ', sec: '機能ごとのデモ', desc: '10種類のスキンを切り替える。大きさ(等倍・1/2・1/4)と、スキンの追加のしかた。', script: skins },
+      { id: 'safe', icon: '🛡️', title: '見せない・出さない・読まない', sec: '機能ごとのデモ', desc: '画面共有に映らない、プレゼン中は出さない、Outlookを勝手に起動しない、など。', script: safe }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
