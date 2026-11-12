@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheetos 機能デモ</title>
+<!--
+  Cheetos の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=trim のように機能を指定します。
+  ・本物の Cheetos.exe を、画面の外で動かして撮った画面(2倍の解像度)に、カーソル・ズーム・字幕を重ねています。
+  ・画像・フォルダ名・ファイル名は、すべてデモ用に作った架空のものです(フォルダは、画面上は Q:\ の名前で見えるよう、仮のドライブ名を割り当てて撮影)。
+  ・画面の実際の撮影(Capture ボタン)は、撮影中のマウス操作や画面そのものが写り込むため、デモでは実行していません。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (各部品の位置。撮影時に取得したスクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js (Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 1088, FH = 1122;
+  var DUMMY = '※ 画面の中のフォルダ名・ファイル名・画像は、すべてデモ用に作った架空のものです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.CH_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function U() { // 複数の部品を囲む枠(s, k1, k2, ...)
+    var s = arguments[0], x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 1; i < arguments.length; i++) { var r = P(s, arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる範囲へズーム(画面と同じ縦横比)
+    o = o || {}; var pad = (o.pad != null ? o.pad : 40), minW = o.minW || 760;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d, s) { var ks = Array.prototype.slice.call(arguments, 2); zoomR(d, U.apply(null, [s].concat(ks))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 6, y: r.y - 5, w: r.w + 12, h: r.h + 10 }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  function at0(d, s, k) { var r = P(s, k); d.cursor(r.cx + 260, r.cy + 200, { dur: 0 }); }   // カーソルの初めの位置(対象の近く)
+  function scene(d, name) { d.scene(name + '.png'); }
+
+  var SCRIPTS = {};
+
+  // ---------- CaptureWindow ----------
+  SCRIPTS.cap = function (d) {
+    d.chapter('Capture とは'); scene(d, 'cap-0'); at0(d, 'cap-0', 'CaptureWindow');
+    d.cap(DUMMY + '\nCheetos は、画面を決まった間隔で撮り(Capture)、切り取り・回転・結合で仕上げる画像ツールです。'); d.wait(5600);
+    d.cap('最初のタブ「CaptureWindow」では、何を・どこへ・どんな順序で撮るかを決めます。'); mark(d, 'cap-0', 'CaptureWindow', '', 3200); to(d, 'cap-0', 'CaptureWindow'); d.wait(3200);
+
+    d.chapter('保存先と名前'); scene(d, 'cap-1'); zoom(d, 'cap-1', 'cw_TextBox_SavePath', 'cw_checkBox_AddTimeStamp');
+    d.cap('「フォルダパス」に保存先、「ファイル名プリフィックス」にファイル名の先頭を入れます。\n保存先が無ければ、自動で作られます。');
+    mark(d, 'cap-1', 'cw_TextBox_SavePath', '', 2400); to(d, 'cap-1', 'cw_TextBox_SavePath'); d.wait(2600); mark(d, 'cap-1', 'cw_TextBox_SaveFilePrefix', '', 2400); to(d, 'cap-1', 'cw_TextBox_SaveFilePrefix'); d.wait(2800);
+    d.cap('「ファイル名にタイムスタンプを使用する」にチェックを入れると、撮り始めた時刻がファイル名に付きます。\n(ファイル名は「接頭辞_[タイムスタンプ_]繰り返し番号4桁_撮影番号.png」になります)');
+    tap(d, 'cap-1', 'cw_checkBox_AddTimeStamp'); d.wait(5400);
+
+    d.chapter('撮る対象'); scene(d, 'cap-2'); zoom(d, 'cap-2', 'cw_GroupBox_CaptureTarget', 'cw_TextBox_Loop');
+    d.cap('「Capture対象」は3つから選びます。\nFullScreen は画面全体、CurrentScreen はこのウィンドウがあるモニタ1枚、CurrentWindow は撮る瞬間に前面にあるウィンドウです。');
+    mark(d, 'cap-2', 'cw_GroupBox_CaptureTarget', '', 4200); to(d, 'cap-2', 'cw_Radio_FullScreen'); d.wait(1600); to(d, 'cap-2', 'cw_Radio_CurrentScreen', { dur: 600 }); d.wait(1400); tap(d, 'cap-2', 'cw_Radio_CurrentWindow', { dur: 600 }); d.wait(2400);
+
+    d.chapter('操作の表'); d.cam(null, { dur: 700 }); zoom(d, 'cap-2', 'cw_dataGridView');
+    d.cap('右の表で、撮る前に行うマウス操作と、撮る行を、1行ずつ決めます。上の行から順に実行されます。');
+    markR(d, U('cap-2', 'cw_dataGridView'), '', 3000); d.wait(3800);
+    d.cap('Sleep は、操作のあとキャプチャ前に待つ時間(ミリ秒)です。\nMouseX・MouseY は、マウスを動かす先の画面座標で、空欄ならマウスは動かしません。');
+    markR(d, U('cap-2', 'hdr#Sleep(msec)'), 'Sleep', 2400); to(d, 'cap-2', 'hdr#Sleep(msec)'); d.wait(2800);
+    markR(d, U('cap-2', 'hdr#MouseX', 'hdr#MouseY'), '座標', 2400); to(d, 'cap-2', 'hdr#MouseX', { dur: 800 }); d.wait(2600);
+    d.cap('MouseAction は、Move なら移動だけ、LeftDown(または未設定)なら移動して左クリックします。\nCapture が「〇」の行だけ、Sleep のあとに撮影します。「×」の行は撮りません。');
+    markR(d, U('cap-2', 'hdr#MouseAction', 'hdr#Capture'), 'クリックと撮影', 4200); to(d, 'cap-2', 'hdr#MouseAction', { dur: 800 }); d.wait(2800); to(d, 'cap-2', 'row#0', { dx: 190, dur: 700 }); d.wait(3200);
+
+    d.chapter('繰り返しと実行'); scene(d, 'cap-3'); d.cam(null, { dur: 700 });
+    d.cap('「一行追加」を押すと、選んでいる行の下に1行入ります(MouseAction は Move、Capture は ×)。');
+    tap(d, 'cap-3', 'cw_Button_AddLine', { dur: 900 }); d.wait(3000);
+    zoom(d, 'cap-3', 'cw_TextBox_Sleep', 'cw_TextBox_Loop', 'cw_Button_AddLine');
+    d.cap('「繰り返し数」は、表の全行を繰り返す回数です。空欄なら1回です。');
+    mark(d, 'cap-3', 'cw_TextBox_Loop', '3回', 3200); to(d, 'cap-3', 'cw_TextBox_Loop', { dur: 900 }); d.wait(3800);
+    d.cam(null, { dur: 700 });
+    d.cap('最後に「Capture」を押すと、表の各行が上から順に実行され、繰り返し数だけ続きます。処理中にもう一度押すと中断できます。\n※ このデモでは、実際の撮影は行っていません。');
+    mark(d, 'cap-3', 'cw_Button_Capture', 'ここで実行', 4800); to(d, 'cap-3', 'cw_Button_Capture', { dur: 1000 }); d.wait(7000);
+  };
+
+  // ---------- PictTrim ----------
+  SCRIPTS.trim = function (d) {
+    d.chapter('フォルダを選ぶ'); scene(d, 'trim-0'); at0(d, 'trim-0', 'pt_Button_Listup');
+    d.cap(DUMMY + '\n「PictTrim」タブでは、撮った画像を、決まった範囲で切り取ります。'); mark(d, 'trim-0', 'PictTrim', '', 3000); to(d, 'trim-0', 'PictTrim', { dur: 900 }); d.wait(4800);
+    d.cap('「フォルダパス」に画像のフォルダを入れて(フォルダのドラッグ&ドロップでも指定できます)、「リストアップ」を押します。');
+    mark(d, 'trim-0', 'pt_SourceFolderPath', '', 2600); to(d, 'trim-0', 'pt_SourceFolderPath', { dur: 900 }); d.wait(2800);
+    tap(d, 'trim-0', 'pt_Button_Listup', { dur: 900 }); scene(d, 'trim-1'); d.wait(3600);
+    d.cap('フォルダの中のファイルが、下の一覧に並びます。');
+    zoom(d, 'trim-1', 'pt_ListBox_ListUp#0', 'pt_ListBox_ListUp#3'); mark(d, 'trim-1', 'pt_ListBox_ListUp#0', '', 2200); d.wait(3200);
+
+    d.chapter('範囲を決める'); d.cam(null, { dur: 700 });
+    d.cap('一覧で、切り取りたいファイルを選びます。Ctrl+A で全部選べます。選んだファイルだけが対象です。');
+    to(d, 'trim-1', 'pt_ListBox_ListUp#1', { dur: 900 }); d.wait(300); d.key('Ctrl + A'); scene(d, 'trim-2'); d.wait(3800);
+    zoom(d, 'trim-2', 'pt_BaseX', 'pt_TargetY');
+    d.cap('切り取る範囲を決めます。「原点(X)」「原点(Y)」は、範囲の左上の座標(ピクセル)です。');
+    markR(d, U('trim-2', 'pt_BaseX', 'pt_BaseY'), '左上', 3000); to(d, 'trim-2', 'pt_BaseX', { dur: 900 }); d.wait(1400); to(d, 'trim-2', 'pt_BaseY', { dur: 700 }); d.wait(2000);
+    d.cap('「終点を座標で指定」では、下の X・Y に、範囲の右下の座標を入れます(その位置のピクセル自体は含みません)。');
+    markR(d, U('trim-2', 'pt_Radio_SelectPointOfEnd', 'pt_TargetY'), '右下の座標', 3600); to(d, 'trim-2', 'pt_TargetX', { dur: 900 }); d.wait(1500); to(d, 'trim-2', 'pt_TargetY', { dur: 700 }); d.wait(2200);
+
+    d.chapter('指定方法を切り替える');
+    d.cap('「終点をサイズで指定」に切り替えると、同じ範囲が、幅と高さの数字に自動で換算されます。\n(1240-40=1200、680-60=620)');
+    tap(d, 'trim-2', 'pt_Radio_SelectSizeOfEnd', { dur: 900 }); scene(d, 'trim-3'); mark(d, 'trim-3', 'pt_TargetX', '幅', 2600); d.wait(2800); mark(d, 'trim-3', 'pt_TargetY', '高さ', 2600); d.wait(3600);
+
+    d.chapter('切り取りを実行'); d.cam(null, { dur: 700 });
+    d.cap('「切り取り」を押すと、選んだファイルを切り取って上書き保存します。元のファイルは、フォルダの中の Bk_Trim にコピーしてから処理します。');
+    tap(d, 'trim-3', 'pt_Button_Trim', { dur: 1000 }); scene(d, 'trim-4'); d.wait(1000);
+    zoom(d, 'trim-4', 'groupBox2');
+    d.cap('下の「処理状況」に、開始時刻・終了予想・進み具合が出ます。「4/4 完了」で終わりです。\n処理中に、もう一度ボタンを押すと中断できます。');
+    markR(d, U('trim-4', 'groupBox2'), '', 4600); d.wait(6000);
+  };
+
+  // ---------- Rotation ----------
+  SCRIPTS.rot = function (d) {
+    d.chapter('フォルダを選ぶ'); scene(d, 'rot-0'); at0(d, 'rot-0', 'pr_Button_Listup');
+    d.cap(DUMMY + '\n「Rotation」タブでは、画像を決まった角度に回転します。'); mark(d, 'rot-0', 'Rotation', '', 3000); to(d, 'rot-0', 'Rotation', { dur: 900 }); d.wait(4800);
+    d.cap('PictTrim と同じように、フォルダパスを入れて「リストアップ」を押すと、ファイルが一覧に並びます。');
+    tap(d, 'rot-0', 'pr_Button_Listup', { dur: 1000 }); scene(d, 'rot-1'); d.wait(4200);
+
+    d.chapter('原点と角度'); zoom(d, 'rot-1', 'pr_BaseX', 'pr_Button_RotationPreview');
+    d.cap('「原点(X)」「原点(Y)」「角度」を決めます。角度は度で、プラスの値だと時計回りです。\n原点は、回転後の画像で元画像の左上を置く位置で、この点を中心に回ります。');
+    markR(d, U('rot-1', 'pr_BaseX', 'pr_Angle'), '', 4000); to(d, 'rot-1', 'pr_BaseX', { dur: 900 }); d.wait(1600); to(d, 'rot-1', 'pr_Angle', { dur: 800 }); d.wait(3600);
+
+    d.chapter('プレビューで確かめる'); scene(d, 'rot-2'); d.cam(null, { dur: 700 });
+    d.cap('数字が決まらないときは「プレビュー」を押します。画像を読み込んで、原点と角度を試せる画面が開きます。');
+    tap(d, 'rot-2', 'pr_Button_RotationPreview', { dur: 1100 }); scene(d, 'rotprev-0'); d.wait(3200);
+    d.cap('ファイルパスを入れて「load」を押すと、左に元の画像、右に回転後の画像が出ます。');
+    markR(d, U('rotprev-0', 'textBox_LoadFilePath', 'button_draw'), '', 2800); to(d, 'rotprev-0', 'button_draw', { dur: 1000 }); d.wait(500); d.click(); scene(d, 'rotprev-1'); d.wait(3600);
+    d.cap('原点X・原点Y・角度の数字を変えると、右の画像がすぐ変わります。(左の元画像と見比べながら調整できます)');
+    markR(d, U('rotprev-1', 'textBox_OriginX', 'textBox_angle'), '', 4000); to(d, 'rotprev-1', 'textBox_angle', { dur: 1000 }); d.wait(4600);
+    d.cap('「OK」で閉じると、その数字が Rotation タブに入ります。');
+    tap(d, 'rotprev-1', 'buttonOk', { dur: 1100 }); scene(d, 'rot-2'); d.wait(3000);
+
+    d.chapter('回転を実行');
+    d.cap('「回転実行」を押すと、選んだファイルを回転して上書き保存します。元のファイルは Bk_Rotate にコピーしてから処理します。\n回転後の画像は、元画像の対角線の長さの正方形になります。');
+    tap(d, 'rot-2', 'pr_Button_Rotation', { dur: 1000 }); scene(d, 'rot-3'); d.wait(1200);
+    zoom(d, 'rot-3', 'groupBox2'); markR(d, U('rot-3', 'groupBox2'), '', 3800); d.wait(5600);
+  };
+
+  // ---------- DistOrient ----------
+  SCRIPTS.dist = function (d) {
+    d.chapter('振り分けとは'); scene(d, 'dist-0'); at0(d, 'dist-0', 'DistOrient');
+    d.cap(DUMMY + '\n「DistOrient」タブでは、画像を「縦長のページ」と「横長のページ」に、自動で振り分けます。'); mark(d, 'dist-0', 'DistOrient', '', 3000); to(d, 'dist-0', 'DistOrient', { dur: 900 }); d.wait(5200);
+    d.cap('縦のページは左右に白いフチがあり、横のページは左右いっぱいに絵がある、という違いを見て判定します。');
+    d.wait(4600);
+
+    d.chapter('フォルダを決める'); scene(d, 'dist-1'); zoom(d, 'dist-1', 'do_SourceFolderPath', 'do_TargetFileName');
+    d.cap('「移動元」に画像のあるフォルダ、「移動先[縦]」「移動先[横]」にそれぞれの行き先を入れます。\n「対象ファイル」は、*.png のように、検索の書き方で指定します。');
+    markR(d, U('dist-1', 'do_SourceFolderPath'), '', 2200); to(d, 'dist-1', 'do_SourceFolderPath', { dur: 900 }); d.wait(2400);
+    markR(d, U('dist-1', 'do_DestPortFolderPath', 'do_DestLandFolderPath'), '', 2400); to(d, 'dist-1', 'do_DestPortFolderPath', { dur: 700 }); d.wait(1200); to(d, 'dist-1', 'do_DestLandFolderPath', { dur: 600 }); d.wait(1400);
+    markR(d, U('dist-1', 'do_TargetFileName'), '', 2200); to(d, 'dist-1', 'do_TargetFileName', { dur: 700 }); d.wait(2400);
+
+    d.chapter('白判定の長さと係数'); zoom(d, 'dist-1', 'do_WhiteLength', 'do_WhiteCoef');
+    d.cap('「白判定の長さ」は、左右の端のどこまでの幅を調べるか(ピクセル)です。\n「白判定の係数」は、白と見なすしきい値の係数で、大きいほど白と判定されにくく、横に振り分けられやすくなります。');
+    markR(d, U('dist-1', 'do_WhiteLength'), '長さ', 2800); to(d, 'dist-1', 'do_WhiteLength', { dur: 900 }); d.wait(3200); markR(d, U('dist-1', 'do_WhiteCoef'), '係数', 2800); to(d, 'dist-1', 'do_WhiteCoef', { dur: 900 }); d.wait(3600);
+
+    d.chapter('サンプルで試す'); scene(d, 'dist-2'); zoom(d, 'dist-2', 'do_SampleFilePath', 'do_GetSampleParam');
+    d.cap('本番の前に、1枚の画像で試せます。下の「Sample」にファイル名を入れて「取得」を押します。(ファイルは動かしません)');
+    markR(d, U('dist-2', 'do_SampleFilePath'), '', 2600); to(d, 'dist-2', 'do_SampleFilePath', { dur: 900 }); d.wait(2800); tap(d, 'dist-2', 'do_GetSampleParam', { dur: 900 }); scene(d, 'dist-msg-p'); d.cam(null, { dur: 700 }); d.wait(900);
+    d.cap('縦長のページを入れた結果です。IsPortrait=True は「縦」と判定された、という意味です。\nLeftPictSize・RightPictSize(左右の端の帯をPNGにしたサイズ)が、BaseSize(しきい値)以下だと、白フチありの縦になります。');
+    mark(d, 'dist-msg-p', 'msg', '', 5000); d.wait(8200);
+    tap(d, 'dist-msg-p', 'ok', { dur: 900 }); scene(d, 'dist-2b'); d.wait(1400);
+    d.cap('次に、横長のページで試します。');
+    tap(d, 'dist-2b', 'do_GetSampleParam', { dur: 1100 }); scene(d, 'dist-msg-l'); d.wait(1200);
+    d.cap('IsPortrait=False なので「横」です。左の帯のサイズがしきい値を超えているので、右は調べず 0 になります。');
+    mark(d, 'dist-msg-l', 'msg', '', 4200); d.wait(6400);
+    tap(d, 'dist-msg-l', 'ok', { dur: 900 }); scene(d, 'dist-2b'); d.wait(1000);
+
+    d.chapter('振り分けを実行');
+    d.cap('よければ「振り分け」を押します。縦と判定した画像は[縦]のフォルダへ、それ以外は[横]のフォルダへ、移動されます。');
+    tap(d, 'dist-2b', 'do_Distribute', { dur: 1000 }); scene(d, 'dist-3'); d.wait(1200);
+    zoom(d, 'dist-3', 'groupBox2'); markR(d, U('dist-3', 'groupBox2'), '', 3600); d.cap('「6/6 完了」と出れば終わりです。処理中にもう一度押すと中断できます。'); d.wait(5400);
+  };
+
+  // ---------- PictMerge ----------
+  SCRIPTS.merge = function (d) {
+    d.chapter('結合とは'); scene(d, 'merge-0'); at0(d, 'merge-0', 'pm_Button_Listup');
+    d.cap(DUMMY + '\n「PictMerge」タブでは、2枚の画像の一部を、1枚にまとめます。'); mark(d, 'merge-0', 'PictMerge', '', 3000); to(d, 'merge-0', 'PictMerge', { dur: 900 }); d.wait(4600);
+    d.cap('「マージ先」の画像に、「マージ元」の画像から指定した縦の範囲を写して、1枚に仕上げます。(001_1.png と 001_2.png のように、名前の末尾で組を見分けます)');
+    d.wait(6200);
+
+    d.chapter('識別子と範囲'); scene(d, 'merge-1'); zoom(d, 'merge-1', 'pm_SourceFile1Prefix', 'pm_TrimmingHeight');
+    d.cap('「マージ先の識別子」は、結合先のファイル名の、拡張子の直前の文字(001_1.png なら _1)です。結合先のファイルに上書き保存します。');
+    markR(d, U('merge-1', 'pm_SourceFile1Prefix'), '', 2800); to(d, 'merge-1', 'pm_SourceFile1Prefix', { dur: 900 }); d.wait(4200);
+    d.cap('「マージ元の識別子」は、切り出す元のファイル(001_2.png なら _2)です。');
+    markR(d, U('merge-1', 'pm_SourceFile2Prefix'), '', 2400); to(d, 'merge-1', 'pm_SourceFile2Prefix', { dur: 700 }); d.wait(3200);
+    d.cap('「切取る高さの範囲」は、マージ元から結合先の同じ位置へ写す縦の範囲(ピクセル)を、1行に1つ「開始,終了」で書きます。\n「-」は、開始なら0、終了なら画像の下端の意味です。');
+    markR(d, U('merge-1', 'pm_TrimmingHeight'), '0〜300 と 600〜下端', 4800); to(d, 'merge-1', 'pm_TrimmingHeight', { dur: 900 }); d.wait(7200);
+
+    d.chapter('結合を実行'); d.cam(null, { dur: 700 });
+    d.cap('フォルダを入れて「リストアップ」で並べ、結合したいファイルを選びます。選んだファイルのうち、マージ先の識別子を含むものだけが処理されます。');
+    to(d, 'merge-1', 'pm_ListBox_ListUp#1', { dur: 900 }); d.wait(300); d.key('Ctrl + A'); scene(d, 'merge-2'); d.wait(4600);
+    d.cap('「結合」を押すと、結合先を上書き保存します。元のファイルは、フォルダの中の Bk_Merge に入ります。');
+    tap(d, 'merge-2', 'pm_Button_Merge', { dur: 1000 }); scene(d, 'merge-3'); d.wait(1000);
+    zoom(d, 'merge-3', 'groupBox2'); markR(d, U('merge-3', 'groupBox2'), '', 3200); d.wait(4800);
+  };
+
+  // ---------- FileCollect ----------
+  SCRIPTS.collect = function (d) {
+    d.chapter('集めるとは'); scene(d, 'collect-0'); at0(d, 'collect-0', 'fc_MoveFile');
+    d.cap(DUMMY + '\n「FileCollect」タブでは、あるフォルダのファイルを、別のフォルダへまとめて移動します。'); mark(d, 'collect-0', 'FileCollect', '', 3000); to(d, 'collect-0', 'FileCollect', { dur: 900 }); d.wait(5000);
+
+    d.chapter('移動元と移動先'); scene(d, 'collect-1'); zoom(d, 'collect-1', 'fc_SourceFolderPath', 'fc_MoveFile');
+    d.cap('「移動元」に今ファイルがあるフォルダ、「移動先」に集めたいフォルダ、「対象ファイル」に *.png のような検索の書き方を入れます。\n対象になるのは、移動元の直下のファイルだけです。');
+    markR(d, U('collect-1', 'fc_SourceFolderPath'), '', 2400); to(d, 'collect-1', 'fc_SourceFolderPath', { dur: 900 }); d.wait(2800);
+    markR(d, U('collect-1', 'fc_DestFolderPath'), '', 2400); to(d, 'collect-1', 'fc_DestFolderPath', { dur: 700 }); d.wait(2400);
+    markR(d, U('collect-1', 'fc_TargetFileName'), '', 2400); to(d, 'collect-1', 'fc_TargetFileName', { dur: 700 }); d.wait(3600);
+
+    d.chapter('移動する');
+    d.cap('「移動」を押すと、対象のファイルが移動先へ移ります(コピーではなく移動です)。移動先が無ければ、作るかどうかを聞かれます。');
+    tap(d, 'collect-1', 'fc_MoveFile', { dur: 1000 }); scene(d, 'collect-2'); d.wait(1200);
+    d.cap('移動先に同じ名前のファイルがあっても止まらず、名前に連番を付けて避けます。\n下の処理状況に「5/5」と出れば終わりです。');
+    d.cam(null, { dur: 700 }); markR(d, U('collect-2', 'groupBox2'), '', 4000); d.wait(6600);
+  };
+
+  // ---------- 設定値の保存と切り替え ----------
+  SCRIPTS.profile = function (d) {
+    d.chapter('設定値の保存'); scene(d, 'prof-0'); at0(d, 'prof-0', 'Button_ProfileSave');
+    d.cap(DUMMY + '\nどのタブも、入れた数字やフォルダは、「設定値保存」で保存しておけます。'); mark(d, 'prof-0', 'Button_ProfileSave', '', 3600); to(d, 'prof-0', 'Button_ProfileSave', { dur: 1000 }); d.wait(5000);
+    d.cap('Ctrl+S でも同じです。プルダウンで既存の設定を選んでいるときは、新しく名前を付けずに、上書きするかの確認だけで済みます。');
+    d.wait(1200); d.key('Ctrl + S'); d.wait(4600);
+
+    d.chapter('設定の切り替え'); d.cam(null, { dur: 600 });
+    d.cap('下のプルダウンから保存した設定を選ぶと、その設定が読み込まれます。');
+    zoom(d, 'prof-0', 'Profile', 'Button_ProfileSave'); mark(d, 'prof-0', 'Profile', '', 3000); to(d, 'prof-0', 'Profile', { dur: 1000 }); d.wait(1200); d.click(); d.wait(900);
+    scene(d, 'prof-1'); d.cam(null, { dur: 800 }); d.wait(900);
+    d.cap('「トリミング設定」を選ぶと、PictTrim タブのフォルダ・原点・終点の数字が、保存したときの値になりました。');
+    markR(d, U('prof-1', 'pt_SourceFolderPath', 'pt_TargetY'), '読み込まれた値', 4200); d.wait(5600);
+    d.cap('別の設定を選べば、別のタブの数字に切り替わります。用途ごとに設定を作っておくと、毎回入れ直さずに済みます。');
+    to(d, 'prof-1', 'Rotation', { dur: 900 }); d.wait(300); d.click(); scene(d, 'prof-2'); d.wait(900); markR(d, U('prof-2', 'pr_SourceFolderPath', 'pr_Angle'), '「回転15度」の値', 4200); d.wait(6200);
+  };
+
+  // ---------- 全体紹介 ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); scene(d, 'cap-0'); at0(d, 'cap-0', 'CaptureWindow');
+    d.cap(DUMMY + '\nCheetos は、画面を連続で撮って、切り取り・回転・結合まで、画像の仕上げをまとめて行うツールです。'); d.wait(5600);
+    d.cap('上の6つのタブが、そのまま作業の流れです。\nCaptureWindow → PictTrim → Rotation → DistOrient → PictMerge → FileCollect の順に使います。');
+    markR(d, { x: P('cap-0', 'CaptureWindow').x, y: P('cap-0', 'CaptureWindow').y, w: P('cap-0', 'FileCollect').x + P('cap-0', 'FileCollect').w - P('cap-0', 'CaptureWindow').x, h: P('cap-0', 'CaptureWindow').h }, '6つのタブ', 6000);
+    to(d, 'cap-0', 'CaptureWindow', { dur: 900 }); d.wait(1000); to(d, 'cap-0', 'FileCollect', { dur: 3600 }); d.wait(1200);
+
+    d.chapter('① 撮る'); scene(d, 'cap-3'); d.cam(null, { dur: 600 });
+    d.cap('CaptureWindow は、決めた間隔でマウスを動かしながら、画面を撮ります。\n保存先・ファイル名・撮る対象・操作の表(Sleep・座標・クリック・撮るか)・繰り返し数を決めて、「Capture」を押します。');
+    zoom(d, 'cap-3', 'cw_dataGridView'); markR(d, U('cap-3', 'cw_dataGridView'), '操作の表', 4000); to(d, 'cap-3', 'row#1', { dx: 120, dur: 1000 }); d.wait(8000);
+    d.cam(null, { dur: 700 }); d.cap('保存先とファイル名、撮る対象(画面全体・モニタ1枚・前面のウィンドウ)も、ここで選びます。');
+    mark(d, 'cap-3', 'cw_GroupBox_CaptureTarget', '撮る対象', 3400); to(d, 'cap-3', 'cw_Radio_CurrentWindow', { dur: 1000 }); d.wait(5200);
+
+    d.chapter('② 切り取る'); scene(d, 'trim-2'); d.cam(null, { dur: 600 });
+    d.cap('PictTrim は、撮った画像を決まった範囲で切り取ります。フォルダをリストアップして、原点と終点(座標かサイズ)を入れます。');
+    zoom(d, 'trim-2', 'pt_BaseX', 'pt_TargetY'); mark(d, 'trim-2', 'pt_BaseX', '', 2000); to(d, 'trim-2', 'pt_BaseX', { dur: 900 }); d.wait(2600); to(d, 'trim-2', 'pt_TargetY', { dur: 1000 }); d.wait(2200);
+    d.cap('終点は、座標でも、幅と高さのサイズでも指定できます。切り替えると、数字は自動で換算されます。'); d.wait(5200);
+    d.cam(null, { dur: 600 }); tap(d, 'trim-2', 'pt_Button_Trim', { dur: 1000 }); scene(d, 'trim-4');
+    d.cap('「切り取り」で、選んだ画像を上書きします。元の画像は Bk_Trim に残ります。'); d.wait(4800);
+
+    d.chapter('③ 回す'); scene(d, 'rotprev-1');
+    d.cap('Rotation は、画像を回転します。「プレビュー」で、元の画像と回した後の画像を見比べながら、原点と角度を決められます。');
+    markR(d, U('rotprev-1', 'pictureBox_Dest'), '回転後', 4000); to(d, 'rotprev-1', 'textBox_angle', { dur: 1200 }); d.wait(7000);
+    scene(d, 'rot-3'); d.cap('「回転実行」で、選んだ画像を回して上書きします。回転後の画像は、元画像の対角線の長さの正方形になり、元の画像は Bk_Rotate に残ります。');
+    markR(d, U('rot-3', 'pr_Button_Rotation'), '', 3600); to(d, 'rot-3', 'pr_Button_Rotation', { dur: 1000 }); d.wait(7000);
+
+    d.chapter('④ 振り分ける'); scene(d, 'dist-msg-p');
+    d.cap('DistOrient は、縦長のページと横長のページを、自動で別のフォルダへ振り分けます。「取得」で、1枚だけ試せます。');
+    mark(d, 'dist-msg-p', 'msg', '', 4000); d.wait(6200);
+    scene(d, 'dist-3'); d.cap('「振り分け」を押すと、縦と判定した画像は[縦]のフォルダへ、それ以外は[横]のフォルダへ移ります。白判定の長さと係数で、判定の厳しさを調整できます。');
+    zoom(d, 'dist-3', 'do_DestPortFolderPath', 'do_WhiteCoef'); markR(d, U('dist-3', 'do_WhiteLength', 'do_WhiteCoef'), '判定の調整', 4200); d.wait(7000);
+
+    d.chapter('⑤ 結合する'); scene(d, 'merge-2'); zoom(d, 'merge-2', 'pm_SourceFile1Prefix', 'pm_TrimmingHeight');
+    d.cap('PictMerge は、2枚の画像の一部を1枚にまとめます。マージ先・マージ元の識別子と、写す縦の範囲(開始,終了)を決めます。');
+    markR(d, U('merge-2', 'pm_TrimmingHeight'), '写す縦の範囲', 4200); d.wait(7000);
+    scene(d, 'merge-3'); d.cam(null, { dur: 600 }); d.cap('「結合」を押すと、結合先を上書き保存します。元のファイルは Bk_Merge に入ります。');
+    markR(d, U('merge-3', 'pm_Button_Merge'), '', 3000); to(d, 'merge-3', 'pm_Button_Merge', { dur: 1000 }); d.wait(5400);
+
+    d.chapter('⑥ 集める'); scene(d, 'collect-2'); d.cam(null, { dur: 600 });
+    d.cap('FileCollect は、あるフォルダのファイルを、別のフォルダへまとめて移動します。');
+    markR(d, U('collect-2', 'fc_SourceFolderPath', 'fc_MoveFile'), '', 3600); d.wait(5000);
+    d.cap('移動先に同じ名前のファイルがあっても止まらず、名前に連番を付けて移します。'); d.wait(5200);
+
+    d.chapter('設定の保存'); scene(d, 'prof-1');
+    d.cap('どのタブの設定も、「設定値保存」で保存でき、下のプルダウンで切り替えられます。');
+    markR(d, U('prof-1', 'Profile', 'Button_ProfileSave'), '', 3600); to(d, 'prof-1', 'Profile', { dur: 1000 }); d.wait(5600);
+    d.cap('Ctrl+S でも保存できます。用途ごとに設定を作っておくと、毎回入れ直さずに済みます。'); d.key('Ctrl + S'); d.wait(5200);
+
+    d.chapter('おわり'); scene(d, 'cap-0'); d.cam(null, { dur: 600 });
+    d.cap('以上が、Cheetos の主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。'); d.wait(5600);
+  };
+
+  DesktopDemo.start({
+    title: 'Cheetos 機能デモ', icon: '📸', back: 'index.html', backLabel: '← Cheetos の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、Cheetos でできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ(30秒〜1分ほど)で見られます。' +
+      '本物の Cheetos の画面にダミーの画像を入れて撮っているので、「ここを押すとこうなる」を、そのまま見られます。<br>' +
+      '<small>※ 画面の実際の撮影(Capture ボタン)は、デモでは実行していません。画像・フォルダ名はすべて架空です。</small>',
+    frame: { w: FW, h: FH, title: 'Cheetos' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎞️', title: '全体紹介', sec: 'まずは全体を見る', desc: '撮る → 切り取る → 回す → 振り分ける → 結合する → 集める、の流れと、設定の保存を、ひととおり紹介します。', script: SCRIPTS.overview },
+      { id: 'cap', icon: '📷', title: 'Capture(撮る)', sec: '機能ごとのデモ', desc: '保存先・ファイル名・撮る対象・操作の表・繰り返し数を決めて、画面を連続で撮る設定の画面です。', script: SCRIPTS.cap },
+      { id: 'trim', icon: '✂️', title: 'PictTrim(切り取り)', sec: '機能ごとのデモ', desc: 'フォルダの画像を、決めた範囲で一括して切り取ります。範囲は、終点の座標でもサイズでも指定できます。', script: SCRIPTS.trim },
+      { id: 'rot', icon: '🔄', title: 'Rotation(回転)', sec: '機能ごとのデモ', desc: '画像を原点と角度で回転します。プレビューで、回した後の画像を確かめながら決められます。', script: SCRIPTS.rot },
+      { id: 'dist', icon: '🗂️', title: 'DistOrient(縦横の振り分け)', sec: '機能ごとのデモ', desc: '白いフチの有無で、縦長のページと横長のページを自動で振り分けます。1枚で試すこともできます。', script: SCRIPTS.dist },
+      { id: 'merge', icon: '🧩', title: 'PictMerge(結合)', sec: '機能ごとのデモ', desc: '2枚の画像のうち、指定した縦の範囲を写して、1枚にまとめます。', script: SCRIPTS.merge },
+      { id: 'collect', icon: '📦', title: 'FileCollect(集める)', sec: '機能ごとのデモ', desc: 'フォルダ内のファイルを、別のフォルダへまとめて移動します。', script: SCRIPTS.collect },
+      { id: 'profile', icon: '💾', title: '設定の保存と切り替え', sec: '機能ごとのデモ', desc: '各タブの設定を保存しておき、プルダウンで切り替えます。', script: SCRIPTS.profile }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
