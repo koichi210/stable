@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileArranger 機能デモ</title>
+<!--
+  FileArranger の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=partition のように機能を指定します。
+  ・実際のアプリ(Release の exe)を、撮影用のダミーのフォルダ・ファイルに対して動かして撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+  ・画面に出るフォルダ名・ファイル名は、すべてデモ用に作った架空のものです(オグさん自身のファイルには触れていません)。
+  ・素材は demo-img/ (スクショ。ウィンドウのタイトルバーは外してあり、再生部品が自前の枠を描きます)と demo-pts.js (要素の座標。スクショ上の画素)。
+    座標は UI Automation で実際のボタン・行の位置を取ったものです。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  // スクショは 806x562(タイトルバーを除いたウィンドウ)。座標(demo-pts.js)もその画素
+  var FW = 806, FH = 562;
+  var DUMMY = '※ 画面のフォルダ名・ファイル名は、すべてデモ用のダミー(架空)です。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.FA_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function RW(s, list, i) { var rows = (window.FA_PTS[s] || {})['rows:' + list]; var r = rows && rows[i]; if (!r) throw new Error('行なし: ' + s + '/' + list + '/' + i); return r; }
+  function U() { // 複数の矩形を囲む枠
+    var x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 0; i < arguments.length; i++) { var r = arguments[i]; x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function to(d, r, o) { o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, r, o) { to(d, r, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる(画面と同じ比率の)範囲へズーム
+    o = o || {}; var pad = o.pad != null ? o.pad : 30, minW = o.minW || 480;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 4, y: r.y - 3, w: r.w + 8, h: r.h + 6 }, { label: label || '', dur: dur || 3400 }); }
+  function start(d) { d.cursor(FW * 0.62, FH * 0.7, { dur: 0 }); }
+  // 入力欄を押して文字を入れる(次のスクショに切り替えて、入力後の画面にする)
+  function typeInto(d, r, nextScene, o) { tap(d, r, o); d.wait(350); d.scene(nextScene, { fade: 160 }); d.wait(500); }
+
+  var SCRIPTS = {};
+
+  // =================================================================
+  // 共通設定(リファレンスフォルダ・新規追加リスト)
+  // =================================================================
+  SCRIPTS.common = function (d) {
+    d.chapter('リファレンスフォルダ'); d.scene('common-0.png'); start(d);
+    d.cap(DUMMY + '\nFileArranger は、フォルダ・ファイルの移動、名前の番号そろえ、連番、振り分けをまとめて行うツールです。\n「Common」タブでは、ほかのタブが使う「見本のフォルダ」を決めます。');
+    d.wait(6500);
+    markR(d, U(P('common-0', 'cmn_textBox_Reference'), P('common-0', 'cmn_button_Listup')), 'リファレンスフォルダ', 4200);
+    d.cap('「リファレンスフォルダ」には、作品ごとのフォルダが並んでいる親フォルダを入れます。\nここでは作品A_01・作品B_03・作品C_02 の3つが入っています。');
+    typeInto(d, P('common-0', 'cmn_textBox_Reference'), 'common-1.png'); d.wait(4200);
+
+    d.chapter('新規追加リスト');
+    d.cap('「新規追加リスト」には、まだ見本のフォルダが無い名前を、1行に1つ書きます。\n「新規追加Suffix」に入れた文字は、各名前の後ろに付きます。');
+    typeInto(d, P('common-1', 'cmn_textBox_AddList'), 'common-2.png', { dy: -80 });
+    markR(d, P('common-2', 'cmn_textBox_AddListSuffix'), 'Suffix', 3200);
+    to(d, P('common-2', 'cmn_textBox_AddListSuffix'), { dur: 900 }); d.wait(4200);
+
+    d.chapter('リストアップ');
+    d.cap('「リストアップ」を押すと、リファレンスフォルダ直下のフォルダと新規追加リストが「候補」として読み込まれます。');
+    tap(d, P('common-2', 'cmn_button_Listup'), { dur: 900 }); d.scene('common-3.png', { fade: 120 }); d.wait(4200);
+    d.cap('読み込んだ候補は、RenameDir・PartitionFile タブで使います。\nPartitionFile タブを開いてみます。');
+    tap(d, P('common-3', 'tab_PartitionFile'), { dur: 900 }); d.wait(300); d.scene('common-pf.png', { fade: 150 }); d.wait(900);
+    markR(d, P('common-pf', 'pf_textBox_ReferenceFile'), 'ここにも自動で入る', 3200);
+    d.cap('リファレンスフォルダは、「ファイル格納先」にも自動で入ります。');
+    d.wait(3800);
+    d.cap('「フォルダ格納先」のプルダウンを開くと、候補が並びます。\n新規追加リストの名前には、Suffix が付いています。');
+    tap(d, P('common-pf', 'pf_comboBox_MoveDestDirName'), { dur: 900 }); d.wait(200); d.scene('common-pf-dd.png', { fade: 120 });
+    d.mark({ x: 124, y: 142, w: 454, h: 104 }, { label: '候補', dur: 4200 }); d.wait(5600);
+  };
+
+  // =================================================================
+  // MoveDir(フォルダの移動・削除)
+  // =================================================================
+  SCRIPTS.movedir = function (d) {
+    d.chapter('リストアップ'); d.scene('md-0.png'); start(d);
+    d.cap(DUMMY + '\nMoveDir タブは、フォルダを別の場所へ移したり、消したりするタブです。\n「フォルダ格納元」の中から、ファイルが入っているフォルダだけを一覧にします。');
+    d.wait(6000);
+    d.cap('「フォルダ格納元」と、移し先の「フォルダ格納先」を入れます。');
+    typeInto(d, P('md-0', 'md_textBox_SourceDir'), 'md-1.png');
+    to(d, P('md-1', 'md_comboBox_TargetDir'), { dur: 700 }); markR(d, U(P('md-1', 'md_textBox_SourceDir'), P('md-1', 'md_comboBox_TargetDir')), '格納元と格納先', 3000); d.wait(3300);
+    d.cap('「リストアップ」を押します。');
+    tap(d, P('md-1', 'md_button_Listup'), { dur: 900 }); d.scene('md-2.png', { fade: 150 }); d.wait(900);
+    d.cap('ファイルが直接入っているフォルダだけが、サブフォルダも含めて並びます。\n「フォルダ数」に件数が出ます。');
+    markR(d, U(RW('md-2', 'md_listBox_Listup', 0), RW('md-2', 'md_listBox_Listup', 3)), '4つのフォルダ', 4200);
+    d.wait(5200);
+
+    d.chapter('選んで移動');
+    d.cap('移したいフォルダを選びます。複数選べて、「選択数」に数が出ます。');
+    tap(d, RW('md-2', 'md_listBox_Listup', 0), { dur: 900 }); d.wait(200); tap(d, RW('md-2', 'md_listBox_Listup', 2), { dur: 700 });
+    d.scene('md-3.png', { fade: 120 }); d.wait(1500);
+    d.cap('「サブディレクトリを移動」は、選んだフォルダそのものを、格納先の直下へ移します。\n途中の階層(夏休み、秋の遠足)は持っていきません。');
+    markR(d, P('md-3', 'md_button_MoveSubDir'), '選んだフォルダだけ', 3600); tap(d, P('md-3', 'md_button_MoveSubDir'), { dur: 1100 });
+    d.scene('md-4.png', { fade: 150 }); d.wait(900);
+    d.cap('移したフォルダは、リストから消えました。');
+    zoomR(d, U(RW('md-4', 'md_listBox_Listup', 0), RW('md-4', 'md_listBox_Listup', 1)), { minW: 520 }); d.wait(3800); d.cam(null, { dur: 700 });
+    d.cap('隣の「トップディレクトリを移動」は、選んだフォルダが入っている、格納元直下の一番上のフォルダごと移します。');
+    markR(d, P('md-4', 'md_button_MoveTopDir'), 'フォルダごと', 4200); to(d, P('md-4', 'md_button_MoveTopDir'), { dur: 800 }); d.wait(5200);
+
+    d.chapter('移動先を確かめる');
+    d.cap('「フォルダ格納元」を移動先に変えてリストアップすると、移った様子が見られます。');
+    d.scene('md-5.png', { fade: 250 }); d.wait(1200);
+    markR(d, U(RW('md-5', 'md_listBox_Listup', 0), RW('md-5', 'md_listBox_Listup', 1)), '', 5200);
+    d.cap('同じ名前の「写真」が2つ移ったので、あとから移したほうは、名前の後ろに「_Cnt」と日時が付きました。\n上書きされずに、両方残ります。');
+    zoomR(d, U(RW('md-5', 'md_listBox_Listup', 0), RW('md-5', 'md_listBox_Listup', 1)), { minW: 520 }); d.wait(7000); d.cam(null, { dur: 700 });
+
+    d.chapter('削除');
+    d.scene('md-6.png', { fade: 250 }); d.wait(800);
+    d.cap('「削除」は、選んだフォルダを中身ごと消します。ごみ箱には入りません。');
+    tap(d, P('md-6', 'md_button_Delete'), { dur: 1100 }); d.wait(200); d.scene('md-del.png', { fade: 150 }); d.wait(1000);
+    d.cap('押すと必ず確認が出ます。「いいえ」を押せば、何も消えずに戻ります。');
+    markR(d, U(window.FA_PTS['md-del'].dialog.yes, window.FA_PTS['md-del'].dialog.no), '', 3400);
+    tap(d, window.FA_PTS['md-del'].dialog.no, { dur: 1400 }); d.scene('md-6.png', { fade: 150 }); d.wait(2800);
+  };
+
+  // =================================================================
+  // RenameDir(フォルダ名の番号をそろえる)
+  // =================================================================
+  SCRIPTS.renamedir = function (d) {
+    d.chapter('リストアップ'); d.scene('rd-0.png'); start(d);
+    d.cap(DUMMY + '\nRenameDir タブは、フォルダ名の番号を、見本に合わせてそろえるタブです。\n「フォルダ格納先」には、Common タブのリファレンスフォルダが入っています。');
+    markR(d, P('rd-0', 'rd_textBox_ExistItemDir'), 'Commonから自動', 3800); d.wait(6500);
+    d.cap('「フォルダ格納元」に、名前を直したいフォルダが入っている場所を入れて、「リストアップ」を押します。');
+    typeInto(d, P('rd-0', 'rd_comboBox_RenameDir'), 'rd-1.png'); tap(d, P('rd-1', 'rd_button_Listup_Target'), { dur: 800 }); d.wait(900);
+    markR(d, U(RW('rd-1', 'rd_listView_Target', 0), RW('rd-1', 'rd_listView_Target', 3)), '番号がばらばら', 4200); d.wait(5200);
+
+    d.chapter('番号をそろえる');
+    d.cap('直したいフォルダを選びます。選ぶと「変更後」に、番号が2桁にそろった形が出ます。\n(第1話 → 01、第10話 → 10)');
+    tap(d, RW('rd-1', 'rd_listView_Target', 0), { dur: 900 }); d.wait(200); to(d, RW('rd-1', 'rd_listView_Target', 3), { dur: 700 });
+    d.scene('rd-2.png', { fade: 150 }); d.wait(900);
+    zoomR(d, U(RW('rd-2', 'rd_listView_Target', 0), RW('rd-2', 'rd_listView_Target', 3)), { minW: 520 }); d.wait(5600); d.cam(null, { dur: 700 });
+
+    d.chapter('名前を組み立てる');
+    d.cap('「結合文字」に作品名を入れると、その後ろに番号が付きます。');
+    typeInto(d, P('rd-2', 'rd_comboBox_MergeWord'), 'rd-3.png'); d.wait(2800);
+    d.cap('「番号前に追加」と「番号後に追加」で、番号の前後に「第」「話」のような文字も付けられます。\n入力するたびに「変更後」が作り直されます。');
+    tap(d, P('rd-3', 'rd_textBox_AddTitlePreWord'), { dur: 800 }); d.wait(250); to(d, P('rd-3', 'rd_comboBox_AddTitlePostWord'), { dur: 700 }); d.scene('rd-4.png', { fade: 160 });
+    markR(d, U(P('rd-4', 'rd_textBox_AddTitlePreWord'), P('rd-4', 'rd_comboBox_AddTitlePostWord')), '', 3400); d.wait(900);
+    zoomR(d, U(RW('rd-4', 'rd_listView_Target', 0), RW('rd-4', 'rd_listView_Target', 3)), { minW: 520 }); d.wait(5000); d.cam(null, { dur: 700 });
+
+    d.chapter('実行と復元');
+    d.cap('「リネーム実行」を押すと、選んだフォルダの名前が変わります。\n入力欄で Ctrl+Enter を押しても実行できます。');
+    tap(d, P('rd-4', 'rd_button_RenameDir'), { dur: 1100 }); d.scene('rd-5.png', { fade: 200 }); d.wait(900);
+    zoomR(d, U(RW('rd-5', 'rd_listView_Target', 0), RW('rd-5', 'rd_listView_Target', 3)), { minW: 520 }); d.wait(4500); d.cam(null, { dur: 700 });
+    d.cap('間違えたときは「復元」を押すと、直前のリネームがまとめて元の名前に戻ります。');
+    tap(d, P('rd-5', 'rd_button_RenameDirRestore'), { dur: 1000 }); d.scene('rd-6.png', { fade: 200 }); d.wait(900);
+    zoomR(d, U(RW('rd-6', 'rd_listView_Target', 0), RW('rd-6', 'rd_listView_Target', 3)), { minW: 520 }); d.wait(4500); d.cam(null, { dur: 700 });
+  };
+
+  // =================================================================
+  // SortFileName(ファイル名を連番にそろえる)
+  // =================================================================
+  SCRIPTS.sortfile = function (d) {
+    d.chapter('並べる前'); d.scene('sf-before.png'); start(d);
+    d.cap(DUMMY + '\nSortFileName タブは、フォルダの中のファイルを、名前順に 000、001、002… の連番にそろえるタブです。\nまず、MoveFile タブのリストアップで、フォルダ「旅行」の中身を見ておきます。');
+    d.wait(1500); markR(d, U(RW('sf-before', 'mf_listBox_Target', 0), RW('sf-before', 'mf_listBox_Target', 3)), '名前がばらばら', 4800); d.wait(7000);
+
+    d.chapter('リストアップ');
+    d.cap('SortFileName タブに移ります。');
+    tap(d, P('sf-before', 'tab_SortFileRename'), { dur: 1000 }); d.wait(250); d.scene('sf-0.png', { fade: 150 }); d.wait(1200);
+    d.cap('「ファイル格納元」に、フォルダが並んでいる場所を入れて「リストアップ」を押すと、その直下のフォルダが一覧になります。');
+    typeInto(d, P('sf-0', 'sf_textBox_TargetFile'), 'sf-1.png'); tap(d, P('sf-1', 'sf_button_Listup'), { dur: 800 }); d.wait(900);
+    d.wait(3800);
+
+    d.chapter('ソート');
+    d.cap('連番にしたいフォルダを選んで、「ソート」を押します。');
+    tap(d, RW('sf-1', 'sf_listBox_Target', 0), { dur: 900 }); d.wait(200); to(d, RW('sf-1', 'sf_listBox_Target', 1), { dur: 600 }); d.scene('sf-2.png', { fade: 150 }); d.wait(1500);
+    tap(d, P('sf-2', 'sf_button_Sort'), { dur: 1000 }); d.scene('sf-3.png', { fade: 150 }); d.wait(1800);
+    d.cap('選んだフォルダの中のファイルが、名前順に 000、001、… と付け替わります。拡張子はそのままです。\nMoveFile タブで見てみます。');
+    d.wait(1500); tap(d, P('sf-3', 'tab_MoveFile'), { dur: 1000 }); d.wait(250); d.scene('sf-after.png', { fade: 200 }); d.wait(1000);
+    markR(d, U(RW('sf-after', 'mf_listBox_Target', 0), RW('sf-after', 'mf_listBox_Target', 3)), '連番になった', 5000); d.wait(6500);
+
+    d.chapter('復元');
+    d.cap('「復元」を押すと、元のファイル名に戻せます。');
+    tap(d, P('sf-after', 'tab_SortFileRename'), { dur: 1000 }); d.wait(250); d.scene('sf-4.png', { fade: 150 }); d.wait(800);
+    tap(d, P('sf-4', 'sf_button_SortRestore'), { dur: 1000 }); d.wait(900);
+    d.scene('sf-restored.png', { fade: 250 }); d.wait(500);
+    markR(d, U(RW('sf-restored', 'mf_listBox_Target', 0), RW('sf-restored', 'mf_listBox_Target', 3)), '元の名前に戻った', 4400); d.wait(5600);
+  };
+
+  // =================================================================
+  // MoveFile(ファイルの移動)
+  // =================================================================
+  SCRIPTS.movefile = function (d) {
+    d.chapter('リストアップ'); d.scene('mf-0.png'); start(d);
+    d.cap(DUMMY + '\nMoveFile タブは、フォルダの中のファイルを、選んだ分だけ別のフォルダへ移すタブです。');
+    d.wait(4800);
+    d.cap('「ファイル移動元」と、移し先の「ファイル移動先」を入れます。');
+    typeInto(d, P('mf-0', 'mf_textBox_SourceDir'), 'mf-1.png');
+    to(d, P('mf-1', 'mf_textBox_TargetDir'), { dur: 700 }); markR(d, U(P('mf-1', 'mf_textBox_SourceDir'), P('mf-1', 'mf_textBox_TargetDir')), '移動元と移動先', 3000); d.wait(3300);
+    d.cap('「リストアップ」を押すと、移動元にあるファイルが並びます。');
+    tap(d, P('mf-1', 'mf_button_Listup'), { dur: 900 }); d.scene('mf-2.png', { fade: 150 }); d.wait(4200);
+
+    d.chapter('選んで移動');
+    d.cap('移したいファイルを選びます。ここでは「議事録」の3つを選びます。');
+    tap(d, RW('mf-2', 'mf_listBox_Target', 1), { dur: 900 }); d.wait(200); to(d, RW('mf-2', 'mf_listBox_Target', 3), { dur: 700 }); d.scene('mf-3.png', { fade: 150 }); d.wait(2800);
+    d.cap('「ファイル移動」を押すと、選んだファイルが移動先へ移ります。\n下の進捗バーに「3/3 完了」と出ます。');
+    markR(d, P('mf-3', 'mf_button_MoveFile'), '', 3400); tap(d, P('mf-3', 'mf_button_MoveFile'), { dur: 1100 }); d.scene('mf-4.png', { fade: 200 }); d.wait(900);
+    markR(d, U(P('mf-4', 'progressText'), P('mf-4', 'progressBar')), '進捗', 4200);
+    d.wait(5400);
+    d.cap('移したファイルは、移動元のリストから消えました。');
+    zoomR(d, U(RW('mf-4', 'mf_listBox_Target', 0), RW('mf-4', 'mf_listBox_Target', 1)), { minW: 520 }); d.wait(4200); d.cam(null, { dur: 700 });
+
+    d.chapter('移動先を確かめる');
+    d.cap('移動元を移動先に変えてリストアップすると、移った3つのファイルが見えます。\n移動先に同じ名前のファイルがあるときは、名前の後ろに連番と日時を付けて、上書きを避けます。');
+    d.scene('mf-5.png', { fade: 250 }); d.wait(900);
+    markR(d, U(RW('mf-5', 'mf_listBox_Target', 0), RW('mf-5', 'mf_listBox_Target', 2)), '移ったファイル', 5200); d.wait(7200);
+  };
+
+  // =================================================================
+  // PartitionFile(ファイル名でフォルダへ振り分け)
+  // =================================================================
+  SCRIPTS.partition = function (d) {
+    d.chapter('ファイルを読み込む'); d.scene('pf-0.png'); start(d);
+    d.cap(DUMMY + '\nPartitionFile タブは、ファイルを、名前の頭の部分が合うフォルダへ振り分けるタブです。\n「ファイル格納先」には、Common タブのリファレンスフォルダが入っています。');
+    markR(d, P('pf-0', 'pf_textBox_ReferenceFile'), '見本のフォルダ', 3800); d.wait(6800);
+    d.cap('「ファイル格納元」に振り分けたいファイルの場所を、「区切り文字」に「_」を入れます。\nファイル名の最後の「_」より前(作品名)が、振り分けの目安になります。');
+    typeInto(d, P('pf-0', 'pf_textBox_TargetFile'), 'pf-1.png');
+    markR(d, U(P('pf-1', 'pf_textBox_TargetFile'), P('pf-1', 'pf_textBox_TargetSeparator')), '', 3200);
+    tap(d, P('pf-1', 'pf_button_Listup_Target'), { dur: 1000 }); d.wait(900);
+    d.wait(4000);
+
+    d.chapter('行き先を見る');
+    d.cap('ファイルを選ぶと、「移動前名称」に見本のフォルダ名、「移動後名称」に移したあとの名前が出ます。');
+    tap(d, RW('pf-1', 'pf_listView_Target', 0), { dur: 900 }); d.wait(200); to(d, RW('pf-1', 'pf_listView_Target', 4), { dur: 700 }); d.scene('pf-2.png', { fade: 150 }); d.wait(900);
+    zoomR(d, U(RW('pf-2', 'pf_listView_Target', 0), RW('pf-2', 'pf_listView_Target', 4)), { minW: 560 }); d.wait(4400);
+    d.cap('フォルダ名の最後の数字は、ファイルを入れた分だけ増えます。\n作品Aには2つ入るので 01 → 03、作品Bも 03 → 05 になります。');
+    markR(d, U(RW('pf-2', 'pf_listView_Target', 0), RW('pf-2', 'pf_listView_Target', 3)), '', 6200); d.wait(7000);
+    d.cam(null, { dur: 700 });
+    d.cap('「新作X」は見本のフォルダに無いので、今は行き先が空です。\n「フォルダを新規作成」にチェックを入れると、新しいフォルダ名が付きます。');
+    markR(d, RW('pf-2', 'pf_listView_Target', 4), '行き先なし', 3400); d.wait(1500);
+    tap(d, P('pf-2', 'pf_checkBox_CreateNewDir'), { dur: 1000 }); d.scene('pf-3.png', { fade: 150 }); d.wait(500);
+    markR(d, RW('pf-3', 'pf_listView_Target', 4), '新作X01', 4000); d.wait(5800);
+
+    d.chapter('移動する');
+    d.cap('「ファイル移動」を押すと、行き先のフォルダを作る(または名前を直す)ところから、ファイルの移動までを行います。');
+    markR(d, P('pf-3', 'pf_button_CreateFolderAndMoveFile'), '', 3400);
+    tap(d, P('pf-3', 'pf_button_CreateFolderAndMoveFile'), { dur: 1200 }); d.scene('pf-4.png', { fade: 250 }); d.wait(1000);
+    markR(d, U(P('pf-4', 'progressText'), P('pf-4', 'progressBar')), '5/5 完了', 4200); d.wait(5200);
+    d.cap('振り分けたファイルは、リストから消えました。');
+    d.wait(3000);
+    d.cap('MoveDir タブで見本のフォルダを見ると、作品A_03・作品B_05 に名前が変わり、新作X01 ができています。');
+    tap(d, P('pf-4', 'tab_MoveDir'), { dur: 1000 }); d.wait(250); d.scene('pf-5.png', { fade: 250 }); d.wait(900);
+    markR(d, U(RW('pf-5', 'md_listBox_Listup', 0), RW('pf-5', 'md_listBox_Listup', 3)), '振り分けの結果', 5000); d.wait(6800);
+  };
+
+  // =================================================================
+  // 全体紹介(約2分)
+  // =================================================================
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('common-0.png'); start(d);
+    d.cap(DUMMY + '\nFileArranger は、フォルダ・ファイルの移動、名前の番号そろえ、連番、振り分けを、まとめて行う Windows 用のツールです。');
+    d.wait(8000);
+    d.cap('上のタブが機能ごとに分かれています。\nCommon・MoveDir・RenameDir・SortFileName・MoveFile・PartitionFile の6つです。\nどのタブも「リストアップで一覧を作る → 選ぶ → 実行」という流れで使います。');
+    markR(d, U(P('common-0', 'tab_Common'), P('common-0', 'tab_PartitionFile')), '6つのタブ', 5600);
+    to(d, P('common-0', 'tab_Common'), { dur: 800 }); d.wait(5600); to(d, P('common-0', 'tab_PartitionFile'), { dur: 2200 }); d.wait(1200);
+
+    d.chapter('Common');
+    d.scene('common-2.png', { fade: 250 }); tap(d, P('common-2', 'tab_Common'), { dur: 900 });
+    d.cap('Common は、ほかのタブが使う「見本のフォルダ」を決めるところです。\nリファレンスフォルダを入れて「リストアップ」すると、直下のフォルダが候補になります。');
+    markR(d, P('common-2', 'cmn_textBox_Reference'), '見本のフォルダ', 3600); d.wait(2000);
+    markR(d, P('common-2', 'cmn_textBox_AddList'), '新規追加リスト', 3400); d.wait(8000);
+
+    d.chapter('MoveDir');
+    tap(d, P('common-2', 'tab_MoveDir'), { dur: 1000 }); d.wait(300); d.scene('md-3.png', { fade: 250 });
+    d.cap('MoveDir は、フォルダの移動と削除です。ファイルが入っているフォルダが一覧になり、選んだものを格納先へ移せます。'); d.wait(1800);
+    markR(d, U(RW('md-3', 'md_listBox_Listup', 0), RW('md-3', 'md_listBox_Listup', 3)), '選んだフォルダ', 3400); d.wait(2800);
+    tap(d, P('md-3', 'md_button_MoveSubDir'), { dur: 1100 }); d.scene('md-4.png', { fade: 200 }); d.wait(7000);
+
+    d.chapter('RenameDir');
+    tap(d, P('md-4', 'tab_RenameDir'), { dur: 1000 }); d.wait(300); d.scene('rd-4.png', { fade: 250 });
+    d.cap('RenameDir は、フォルダ名の番号をそろえます。「第1話」「第10話」のような番号が、01、10 の2桁にそろい、作品名なども付けられます。'); d.wait(1300);
+    zoomR(d, U(RW('rd-4', 'rd_listView_Target', 0), RW('rd-4', 'rd_listView_Target', 3)), { minW: 520 }); markR(d, U(RW('rd-4', 'rd_listView_Target', 0), RW('rd-4', 'rd_listView_Target', 3)), '変更前 → 変更後', 4600); d.wait(5600); d.cam(null, { dur: 700 });
+    d.cap('「リネーム実行」で名前が変わり、「復元」で元に戻せます。');
+    tap(d, P('rd-4', 'rd_button_RenameDir'), { dur: 1100 }); d.scene('rd-5.png', { fade: 200 }); d.wait(5800);
+
+    d.chapter('SortFileName');
+    tap(d, P('rd-5', 'tab_SortFileRename'), { dur: 1000 }); d.wait(300); d.scene('sf-2.png', { fade: 250 });
+    d.cap('SortFileName は、選んだフォルダの中のファイルを、名前順に 000、001、002… の連番にそろえます。こちらも「復元」で戻せます。'); d.wait(1400);
+    markR(d, P('sf-2', 'sf_button_Sort'), 'ソート', 3200); d.wait(7000);
+
+    d.chapter('MoveFile');
+    tap(d, P('sf-2', 'tab_MoveFile'), { dur: 1000 }); d.wait(300); d.scene('mf-3.png', { fade: 250 });
+    d.cap('MoveFile は、フォルダの中のファイルを、選んだ分だけ別のフォルダへ移します。'); d.wait(1500);
+    markR(d, U(RW('mf-3', 'mf_listBox_Target', 1), RW('mf-3', 'mf_listBox_Target', 3)), '選んだファイル', 3400); d.wait(3000);
+    tap(d, P('mf-3', 'mf_button_MoveFile'), { dur: 1000 }); d.scene('mf-4.png', { fade: 200 }); d.wait(5500);
+
+    d.chapter('PartitionFile');
+    tap(d, P('mf-4', 'tab_PartitionFile'), { dur: 1000 }); d.wait(300); d.scene('pf-3.png', { fade: 250 });
+    d.cap('PartitionFile は、ファイル名の頭の部分が合うフォルダへ、ファイルを振り分けます。\n移動前と移動後のフォルダ名を、先に画面で確かめられます。'); d.wait(1500);
+    zoomR(d, U(RW('pf-3', 'pf_listView_Target', 0), RW('pf-3', 'pf_listView_Target', 4)), { minW: 560 }); markR(d, U(RW('pf-3', 'pf_listView_Target', 0), RW('pf-3', 'pf_listView_Target', 4)), '移動前 → 移動後', 5200); d.wait(6200); d.cam(null, { dur: 700 });
+    d.cap('「ファイル移動」を押すと、フォルダの作成・名前の変更・ファイルの移動までをまとめて行います。');
+    tap(d, P('pf-3', 'pf_button_CreateFolderAndMoveFile'), { dur: 1100 }); d.scene('pf-4.png', { fade: 250 }); d.wait(7000);
+
+    d.chapter('設定の保存');
+    d.cap('入力した値は、右下の「設定値保存」で名前を付けて保存できます。\n保存した設定は、隣のプルダウンから呼び戻せます。');
+    markR(d, U(P('pf-4', 'comboBox_LoadSetting'), P('pf-4', 'SaveSetting')), '設定値の保存と読み込み', 5200); to(d, P('pf-4', 'SaveSetting'), { dur: 1200 }); d.wait(7500);
+    d.chapter('おわり');
+    d.cap('以上が FileArranger の主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。');
+    d.wait(5000);
+  };
+
+  DesktopDemo.start({
+    title: 'FileArranger 機能デモ', icon: '📂', back: 'index.html', backLabel: '← FileArranger の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、FileArranger でできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ(30秒〜1分ほど)で見られます。' +
+          '実際のアプリを、撮影用に作ったダミーのフォルダ・ファイルに対して動かして撮った画面に、マウスカーソルと字幕を重ねています。画面に出る名前はすべて架空のものです。',
+    frame: { w: FW, h: FH, title: 'FileArranger(ダミーのフォルダで動作)' },
+    imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🧭', sec: 'まずは全体を見る', title: '全体紹介', desc: '6つのタブ(共通設定・フォルダ移動・番号そろえ・連番・ファイル移動・振り分け)を、ひととおり見ます。', script: SCRIPTS.overview },
+      { id: 'common', icon: '🗂️', sec: '機能ごとのデモ', title: '共通設定(Common)', desc: '見本のフォルダ(リファレンス)と新規追加リストを決めて、ほかのタブで使う候補を読み込みます。', script: SCRIPTS.common },
+      { id: 'movedir', icon: '📦', sec: '機能ごとのデモ', title: 'フォルダの移動と削除(MoveDir)', desc: 'ファイルが入っているフォルダを一覧にして、選んだものを移したり、確認つきで削除したりします。', script: SCRIPTS.movedir },
+      { id: 'renamedir', icon: '🔢', sec: '機能ごとのデモ', title: 'フォルダ名の番号そろえ(RenameDir)', desc: '「第1話」「第10話」のような番号を2桁にそろえ、作品名などを付けて、まとめて名前を変えます。復元もできます。', script: SCRIPTS.renamedir },
+      { id: 'sortfile', icon: '🔠', sec: '機能ごとのデモ', title: 'ファイル名の連番化(SortFileName)', desc: 'フォルダの中のファイルを、名前順に 000、001、002… の連番にそろえます。復元もできます。', script: SCRIPTS.sortfile },
+      { id: 'movefile', icon: '🚚', sec: '機能ごとのデモ', title: 'ファイルの移動(MoveFile)', desc: 'フォルダの中のファイルを、選んだ分だけ別のフォルダへ移します。進捗バーつきです。', script: SCRIPTS.movefile },
+      { id: 'partition', icon: '🗃️', sec: '機能ごとのデモ', title: 'ファイルの振り分け(PartitionFile)', desc: 'ファイル名の頭の部分が合うフォルダへ振り分けます。移動後のフォルダ名を先に確かめられ、新しいフォルダも作れます。', script: SCRIPTS.partition }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
