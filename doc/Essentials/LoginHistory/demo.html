@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoginHistory 機能デモ</title>
+<!--
+  LoginHistory の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=exec のように機能を指定します。
+  ・ダイアログは、実際の LoginHistory.exe を動かして撮った画面です(出力先・set.ini は撮影用のダミーの場所)。
+  ・ログファイル/set.ini の中身は、実際にアプリが書いた内容を「メモ帳風の窓」で再現したものです(実際のメモ帳ではありません)。
+    日時は撮影時の時刻、「ログの読みかた」の長いログは、規則どおりに作ったダミーです。
+  ・素材は demo-img/ と demo-pts.js(要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 1920, FH = 1080;
+  var DUMMY = '※ 出力先と日時は、撮影用のダミーです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.LH_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる 16:9 の範囲へズーム
+    o = o || {}; var pad = (o.pad != null ? o.pad : 60), minW = o.minW || 900;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    var x = Math.min(Math.max(cx - w / 2, 0), FW - w), y = Math.min(Math.max(cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d, s, k, o) { zoomR(d, P(s, k), o); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 8, y: r.y - 6, w: r.w + 16, h: r.h + 12 }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  function start(d, s) { var r = P(s, 'win'); d.cursor(r.x + r.w + 40, r.y - 40, { dur: 0 }); }
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  // ---------- 画面の見かたと、出力先 ----------
+  SCRIPTS.start = function (d) {
+    d.chapter('画面の見かた'); d.scene('start'); start(d, 'start');
+    d.cap(DUMMY + '\nLoginHistory は、PCが動いていた時刻を、ログファイルに1行ずつ書き残す小さなアプリです。\n画面は、ダイアログ1つだけです。');
+    d.wait(5200);
+    d.cap('「ログ出力先」の欄と、「ロギング実行」ボタン、閉じるための「OK」ボタンがあります。');
+    zoom(d, 'start', 'win', { minW: 1300 });
+    to(d, 'start', 'edit'); mark(d, 'start', 'edit', 'ログ出力先', 2200); d.wait(2300);
+    to(d, 'start', 'exec'); mark(d, 'start', 'exec', 'ロギング実行', 2200); d.wait(2300);
+    to(d, 'start', 'ok'); mark(d, 'start', 'ok', '閉じる', 2000); d.wait(2100);
+    d.cam(null, { dur: 700 });
+    d.chapter('出力先を決める');
+    d.cap('起動すると、「ログ出力先」には、毎回「C:\\Alive.log」が入ります。\n別の場所に書きたいときは、ここをログファイルのフルパスに書き換えます。');
+    to(d, 'start', 'edit', { dur: 900 }); d.wait(300); d.click(); d.scene('path', { fade: 150 }); zoom(d, 'path', 'win', { minW: 1300 });
+    mark(d, 'path', 'edit', '書き換える', 4200); d.wait(5400);
+    d.cap('入力した内容は、保存されません。起動のたびに、元の場所に戻ります。\n※ 存在しないフォルダを指定すると、何も書き込まれません(エラーも出ません)。');
+    d.wait(6200);
+    d.cam(null, { dur: 700 }); d.wait(900);
+  };
+
+  // ---------- ロギング実行 ----------
+  SCRIPTS.exec = function (d) {
+    d.chapter('1回目'); d.scene('path'); start(d, 'path');
+    d.cap(DUMMY + '\n「ロギング実行」を押すたびに、今の日時が、ログファイルの末尾に1行追記されます。');
+    zoom(d, 'path', 'win', { minW: 1300 }); d.wait(500);
+    tap(d, 'path', 'exec', { dur: 1200 }); d.wait(300);
+    d.scene('run1', { fade: 350 }); d.cam(null, { dur: 800 });
+    d.cap('ログファイルが無いときは、新しく作られて、1行目が書かれます。\n形式は「年.月.日_時:分:秒」です。画面には何も表示されません。');
+    zoom(d, 'run1', 'viewer', { minW: 1150 }); mark(d, 'run1', 'line1', '1行目', 4800); d.wait(6400);
+    d.cam(null, { dur: 800 });
+    d.chapter('続けて押す');
+    d.cap('ダイアログは開いたままなので、続けて押すと、また1行増えます。');
+    tap(d, 'run1', 'exec', { dur: 1000 }); d.wait(300);
+    d.scene('run2', { fade: 350 }); d.wait(800);
+    d.cap('いままでの行は、書き換えられません。行は、末尾に足されていくだけです。\nそして、2行目の行末には「!」が付きました。これは、次の「間隔の判定」で説明します。');
+    zoom(d, 'run2', 'viewer', { minW: 1150 }); mark(d, 'run2', 'bang2', '!', 4200); d.wait(7600);
+    d.cam(null, { dur: 800 });
+    d.chapter('閉じる');
+    d.cap('終わったら「OK」で閉じます。常駐はせず、ボタンを押したときだけ1行書く、というアプリです。');
+    tap(d, 'run2', 'ok', { dur: 1000 }); d.wait(300); d.scene('desk', { fade: 450 }); d.wait(4600);
+  };
+
+  // ---------- 間隔の判定と set.ini ----------
+  SCRIPTS.interval = function (d) {
+    d.chapter('記録間隔'); d.scene('ini60'); d.cursor(1500, 200, { dur: 0 });
+    d.cap(DUMMY + '\n「どのくらいの間隔で押すつもりか」は、アプリと同じ場所(カレントフォルダ)にある「set.ini」の「Cycle=分」で決まります。\nファイルが無いときは、60分です。');
+    zoom(d, 'ini60', 'viewer', { minW: 1000 }); mark(d, 'ini60', 'line2', 'Cycle=60', 5200); d.wait(7600);
+    d.cap('「;」で始まる行は、コメントです。');
+    mark(d, 'ini60', 'line1', 'コメント', 2800); d.wait(3200);
+    d.chapter('間隔を変える');
+    d.cap('たとえば「Cycle=1」にすると、1分間隔の記録になります。');
+    d.scene('ini1', { fade: 350 }); mark(d, 'ini1', 'line2', 'Cycle=1', 3800); d.wait(5000);
+    d.cam(null, { dur: 700 });
+    d.chapter('印が付かない');
+    d.cap('ログの最後の行は、1分前の日時です。この状態で「ロギング実行」を押します。');
+    d.scene('int0', { fade: 350 }); d.cursor(P('int0', 'win').x + 80, P('int0', 'win').y - 40, { dur: 0 });
+    zoom(d, 'int0', 'viewer', { minW: 1150 }); mark(d, 'int0', 'line1', '前回の記録', 3200); d.wait(4200);
+    d.cam(null, { dur: 700 });
+    tap(d, 'int0', 'exec', { dur: 1100 }); d.wait(300); d.scene('int1', { fade: 350 });
+    d.cap('前回から、ちょうど1分後に押したので、「間隔どおり」です。行末の印は付きません。\n「前回 + 間隔」との差が、10秒以内なら、間隔どおりと見なします。');
+    zoom(d, 'int1', 'viewer', { minW: 1150 }); mark(d, 'int1', 'line2', '印なし', 5200); d.wait(7200);
+    d.cam(null, { dur: 700 });
+    d.chapter('印が付く');
+    d.cap('そのすぐあとに、もう一度押してみます。');
+    tap(d, 'int1', 'exec', { dur: 1000 }); d.wait(300); d.scene('int2', { fade: 350 });
+    d.cap('前回から数秒しか経っていないので、間隔(1分)から外れて、行末に「!」が付きました。\n遅れた場合も、早すぎた場合も、外れていれば印が付きます。');
+    zoom(d, 'int2', 'viewer', { minW: 1150 }); mark(d, 'int2', 'bang3', '!', 5200); d.wait(7600);
+    d.cam(null, { dur: 700 }); d.wait(600);
+  };
+
+  // ---------- ログの読みかた ----------
+  SCRIPTS.read = function (d) {
+    d.chapter('ログの読みかた'); d.scene('read'); d.cursor(1650, 250, { dur: 0 });
+    d.cap('※ このログは、規則どおりに作ったダミーです(記録間隔は60分)。\n長く使うと、こんなログになります。1行が、1回の「ロギング実行」です。');
+    zoom(d, 'read', 'viewer', { minW: 1100 }); d.wait(5800);
+    d.cap('間隔どおり(約60分おき)に記録できている行には、印が付きません。');
+    mark(d, 'read', 'line2', '', 2000); d.wait(500); mark(d, 'read', 'line3', '', 1800); d.wait(2800);
+    d.chapter('「!」の行を探す');
+    d.cap('行末に「!」が付いている行は、前回から、間隔どおりではなかった記録です。');
+    to(d, 'read', 'bang7', { dur: 1000 }); mark(d, 'read', 'bang7', '!', 3800); d.wait(1500);
+    d.cap('たとえばこの行は、前の記録(14:00)から90分あいています。\nその間は、PCが止まっていたか、アプリを押し忘れていた、ということが分かります。');
+    zoomR(d, { x: P('read', 'line6').x, y: P('read', 'line6').y, w: P('read', 'line6').w, h: P('read', 'line8').y + P('read', 'line8').h - P('read', 'line6').y }, { minW: 900 });
+    mark(d, 'read', 'line6', '14:00', 3800); d.wait(600); mark(d, 'read', 'bang7', '90分あいた', 5200); d.wait(7200);
+    d.cam(null, { dur: 800 });
+    d.cap('日をまたぐ行(翌朝の起動など)にも、「!」が付きます。\n「!」を目印にすれば、PCが止まっていた時間帯を、あとから見つけられます。');
+    to(d, 'read', 'bang10', { dur: 1000 }); mark(d, 'read', 'bang10', '翌朝', 3800); d.wait(1800);
+    d.cap('間隔より早く押したときも、「!」が付きます。(この行は、前の記録から23分後です)');
+    to(d, 'read', 'bang14', { dur: 1000 }); mark(d, 'read', 'bang14', '早すぎ', 4000); d.wait(5200);
+    d.cap('次の行は、その行から60分後なので、また印が付かなくなります。');
+    to(d, 'read', 'line15', { dur: 900 }); mark(d, 'read', 'line15', '', 3000); d.wait(4200);
+  };
+
+  // ---------- 全体紹介 ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('start'); start(d, 'start');
+    d.cap(DUMMY + '\nLoginHistory は、PCが動いていた時刻を、ログファイルに1行ずつ書き残す小さなアプリです。');
+    d.wait(5200);
+    d.cap('このデモでは、使い方を2分ほどで、ひととおり紹介します。\n(機能ごとの短いデモは、一覧から見られます)');
+    zoom(d, 'start', 'win', { minW: 1300 }); d.wait(4600);
+    d.cap('画面は、ダイアログ1つだけです。「ログ出力先」の欄と、「ロギング実行」ボタン、閉じるための「OK」ボタンがあります。');
+    to(d, 'start', 'edit'); mark(d, 'start', 'edit', 'ログ出力先', 2000); d.wait(2100);
+    to(d, 'start', 'exec'); mark(d, 'start', 'exec', 'ロギング実行', 2000); d.wait(2100);
+    to(d, 'start', 'ok'); mark(d, 'start', 'ok', '閉じる', 1800); d.wait(1900);
+
+    d.chapter('出力先'); d.cam(null, { dur: 600 });
+    d.cap('起動すると、「ログ出力先」には、毎回「C:\\Alive.log」が入ります。\n別の場所に書きたいときは、ここを書き換えます。(ここでは、撮影用のダミーの場所にしています)');
+    to(d, 'start', 'edit', { dur: 900 }); d.wait(300); d.click(); d.scene('path', { fade: 150 }); zoom(d, 'path', 'win', { minW: 1300 });
+    mark(d, 'path', 'edit', '書き換える', 4000); d.wait(6600);
+
+    d.chapter('ロギング実行');
+    d.cap('「ロギング実行」を押すと、今の日時が、ログファイルに1行追記されます。\nログファイルが無ければ、新しく作られます。');
+    tap(d, 'path', 'exec', { dur: 1200 }); d.wait(300); d.scene('run1', { fade: 350 }); d.cam(null, { dur: 800 });
+    d.wait(1000);
+    d.cap('1行目です。形式は「年.月.日_時:分:秒」です。画面には何も出ませんが、ファイルには書かれています。');
+    zoom(d, 'run1', 'viewer', { minW: 1150 }); mark(d, 'run1', 'line1', '1行目', 4000); d.wait(6000);
+    d.cam(null, { dur: 800 });
+    d.cap('すぐにもう一度、押してみます。');
+    tap(d, 'run1', 'exec', { dur: 1000 }); d.wait(300); d.scene('run2', { fade: 350 }); d.wait(800);
+    d.cap('2行目の行末に、「!」が付きました。\n前回から、決めた間隔(初期値は60分)どおりでなかったときの印です。');
+    zoom(d, 'run2', 'viewer', { minW: 1150 }); mark(d, 'run2', 'bang2', '!', 4500); d.wait(7200);
+    d.cam(null, { dur: 800 });
+
+    d.chapter('記録間隔');
+    d.cap('間隔は、カレントフォルダの「set.ini」の「Cycle=分」で決まります。ファイルが無ければ、60分です。');
+    d.scene('ini60', { fade: 350 }); d.cursor(1500, 200, { dur: 0 }); zoom(d, 'ini60', 'viewer', { minW: 1000 }); mark(d, 'ini60', 'line2', 'Cycle=60', 4200); d.wait(6400);
+    d.cap('「Cycle=1」にすると、1分間隔になります。');
+    d.scene('ini1', { fade: 350 }); mark(d, 'ini1', 'line2', 'Cycle=1', 3400); d.wait(4400);
+    d.cam(null, { dur: 700 });
+    d.cap('前回の記録から、ちょうど1分後に押すと、印は付きません。\n「前回 + 間隔」との差が、10秒以内なら、間隔どおりと見なします。');
+    d.scene('int0', { fade: 350 }); d.cursor(P('int0', 'win').x + 80, P('int0', 'win').y - 40, { dur: 0 }); d.wait(600);
+    tap(d, 'int0', 'exec', { dur: 1100 }); d.wait(300); d.scene('int1', { fade: 350 });
+    zoom(d, 'int1', 'viewer', { minW: 1150 }); mark(d, 'int1', 'line2', '印なし', 4400); d.wait(6600);
+    d.cam(null, { dur: 700 });
+
+    d.chapter('ログの読みかた');
+    d.cap('※ このログは、規則どおりに作ったダミーです。\n長く使うと、こんなログになります。「!」が付いた行は、前回から間隔どおりでなかった記録です。');
+    d.scene('read', { fade: 400 }); d.cursor(1650, 250, { dur: 0 }); zoom(d, 'read', 'viewer', { minW: 1100 }); d.wait(6000);
+    to(d, 'read', 'bang7', { dur: 1000 }); mark(d, 'read', 'bang7', '前から90分', 4000);
+    d.cap('たとえばこの行は、前の記録から90分あいています。その間、PCが止まっていたかもしれません。'); d.wait(5800);
+    to(d, 'read', 'bang10', { dur: 1000 }); mark(d, 'read', 'bang10', '翌朝', 3200); d.wait(1200);
+    d.cap('「!」を目印にすれば、PCが止まっていた時間帯を、あとから見つけられます。'); d.wait(5200);
+    d.cam(null, { dur: 700 });
+
+    d.chapter('おわり'); d.scene('run2', { fade: 400 }); d.cursor(P('run2', 'exec').cx, P('run2', 'exec').cy, { dur: 0 });
+    d.cap('終わったら「OK」で閉じます。');
+    tap(d, 'run2', 'ok', { dur: 1000 }); d.wait(300); d.scene('desk', { fade: 450 });
+    d.cap('常駐したり、自動で動いたりはしません。ボタンを押したときだけ1行書く、というシンプルなアプリです。'); d.wait(6500);
+  };
+
+  // 字幕を読む時間をすこし長めに取る(待ち時間と目印の長さを、まとめて k 倍にする)
+  function slow(fn, k) {
+    return function (d) {
+      var w = d.wait, m = d.mark, sc = d.scene;
+      d.scene = function (name, o) { sc(name + '.jpg', o); };
+      d.wait = function (ms) { w(Math.round(ms * k)); };
+      d.mark = function (r, o) { o = o || {}; m(r, { label: o.label, dur: Math.round((o.dur || 2500) * k) }); };
+      fn(d);
+    };
+  }
+
+  DesktopDemo.start({
+    title: 'LoginHistory 機能デモ', icon: '📝', back: 'index.html', backLabel: '← LoginHistory の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、LoginHistory でできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモで見られます。ダイアログは、実際に動かして撮った画面です(出力先と日時は撮影用のダミー)。ログファイルの中身は、アプリが書いた内容を、メモ帳風の窓で再現しています。',
+    frame: { w: FW, h: FH, title: 'LoginHistory ― 出力先・日時は撮影用のダミー' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', desc: '出力先 → ロギング実行 → 「!」の印 → set.ini で間隔を変える → ログの読みかた、まで。', sec: 'まずは全体を見る', script: slow(SCRIPTS.overview, 1.25) },
+      { id: 'start', icon: '🪟', title: '画面の見かたと出力先', desc: 'ダイアログの3つの部品と、ログの出力先を決める方法。', sec: '機能ごとのデモ', script: slow(SCRIPTS.start, 1.2) },
+      { id: 'exec', icon: '▶️', title: 'ロギング実行', desc: '押すたびに今の日時が1行追記される。ログが無いときは新しく作られる。', sec: '機能ごとのデモ', script: slow(SCRIPTS.exec, 1.25) },
+      { id: 'interval', icon: '⏱️', title: '記録間隔と「!」の印', desc: 'set.ini の Cycle=分 で間隔を決め、前回+間隔から ±10秒を外れると行末に「!」が付く。', sec: '機能ごとのデモ', script: slow(SCRIPTS.interval, 1.1) },
+      { id: 'read', icon: '🔍', title: 'ログの読みかた', desc: '「!」の付いた行から、PCが止まっていた時間帯を見つける。', sec: '機能ごとのデモ', script: slow(SCRIPTS.read, 1.1) }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
