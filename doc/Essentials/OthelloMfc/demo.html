@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OthelloMfc 機能デモ</title>
+<!--
+  OthelloMfc(C++ / MFC のオセロ)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=play のように機能を指定します。
+  ・画面は、実際のアプリ(Release の OthelloMfc.exe)を動かして撮ったスクショ(demo-img/)に、カーソル・クリック・目印・字幕を時間軸で重ねたものです。
+  ・撮影では、メニュー操作と盤のクリックをウィンドウへ直接送って動かしました。盤・名前・棋譜はすべて撮影用のもので、個人情報はありません。
+    棋譜の保存・読み込みのファイル選択画面は、フォルダの中身が写らないよう、ファイル一覧と左の一覧を塗りつぶしてあります。
+  ・再生部分は ../lib/demo-player.js(Essentials共通)。座標はスクショ(680x632)の画素です。
+  ・アプリの見た目を変えたら、スクショを撮り直してください。
+-->
+<script src="../lib/demo-player.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  // 盤のマス (列c=1〜8 → A〜H、行r=1〜8) の中心
+  function C(c, r) { return [84 + (c - 1) * 56, 124 + (r - 1) * 56]; }
+  var BOARD = { x: 56, y: 96, w: 448, h: 448 };
+  var INFO = { x: 518, y: 120, w: 135, h: 60 };
+  var TIMES = { x: 518, y: 205, w: 140, h: 115 };
+  // メニューバー(中心)と、開いたメニューの項目(中心)
+  var TOP = { game: [59, 61], set: [114, 61], op: [167, 61], help: [225, 61] };
+  var G = { start: [105, 84], stop: [105, 106], reset: [105, 137], exit: [105, 168] };
+  var S = { notice: [180, 84], level: [180, 115], mode: [180, 137], time: [180, 159] };
+  var LV = [null, [319, 115], [319, 137], [319, 159]];
+  var MD = { pp: [365, 137], pc: [365, 159], cp: [365, 181], cc: [365, 203] };
+  var TM = { none: [328, 159], s30: [328, 181], m1: [328, 203], m2: [328, 225], m3: [328, 247], m5: [328, 269], m10: [328, 291], m15: [328, 313] };
+  var OP = { kifu: [212, 84], redo: [212, 106], undo: [212, 128] };
+  var KF = { show: [350, 84], save: [350, 106], read: [350, 128] };
+  var HP = { about: [288, 84], how: [288, 106] };
+  // ダイアログの「OK」ボタンの中心
+  var OK = { pass: [385, 371], end: [365, 371], timeout: [358, 380], stop: [410, 371], kshow: [366, 380], about: [482, 311], how: [378, 371] };
+
+  function cap(d, text, ms) { d.cap(text); d.wait(ms); }
+  function go(d, p, o) { d.cursor(p[0], p[1], o); }
+  function press(d, p, o) { d.cursor(p[0], p[1], o); d.click(); }
+  function cell(d, c, r, o) { var p = C(c, r); d.cursor(p[0], p[1], o); d.click(); }
+
+  var FEATURES = [
+    // ================= 全体紹介 =================
+    { id: 'overview', icon: '🎬', title: '全体紹介（約2分）', sec: 'まずは全体を見る', top: true,
+      desc: 'OthelloMfc でできることを、メニュー・打つ・COMとの対局・制限時間・棋譜・終局の順に、ひととおり見ます。',
+      script: function (d) {
+        d.chapter('はじめに'); d.scene('s-init'); d.cursor(600, 420, { dur: 0 });
+        cap(d, 'OthelloMfc は、1つのダイアログに盤を描いて、メニューで操作するオセロです（C++ / MFC で作っています）。', 5500);
+        d.mark(BOARD, { dur: 3800, label: '盤（8×8）' });
+        cap(d, '起動すると、盤の初期配置が出ています。黒が先手です。盤の上の A〜H と、左の 1〜8 が、マスの住所になります。', 6500);
+        d.mark(INFO, { dur: 3800, label: '手番とスコア' });
+        cap(d, '右には、いまの手番と、黒・白の石の数が出ます。', 4500);
+
+        d.chapter('メニュー');
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 120 });
+        cap(d, '操作はすべて、上のメニューバーから行います。「ゲーム」には、スタート・ストップ・リセット・終了があります。', 6500);
+        press(d, TOP.set, { dur: 800 }); d.scene('m-set', { fade: 120 });
+        cap(d, '「設定」では、置ける場所の表示、COMの強さ、プレイモード、制限時間を決めます。', 5500);
+        press(d, TOP.op, { dur: 800 }); d.scene('m-op', { fade: 120 });
+        cap(d, '「操作」には、棋譜と、一手戻す・一手送るがあります。', 4500);
+        press(d, TOP.help, { dur: 800 }); d.scene('m-help', { fade: 120 });
+        cap(d, '「ヘルプ」には、バージョン情報と、遊び方があります。', 4000);
+
+        d.chapter('打つ');
+        d.scene('p-started', { fade: 150 });
+        d.mark({ x: 220, y: 200, w: 60, h: 60 }, { dur: 3500, label: '置ける場所の点' });
+        cap(d, '黒の番のときは、置けるマスに、小さな青い点が出ます。点のあるマスだけが、置ける場所です。', 6500);
+        cell(d, 4, 3, { dur: 900 }); d.scene('p-move1', { fade: 250 });
+        cap(d, 'マスをクリックすると、石が置かれて、挟んだ白がひっくり返ります。すぐにCOM（白）が打ち返してきます。', 7000);
+        d.mark(INFO, { dur: 3500, label: '黒3 白3' });
+        cap(d, '右のスコアも、そのたびに変わります。', 4000);
+
+        d.chapter('モードと強さ');
+        press(d, TOP.set, { dur: 800 }); d.scene('m-set-mode', { fade: 120 });
+        cap(d, '「設定 → プレイモード」で、人どうし・人対COM・COM対人・COM対COM の4つから選べます。（初期は「人が黒」の PLAYER VS COM）', 8000);
+        d.scene('m-set-level', { fade: 120 });
+        cap(d, 'COMの強さ（COMレベル）は 1〜3 です。初期は 3 です。', 4500);
+
+        d.chapter('制限時間');
+        d.scene('m-set-time', { fade: 120 });
+        cap(d, '「制限時間」は、なし・30秒・1分・2分・3分・5分・10分・15分から選べます。', 5500);
+        d.scene('t-set30', { fade: 150 });
+        d.mark(TIMES, { dur: 3800, label: '残り時間' });
+        cap(d, '選ぶと、右に黒と白の残り時間が出ます。手番の側だけが減っていきます。', 5500);
+        d.scene('t-out1', { fade: 150 });
+        cap(d, '時間を使い切ると、「タイムアウト」で、その側の負けになります。', 5000);
+
+        d.chapter('棋譜');
+        d.scene('u-menu', { fade: 150 });
+        cap(d, '「操作」の「一手戻す」「一手送る」で、打った手をさかのぼったり、進めたりできます。', 5500);
+        d.scene('k-show', { fade: 150 });
+        cap(d, '「操作 → 棋譜 → 表示」で、ここまでの棋譜が出ます。「保存」でファイル（.rkf）にして、「読み込み」で続きから再開できます。', 7500);
+
+        d.chapter('終局');
+        d.scene('mode-cc-run', { fade: 150 });
+        cap(d, '盤が埋まるか、どちらも置けなくなると、対局は終わります。これは COM対COM を動かしている様子です。', 6000);
+        d.scene('end-dlg1', { fade: 150 });
+        cap(d, '終局すると、黒と白の数が出て、「ゲーム終了」になります。', 5000);
+        d.scene('end-after', { fade: 150 });
+        cap(d, '「ゲーム → スタート」で、また新しい対局を始められます。', 4500);
+
+        d.chapter('おわり');
+        cap(d, '以上が、OthelloMfc の主な機能です。機能ごとの詳しいデモは、「機能一覧」から見られます。', 6000);
+      } },
+
+    // ================= 打つ =================
+    { id: 'play', icon: '⚫', title: '打つ・置ける場所・COMの応手', sec: '機能ごとのデモ',
+      desc: '盤のマスをクリックして石を置きます。置ける場所の点、COMの返事、手番とスコア、点の表示の切り替えを見ます。',
+      script: function (d) {
+        d.chapter('置ける場所'); d.scene('p-started'); d.cursor(600, 440, { dur: 0 });
+        d.mark(BOARD, { dur: 3000, label: '盤' });
+        cap(d, 'ゲームを始めると、黒（あなた）の番です。置けるマスに、小さな青い点が出ています。', 6000);
+        d.mark({ x: 220, y: 200, w: 60, h: 60 }, { dur: 3800, label: 'D3 に置ける' });
+        cap(d, '最初に置けるのは、D3・C4・F5・E6 の4か所です。点のないマスには置けません。', 6000);
+
+        d.chapter('打つ');
+        cell(d, 4, 3, { dur: 1000 }); d.scene('p-move1', { fade: 250 });
+        cap(d, 'マスをクリックすると、石が置かれて、挟んだ白の石がひっくり返ります。', 5500);
+        d.mark(INFO, { dur: 3500, label: '黒3 白3' });
+        cap(d, 'すぐにCOM（白）が打ち返します。右の手番とスコアも変わります。', 5500);
+        d.mark({ x: 278, y: 206, w: 60, h: 60 }, { dur: 3000, label: 'COMが打った(E3)' });
+        cap(d, 'また黒の番に戻ると、新しい「置ける場所」の点が出ます。', 4500);
+        cell(d, 6, 2, { dur: 1000 }); d.scene('p-move2', { fade: 250 });
+        cap(d, 'こうして、交互に打っていきます。', 4000);
+        cell(d, 2, 3, { dur: 1000 }); d.scene('p-move3', { fade: 250 });
+        cap(d, '押したマスと同じマスで離したときだけ、打てる仕組みです。押したまま別のマスへずらせば、取り消せます。', 6500);
+
+        d.chapter('点の表示');
+        press(d, TOP.set, { dur: 900 }); d.scene('m-set', { fade: 120 });
+        press(d, S.notice, { dur: 800 }); d.scene('p-nodots', { fade: 150 });
+        cap(d, '「設定 → 置ける座標を表示」を切ると、点が消えます。慣れてきたら、点なしで遊べます。', 6500);
+        d.mark(BOARD, { dur: 3000, label: '点なし' });
+        cap(d, 'もう一度押すと、点が戻ります。', 3500);
+
+        d.chapter('ストップ');
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 120 });
+        press(d, G.stop, { dur: 800 }); d.scene('p-stopped', { fade: 150 });
+        cap(d, '「ゲーム → ストップ」で、対局を一時停止できます。再開は「ゲーム → スタート」です。', 6000);
+      } },
+
+    // ================= モード =================
+    { id: 'modes', icon: '🤖', title: 'プレイモードとCOMの強さ', sec: '機能ごとのデモ',
+      desc: '人どうし・人対COM・COM対人・COM対COM の4つのモードと、COMレベル(1〜3)を切り替えます。COM対COMで終局まで見ます。',
+      script: function (d) {
+        d.chapter('プレイモード'); d.scene('s-init'); d.cursor(600, 440, { dur: 0 });
+        press(d, TOP.set, { dur: 900 }); d.scene('m-set', { fade: 120 });
+        go(d, S.mode, { dur: 700 }); d.scene('m-set-mode', { fade: 120 });
+        cap(d, '「設定 → プレイモード」で、遊び方を選びます。いまは「PLAYER VS COM」（あなたが黒、COMが白）に印が付いています。', 7500);
+        d.mark({ x: 270, y: 126, w: 191, h: 88 }, { dur: 4000, label: '4つのモード' });
+        cap(d, 'PLAYER VS PLAYER は人どうし、COM VS PLAYER はCOMが黒（先手）、COM VS COM はCOMどうしの対局です。', 8000);
+
+        d.chapter('COMの強さ');
+        d.scene('m-set-level', { fade: 120 });
+        go(d, S.level, { dur: 600 });
+        cap(d, '「COMレベル」は 1〜3 です。数字が大きいほど強くなります。初期は 3 です。', 6000);
+
+        d.chapter('COM VS COM');
+        d.scene('m-set-mode', { fade: 120 });
+        press(d, MD.cc, { dur: 900 }); d.scene('mode-cc-set', { fade: 150 });
+        cap(d, '「COM VS COM」を選んで、COMレベルを 1 にしました。', 4500);
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 120 });
+        press(d, G.start, { dur: 800 }); d.scene('mode-cc-run', { fade: 200 });
+        cap(d, '「ゲーム → スタート」で、COMどうしが自動で打ち合います。打つ間隔はごく短いので、あっという間に進みます。', 7500);
+        d.scene('end-dlg1', { fade: 150 });
+        cap(d, '終局すると、黒と白の数が出ます。人が見ているだけでも、COMの強さの違いを確かめられます。', 6500);
+        press(d, OK.end, { dur: 800 }); d.scene('end-after', { fade: 150 });
+        cap(d, '「OK」を押すと、ウィンドウのタイトルが「終了」に変わり、盤は最後の状態のままです。', 6000);
+      } },
+
+    // ================= 制限時間 =================
+    { id: 'time', icon: '⏱️', title: '制限時間とタイムアウト', sec: '機能ごとのデモ',
+      desc: '持ち時間を決めて対局します。手番の側だけが減る残り時間と、時間切れの負けを30秒の設定で見ます。',
+      script: function (d) {
+        d.chapter('時間を決める'); d.scene('s-init'); d.cursor(600, 440, { dur: 0 });
+        press(d, TOP.set, { dur: 900 }); d.scene('m-set', { fade: 120 });
+        go(d, S.time, { dur: 700 }); d.scene('m-set-time', { fade: 120 });
+        cap(d, '「設定 → 制限時間」で、1人あたりの持ち時間を選びます。なし・30秒・1分・2分・3分・5分・10分・15分があります。', 8000);
+        press(d, TM.s30, { dur: 900 }); d.scene('t-set30', { fade: 150 });
+        d.mark(TIMES, { dur: 4000, label: '黒・白の残り時間' });
+        cap(d, '30秒を選ぶと、右に、黒と白の残り時間が「00 分 30 秒」と出ます。', 6000);
+
+        d.chapter('減っていく');
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 120 });
+        press(d, G.start, { dur: 800 }); d.scene('t-run', { fade: 200 });
+        d.mark({ x: 518, y: 205, w: 140, h: 50 }, { dur: 4000, label: '黒だけが減る' });
+        cap(d, 'スタートすると、いま手番の側（ここでは黒）の残り時間だけが減っていきます。打つと、相手の番に移ります。', 8000);
+        cap(d, '対局が始まると、持ち時間の設定は変えられません（メニューが選べなくなります）。', 5500);
+
+        d.chapter('タイムアウト');
+        d.scene('t-out1', { fade: 150 });
+        cap(d, '黒が何も打たないまま30秒たつと、「タイムアウト 黒の負けです。」と出ます。', 6500);
+        press(d, OK.timeout, { dur: 900 }); d.scene('t-out2', { fade: 150 });
+        cap(d, 'もう一度、そのときの黒と白の石の数が出て、「ゲーム終了」になります。', 6000);
+        press(d, OK.end, { dur: 900 }); d.scene('t-after', { fade: 150 });
+        cap(d, 'タイトルが「終了」に変わって、対局はここまでです。「ゲーム → リセット」で、最初からやり直せます。', 6500);
+      } },
+
+    // ================= 一手戻す・送る =================
+    { id: 'undo', icon: '↩️', title: '一手戻す・一手送る', sec: '機能ごとのデモ',
+      desc: '打った手を一手ずつ戻したり、戻した手を送り直したりします。戻すと一時停止になること、新しい手を打つと先が消えることを見ます。',
+      script: function (d) {
+        d.chapter('戻す'); d.scene('u-3moves'); d.cursor(600, 440, { dur: 0 });
+        cap(d, '人どうし（PLAYER VS PLAYER）で、3手ほど打ったところです。', 4500);
+        press(d, TOP.op, { dur: 900 }); d.scene('u-menu', { fade: 120 });
+        d.mark({ x: 143, y: 73, w: 138, h: 66 }, { dur: 3800, label: '一手送る／戻す' });
+        cap(d, '「操作 → 一手戻す」で、直前の手を取り消せます。', 5000);
+        press(d, OP.undo, { dur: 800 }); d.scene('u-undo1', { fade: 150 });
+        cap(d, '最後の手が消えて、ひっくり返した石も元に戻りました。手番とスコアも、その時点のものになります。', 6500);
+        press(d, TOP.op, { dur: 900 }); d.scene('u-menu', { fade: 100 });
+        press(d, OP.undo, { dur: 800 }); d.scene('u-undo2', { fade: 150 });
+        cap(d, 'もう一度戻すと、さらに一手前になります。何手でもさかのぼれます。', 5500);
+
+        d.chapter('一時停止');
+        cell(d, 3, 3, { dur: 900 }); d.scene('u-stopmsg', { fade: 150 });
+        cap(d, '戻した直後は、対局が「一時停止」になります。そのまま打とうとすると、「スタートを押してね」と出ます。', 7500);
+        press(d, OK.stop, { dur: 800 }); d.scene('u-undo2', { fade: 120 });
+        cap(d, 'OKで閉じて、「ゲーム → スタート」を押すと、続きから打てます。', 5000);
+
+        d.chapter('送る');
+        press(d, TOP.op, { dur: 900 }); d.scene('u-menu', { fade: 100 });
+        press(d, OP.redo, { dur: 800 }); d.scene('u-redo1', { fade: 150 });
+        cap(d, '「操作 → 一手送る」は、戻した手を、一手ずつ進め直します。', 5500);
+
+        d.chapter('新しい手');
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 100 });
+        press(d, G.start, { dur: 800 }); d.scene('u-newmove', { fade: 200 });
+        cap(d, '戻した先で、別のマスに新しく打つと、そこから別の対局になります。送り直せるのは、戻した手までです。', 7500);
+      } },
+
+    // ================= 棋譜 =================
+    { id: 'kifu', icon: '📜', title: '棋譜の表示・保存・読み込み', sec: '機能ごとのデモ',
+      desc: '打った手の記録（棋譜）を表示し、ファイル(.rkf)に保存して、あとから読み込んで続きを打ちます。',
+      script: function (d) {
+        d.chapter('表示'); d.scene('u-3moves'); d.cursor(600, 440, { dur: 0 });
+        cap(d, '3手打った状態です。この対局の記録を、「棋譜」で見たり、保存したりできます。', 5000);
+        press(d, TOP.op, { dur: 900 }); d.scene('m-op', { fade: 120 });
+        go(d, OP.kifu, { dur: 600 }); d.scene('m-op-kifu', { fade: 100 });
+        press(d, KF.show, { dur: 800 }); d.scene('k-show', { fade: 150 });
+        d.mark({ x: 290, y: 240, w: 150, h: 70 }, { dur: 4500, label: '1手ずつの記録' });
+        cap(d, '「棋譜 → 表示」を押すと、1手ごとの記録が出ます。たとえば「1 : D.3 黒」は、黒が D3 に打った、という意味です。', 8500);
+
+        d.chapter('保存');
+        press(d, OK.kshow, { dur: 900 }); d.scene('u-3moves', { fade: 120 });
+        press(d, TOP.op, { dur: 900 }); d.scene('m-op', { fade: 100 });
+        go(d, OP.kifu, { dur: 500 }); d.scene('m-op-kifu', { fade: 100 });
+        press(d, KF.save, { dur: 800 }); d.scene('k-save-dlg', { fade: 200 });
+        cap(d, '「棋譜 → 保存」を押すと、ファイルを保存する画面が開きます。（この動画では、フォルダの中身は隠しています）', 7500);
+        d.scene('k-save-typed', { fade: 120 });
+        cap(d, 'ファイル名を決めて保存します。棋譜のファイルの拡張子は .rkf です。', 5500);
+
+        d.chapter('読み込み');
+        d.scene('k-reset', { fade: 200 });
+        cap(d, '「ゲーム → リセット」などで、盤を最初に戻しました。ここへ、保存した棋譜を読み込みます。', 6000);
+        press(d, TOP.op, { dur: 900 }); d.scene('m-op', { fade: 100 });
+        go(d, OP.kifu, { dur: 500 }); d.scene('m-op-kifu', { fade: 100 });
+        press(d, KF.read, { dur: 800 }); d.scene('k-read-dlg', { fade: 200 });
+        cap(d, '「棋譜 → 読み込み」で、保存したファイルを選びます。', 5000);
+        d.scene('k-loaded', { fade: 250 });
+        d.mark(BOARD, { dur: 3500, label: '盤が元どおり' });
+        cap(d, '読み込むと、盤とスコア、手番が、保存したときの状態に戻ります。読み込んだ直後は、まだ始まる前の状態です。', 7500);
+        press(d, TOP.game, { dur: 900 }); d.scene('m-game', { fade: 100 });
+        press(d, G.start, { dur: 800 }); d.scene('k-continue', { fade: 200 });
+        cap(d, '「ゲーム → スタート」で、その続きから打てます。', 5000);
+      } },
+
+    // ================= 終局とパス =================
+    { id: 'end', icon: '🏁', title: '終局とパス', sec: '機能ごとのデモ',
+      desc: '置ける場所がないときのパスの案内と、対局が終わったときの結果表示を、COM対COMの対局で見ます。',
+      script: function (d) {
+        d.chapter('パス'); d.scene('mode-cc-run'); d.cursor(600, 440, { dur: 0 });
+        cap(d, 'COM対COMで、対局を進めているところです。', 4000);
+        d.scene('pass-dlg', { fade: 200 });
+        cap(d, '置ける場所がないときは、「黒は置くところがありません。」のように出ます。その側は、パスになります。', 7500);
+        press(d, OK.pass, { dur: 900 });
+        cap(d, 'OKを押すと、そのまま相手の番で続きます。', 4500);
+
+        d.chapter('終局');
+        d.scene('end-dlg1', { fade: 200 });
+        cap(d, '盤が埋まるか、どちらも置けなくなると、対局は終わります。黒と白の石の数が出ます。', 6500);
+        press(d, OK.end, { dur: 900 }); d.scene('end-after', { fade: 150 });
+        d.mark({ x: 20, y: 6, w: 200, h: 26 }, { dur: 3500, label: 'タイトルが「終了」に' });
+        cap(d, '閉じると、タイトルが「othello 終了」に変わります。盤は終局の状態のまま見られます。', 6500);
+        d.scene('s-init', { fade: 250 });
+        cap(d, '「ゲーム → スタート」か「リセット」で、新しい対局を始められます。', 5000);
+      } }
+  ];
+
+  DesktopDemo.start({
+    title: 'OthelloMfc 機能デモ', icon: '⚫', back: 'index.html', backLabel: '← OthelloMfc の図解にもどる',
+    lead: '最初に全体紹介（約2分）を見ると、OthelloMfc でできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ（30秒〜1分ほど）で見られます。実際のアプリの画面を使っています。',
+    frame: { w: 680, h: 632, title: 'othello（OthelloMfc）' }, imgBase: 'demo-img/',
+    // 台本では画像を拡張子なしの名前(s-init など)で書く。ここで .png を足す
+    features: FEATURES.map(function (f) {
+      var body = f.script;
+      f.script = function (d) {
+        var sc = d.scene, ch = d.chapter;
+        d.scene = function (n, o) { sc(n + '.png', o); };
+        // 章が変わったら、前の字幕を消す(次の字幕が出るまで古い字幕が残らないように)
+        d.chapter = function (t) { ch(t); d.cap(''); };
+        body(d);
+      };
+      return f;
+    })
+  });
+})();
+</script>
+</body>
+</html>
