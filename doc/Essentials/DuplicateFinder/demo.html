@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuplicateFinder 機能デモ</title>
+<!--
+  DuplicateFinder(重複ファイル削除ツール)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=keep のように機能を指定します。
+  ・実際のアプリ(Release の exe)を起動し、UI Automation で操作して撮った画面に、カーソル・ズーム・字幕を重ねています。
+  ・画面のフォルダ(R:\ 以下)・ファイル名・日付は、撮影用に作った架空のダミーです。実際のファイルは一切使っていません。
+  ・素材は demo-img/ (スクショ)と demo-pts.js (要素の座標。スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 1154, FH = 721;
+  var DUMMY = '※ 画面のフォルダ・ファイル名・日付は、すべてデモ用に作った架空のものです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.DF_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function U() { // 複数の要素を囲む枠(s, k1, k2, ...)
+    var s = arguments[0], x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 1; i < arguments.length; i++) { var r = P(s, arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function K(file, folder) { return file + '|' + folder; }
+  var F1 = 'R:\\写真\\2024旅行', F2 = 'R:\\バックアップ\\旅行写真', F3 = 'R:\\ダウンロード', F1V = 'R:\\写真\\動画', F2V = 'R:\\バックアップ\\動画', F1A = 'R:\\写真\\2023';
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(120); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる範囲へズーム(画面と同じ縦横比)
+    o = o || {}; var pad = (o.pad != null ? o.pad : 30), minW = (o.minW || 560);
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    var x = Math.min(Math.max(cx - w / 2, 0), FW - w), y = Math.min(Math.max(cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function zoom(d, s) { var ks = Array.prototype.slice.call(arguments, 2); zoomR(d, U.apply(null, [s].concat(ks))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 4, y: r.y - 3, w: r.w + 8, h: r.h + 6 }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  function begin(d, x, y) { d.cursor(x == null ? 700 : x, y == null ? 420 : y, { dur: 0 }); }
+  // 重ねて出る窓(メニュー・ダイアログ)の中の位置(窓の左上からの座標。撮った画像で測った値)
+  function inPopup(s, dx, dy) { var p = P(s, 'popup'); return { x: p.x + dx, y: p.y + dy }; }
+  function toPop(d, s, dx, dy, o) { var q = inPopup(s, dx, dy); d.cursor(q.x, q.y, { dur: o && o.dur }); }
+
+  // ================= 台本 =================
+  var SCRIPTS = {};
+
+  // ---------- 全体紹介 ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('empty.jpg'); begin(d);
+    d.cap(DUMMY + '\nDuplicateFinder(重複ファイル削除ツール)は、フォルダの中から「中身がまったく同じファイル」を探して、いらない方をまとめて消せる Windows のツールです。'); d.wait(8200);
+    d.cap('ファイル名や置いてある場所が違っていても、中身が同じなら重複として見つけます。\n使う流れは、「フォルダを選ぶ → 検索 → 残すものを決める → 削除」の4つです。'); d.wait(7500);
+
+    d.chapter('対象フォルダ'); d.scene('f-list.jpg');
+    d.cap('「対象フォルダ」の欄に、探したいフォルダを入れます。\nここには複数のフォルダを入れられて、入れたフォルダのどれにあるファイル同士でも比べます。');
+    markR(d, U('f-list', 'FolderList'), '対象フォルダ(複数可)', 4200); to(d, 'f-list', 'li2'); d.wait(5800);
+    d.cap('フォルダは「追加」ボタンで選ぶか、エクスプローラーからドラッグ&ドロップで入れます。');
+    mark(d, 'f-list', 'AddFolderButton', '追加', 3600); to(d, 'f-list', 'AddFolderButton', { dur: 900 }); d.wait(4800);
+
+    d.chapter('検索の条件');
+    d.cap('検索の前に、何を調べるかの条件も決められます。\nたとえば「拡張子」に「mp4;zip」と入れると、動画とzipだけを調べます。「最小サイズ」を入れると、それより小さいファイルは調べません。');
+    tap(d, 'f-list', 'ExtensionsBox', { dur: 1000 }); d.scene('o-both-typed.jpg'); markR(d, U('o-both-typed', 'MinSizeBox', 'ExtensionsBox'), '最小サイズ・拡張子', 4600); d.wait(9000);
+    d.cap('ここでは条件は空のまま(すべてのファイルが対象)で検索します。'); d.scene('f-list.jpg'); d.wait(4200);
+
+    d.chapter('検索');
+    d.cap('「検索開始」を押します。');
+    tap(d, 'f-list', 'ScanButton', { dur: 1000 }); d.wait(600);
+    d.scene('r-all.jpg', { fade: 500 });
+    d.cap('終わると、重複していたファイルがグループごとに並びます。\n下の行には、調べたファイル数・重複のグループ数・「1件ずつ残すと空く容量」が出ます。');
+    zoom(d, 'r-all', 'StatusText'); mark(d, 'r-all', 'StatusText', '調べた結果', 5000); d.wait(7500);
+    d.cam(null, { dur: 700 });
+
+    d.chapter('結果の見かた');
+    d.cap('「#2 3件 × 3.40MB」は、中身が同じ3.40MBのファイルが3つある、という意味です。\n「対象」の列は、そのファイルがどの対象フォルダ(1〜3番目)にあるかです。');
+    zoomR(d, { x: 0, y: P('r-all', 'grp:#2').y, w: 720, h: 82 }); mark(d, 'r-all', 'grp:#2', '同じ中身のグループ', 5000); to(d, 'r-all', 'row:' + K('IMG_0412.jpg', F2), { dx: 200, dur: 1100 }); d.wait(8200);
+    d.cam(null, { dur: 700 });
+
+    d.chapter('残すものを決める');
+    d.cap('どれを残すかは、「自動選択」のルールでまとめて決められます。\n初期設定は、「対象フォルダの欄で、上にあるフォルダのものを残す」です。');
+    tap(d, 'r-all', 'KeepRuleCombo', { dur: 1000 }); d.scene('rule-open.jpg'); d.wait(6500);
+    d.cap('「適用」を押すと、各グループで1件だけ残して、ほかのすべてに「削除」のチェックが付きます。\nチェックが付いた行は赤くなります。');
+    tap(d, 'rule-open', 'ApplyRuleButton', { dur: 1100 }); d.scene('r-marked.jpg');
+    mark(d, 'r-marked', 'marked', '削除するもの', 5200); d.wait(7500);
+
+    d.chapter('削除する');
+    d.cap('「チェックしたファイルを削除」を押すと、確認が出ます。\n件数と合計のサイズを見て、「はい」を押します。');
+    tap(d, 'r-marked', 'DeleteButton', { dur: 1000 }); d.scene('confirm.jpg'); d.wait(500);
+    toPop(d, 'confirm', 205, 130, { dur: 1100 }); mark(d, 'confirm', 'popup', '', 3000); d.wait(5600);
+    d.click(); d.scene('deleting.jpg'); d.cap('「ごみ箱へ移動」にチェックが入っているので、ファイルはごみ箱に送られます。\n進み具合は、画面の下に出ます。');
+    markR(d, U('deleting', 'StatusText', 'WorkProgressBar'), '', 3400); d.wait(5400);
+    d.scene('deleted.jpg', { fade: 400 }); d.cap('「9件をごみ箱へ移動しました。」と出て、重複はなくなりました。');
+    mark(d, 'deleted', 'StatusText', '', 3600); d.wait(5200);
+
+    d.chapter('安全のしくみ');
+    d.cap('うっかり全部消してしまわないための安全策もあります。\n(別の例です)同じグループのファイルすべてにチェックを付けて削除を押すと、断られて、何も消えません。');
+    d.scene('refuse.jpg', { fade: 500 }); markR(d, P('refuse', 'popup'), '', 5000); d.wait(10500);
+    d.cap('消す直前にも、検索のあとでファイルが変更・移動されていないかを、もう一度確かめます。'); d.wait(5500);
+
+    d.chapter('おわり');
+    d.cap('以上が、DuplicateFinder の基本の使い方です。\n検索の条件・並べ替え・残すファイルの決め方・削除の安全策は、機能ごとのデモで詳しく見られます。'); d.wait(7200);
+  };
+
+  // ---------- 対象フォルダ ----------
+  SCRIPTS.folders = function (d) {
+    d.chapter('登録する'); d.scene('empty.jpg'); begin(d);
+    d.cap(DUMMY + '\n最初は、「対象フォルダ」の欄が空です。ここに、重複を探したいフォルダを登録します。'); markR(d, U('empty', 'FolderList'), '対象フォルダ', 4200); d.wait(6200);
+    d.cap('登録は、「追加」ボタンでフォルダを選ぶか、エクスプローラーからフォルダをドラッグ&ドロップします。\nドロップは、複数のフォルダをまとめて入れられます。');
+    tap(d, 'empty', 'AddFolderButton', { dur: 1000 }); mark(d, 'empty', 'AddFolderButton', '追加', 3500); d.wait(7000);
+    d.scene('f-list.jpg', { fade: 400 });
+    d.cap('3つのフォルダを登録した状態です。\nどのフォルダ(サブフォルダも含む)にあるファイルでも、ほかのフォルダのファイルと比べられます。');
+    zoomR(d, P('f-list', 'FolderList')); mark(d, 'f-list', 'FolderList', '3つ登録', 4500); d.wait(7500);
+    d.cap('フォルダの中のフォルダを入れ子で登録しても、二重には数えません。');
+    d.wait(4500); d.cam(null, { dur: 700 });
+
+    d.chapter('順番を変える');
+    d.cap('登録したフォルダは、上から順番が付きます。\nこの順番は、あとで「上のフォルダのものを残す」という自動選択で使われます。');
+    d.scene('f-list.jpg'); tap(d, 'f-list', 'li3', { dur: 1000 }); d.scene('f-sel3.jpg'); mark(d, 'f-sel3', 'li3', '選ぶ', 2500); d.wait(5200);
+    d.cap('フォルダを選んで「▲ 上へ」「▼ 下へ」を押すと、順番を入れ替えられます。\nここでは、3番目の「ダウンロード」を2回上へ動かして、先頭にしています。');
+    tap(d, 'f-sel3', 'MoveUpButton', { dur: 900 }); d.wait(300); d.click(); d.wait(300); d.scene('f-moved.jpg');
+    zoomR(d, P('f-moved', 'FolderList'), { minW: 700 }); d.wait(6800); d.cam(null, { dur: 700 });
+
+    d.chapter('外す');
+    d.cap('「外す」を押すと、選んだフォルダが登録から外れます。\nリストから外すだけで、フォルダやその中のファイルは消えません。');
+    tap(d, 'f-moved', 'li1', { dur: 1000 }); d.wait(600); tap(d, 'f-moved', 'RemoveFolderButton', { dur: 900 }); d.scene('f-removed.jpg');
+    zoomR(d, P('f-removed', 'FolderList'), { minW: 700 }); mark(d, 'f-removed', 'FolderList', '2つに減った', 4000); d.wait(7000); d.cam(null, { dur: 700 });
+    d.cap('登録したフォルダと検索の条件は、次に起動したときにも引き継がれます。'); d.wait(5000);
+  };
+
+  // ---------- 検索の条件 ----------
+  SCRIPTS.options = function (d) {
+    d.chapter('最小サイズ'); d.scene('f-list.jpg'); begin(d);
+    d.cap(DUMMY + '\n検索ボタンの前に、「何を調べるか」の条件を決められます。まずは「最小サイズ」です。'); d.wait(5800);
+    d.cap('ここに入れたサイズ(MB)より小さいファイルは、調べません。\n小さいファイルは、中身がたまたま同じになる(同じ設定ファイルなど)ことが多いので、省くと見やすくなります。');
+    tap(d, 'f-list', 'MinSizeBox', { dur: 1000 }); d.scene('o-min-typed.jpg'); mark(d, 'o-min-typed', 'MinSizeBox', '0.1 MB(約100KB)', 4200); d.wait(7800);
+    tap(d, 'o-min-typed', 'ScanButton', { dur: 1000 }); d.wait(500); d.scene('o-min-result.jpg', { fade: 500 });
+    d.cap('18KBのメモ(.txt)が調べる対象から外れて、重複のグループが7つから6つに減りました。\n小数も入れられます(0バイトのファイルは、いつも対象外です)。');
+    zoom(d, 'o-min-result', 'StatusText'); mark(d, 'o-min-result', 'StatusText', '6グループ', 4500); d.wait(7800); d.cam(null, { dur: 700 });
+
+    d.chapter('拡張子');
+    d.cap('「拡張子」は、調べるファイルの種類を絞ります。\n「mp4;zip」のように、セミコロンで区切って入れます。空欄なら、すべてのファイルが対象です。');
+    tap(d, 'o-min-result', 'ExtensionsBox', { dur: 1000 }); d.scene('o-ext-typed.jpg'); mark(d, 'o-ext-typed', 'ExtensionsBox', 'mp4;zip', 4200); d.wait(7800);
+    tap(d, 'o-ext-typed', 'ScanButton', { dur: 1000 }); d.wait(500); d.scene('o-ext-result.jpg', { fade: 500 });
+    d.cap('動画(mp4)とzipだけが調べられて、重複は2グループになりました。\n動画のように大きいものだけを調べたいときに便利です。');
+    markR(d, U('o-ext-result', 'ResultGrid'), '', 3000); d.wait(7200);
+
+    d.chapter('またがる重複だけ');
+    d.cap('「別々の対象フォルダにまたがる重複だけ」にチェックを入れると、同じ対象フォルダの中だけでの重複は無視します。\n比べる量が減るので、速くなります。(対象フォルダを2つ以上登録したときに使えます)');
+    tap(d, 'o-ext-result', 'CrossRootCheck', { dur: 1000 }); d.scene('o-cross-typed.jpg'); mark(d, 'o-cross-typed', 'CrossRootCheck', '', 4200); d.wait(9500);
+    tap(d, 'o-cross-typed', 'ScanButton', { dur: 1000 }); d.wait(500); d.scene('o-cross-result.jpg', { fade: 500 });
+    d.cap('同じ「写真」フォルダの中にあった「夕焼け.jpg」と「夕焼け_コピー.jpg」の組が消えて、フォルダをまたぐ重複だけが残りました。');
+    zoom(d, 'o-cross-result', 'StatusText'); mark(d, 'o-cross-result', 'StatusText', '6グループ', 4500); d.wait(8000); d.cam(null, { dur: 700 });
+
+    d.chapter('隠しファイル');
+    d.cap('「隠し・システムファイルを除外」は、初期設定でチェックが入っています。\nフォルダごとに置かれる desktop.ini などが、大量の重複として出てくるのを防ぐためです。');
+    tap(d, 'o-cross-result', 'SkipHiddenCheck', { dur: 1000 }); d.scene('o-hidden-typed.jpg'); mark(d, 'o-hidden-typed', 'SkipHiddenCheck', '外すと…', 4200); d.wait(8000);
+    tap(d, 'o-hidden-typed', 'ScanButton', { dur: 1000 }); d.wait(500); d.scene('o-hidden-bottom.jpg', { fade: 500 });
+    d.cap('チェックを外して検索すると、画面の一番下に、desktop.ini の重複(#8)も出てきます。\n通常は、チェックを入れたままで使います。');
+    zoomR(d, { x: 0, y: 630, w: 1150, h: 60 }, { minW: 700 }); d.wait(7800); d.cam(null, { dur: 700 });
+
+    d.chapter('同時比較数');
+    d.cap('「同時比較数」は、同時に比べるグループの数です。\nHDD・外付けHDD・NASなら1が最速で、SSDなら4〜8以上にすると速くなります。(多いほどメモリを使います)');
+    tap(d, 'o-hidden-bottom', 'ParallelCombo', { dur: 1000 }); d.scene('o-par.jpg');
+    mark(d, 'o-par', 'ParallelCombo', '1〜32', 4000); d.wait(9500);
+  };
+
+  // ---------- 検索と結果の見かた ----------
+  SCRIPTS.results = function (d) {
+    d.chapter('検索する'); d.scene('f-list.jpg'); begin(d);
+    d.cap(DUMMY + '\n対象フォルダと条件を決めたら、「検索開始」を押します。');
+    tap(d, 'f-list', 'ScanButton', { dur: 1100 }); d.wait(700);
+    d.scene('r-all.jpg', { fade: 500 });
+    d.cap('比べるときは、まずファイルのサイズ、次に先頭と末尾の一部を見て、それでも同じなら中身を最後まで読んで比べます。\nだから、名前や日付が違っても、中身が同じならちゃんと重複になります。');
+    d.wait(9500);
+    d.cap('検索中は、下の行に進み具合が出ます。「中止」を押すと、そこまでに重複と確定した分だけを一覧に出します。');
+    mark(d, 'r-all', 'WorkProgressBar', '', 3600); to(d, 'r-all', 'CancelButton', { dur: 1000 }); mark(d, 'r-all', 'CancelButton', '中止', 3800); d.wait(7200);
+
+    d.chapter('結果の見かた');
+    d.cap('一覧は、重複のグループごとに並びます。\n見出しの「#2 3件 × 3.40MB」は、同じ中身のファイルが3つ、1つあたり3.40MBという意味です。');
+    zoomR(d, { x: 0, y: P('r-all', 'grp:#2').y, w: 720, h: 92 }); mark(d, 'r-all', 'grp:#2', '見出し', 4800); d.wait(8200);
+    d.cap('「(1件残すと 6.80MB 空きます)」は、1つだけ残して消したときに空く容量です。\n右の「[対象 1・2・3]」は、このグループが、どの対象フォルダにまたがっているかです。');
+    to(d, 'r-all', 'grp:#2', { dx: 250, dy: 0, dur: 1000 }); d.wait(9200);
+    d.cap('列は、削除のチェック・対象フォルダの番号・ファイル名・サイズ・更新日時・フォルダです。\n下の行には、調べたファイルの数と、全部で何MB空くかが出ます。');
+    d.cam(null, { dur: 700 }); zoom(d, 'r-all', 'StatusText'); mark(d, 'r-all', 'StatusText', '全体のまとめ', 4600); d.wait(8200); d.cam(null, { dur: 700 });
+
+    d.chapter('並べ替え');
+    d.cap('列の見出しを押すと、グループの中で並べ替えられます。\nグループの順番は変わらないので、「このグループのどれが新しいか」を比べるのに便利です。');
+    tap(d, 'r-all', 'hdr:更新日時', { dur: 1100 }); d.scene('r-sort-date.jpg'); mark(d, 'r-sort-date', 'hdr:更新日時', '更新日時で並べ替え', 4500);
+    zoomR(d, { x: 0, y: 174, w: 760, h: 180 }); d.wait(8200); d.cam(null, { dur: 700 });
+    d.cap('「ファイル名」を押せば、名前順に並びます。');
+    tap(d, 'r-sort-date', 'hdr:ファイル名', { dur: 1000 }); d.scene('r-sort-name.jpg'); mark(d, 'r-sort-name', 'hdr:ファイル名', '', 3500); d.wait(5000);
+
+    d.chapter('下までスクロール');
+    d.cap('グループが多いときは、画面をスクロールして見ていきます。');
+    d.scene('r-bottom.jpg', { fade: 400 }); to(d, 'r-bottom', 'ResultGrid', { dx: 500, dy: 200, dur: 1000 }); d.wait(5500);
+  };
+
+  // ---------- 残すものを決める ----------
+  SCRIPTS.keep = function (d) {
+    d.chapter('自動選択'); d.scene('r-all.jpg'); begin(d);
+    d.cap(DUMMY + '\n重複のうち、どれを残してどれを消すかを決めます。まとめて決めるなら、「自動選択」です。');
+    d.wait(6000);
+    d.cap('ルールは6種類あります。\n上のフォルダのもの・一覧で一番上のもの・ファイル名の短い/長いもの・フォルダのパスの短い/長いものを、各グループで1件だけ残します。');
+    tap(d, 'r-all', 'KeepRuleCombo', { dur: 1000 }); d.scene('rule-open.jpg');
+    markR(d, P('rule-open', 'popup'), '6つのルール', 5000); d.wait(10500);
+    d.cap('同じ条件のものが複数あるときは、一覧の上にある方を残します。\n(列の見出しで並べ替えると、「新しい方」「古い方」を残す使い方もできます)'); d.wait(8500);
+
+    d.chapter('適用する');
+    d.cap('ルールを選んで「適用」を押すと、各グループの1件を残して、ほかのすべてに削除のチェックが付きます。');
+    tap(d, 'rule-open', 'ApplyRuleButton', { dur: 1100 }); d.scene('r-marked.jpg');
+    mark(d, 'r-marked', 'marked', '9件・65.38MB', 5000); d.wait(7000);
+    d.cap('チェックの付いた行は赤くなります。「削除チェック: 9件 / 65.38MB」は、いま消す予定のファイルの数と合計です。');
+    d.wait(6500);
+
+    d.chapter('手で直す');
+    d.cap('チェックは、1つずつ付け外しできます。\nたとえば「卒業アルバム」は、写真のフォルダではなくバックアップ側を残したい、というときです。');
+    tap(d, 'r-marked', 'chk:' + K('卒業アルバム.jpg', F1A)); d.wait(300); tap(d, 'r-marked', 'chk:' + K('卒業アルバム.jpg', F2), { dur: 700 }); d.scene('r-manual.jpg');
+    zoomR(d, U('r-manual', 'grp:#4', 'row:' + K('卒業アルバム.jpg', F1A)), { minW: 640 }); mark(d, 'r-manual', 'grp:#4', '', 4000); d.wait(9500); d.cam(null, { dur: 700 });
+    d.cap('「チェックをすべて外す」を押すと、すべてのチェックが外れて、最初の状態に戻ります。');
+    tap(d, 'r-manual', 'ClearMarksButton', { dur: 1000 }); d.scene('r-cleared.jpg'); d.wait(5800);
+
+    d.chapter('右クリック');
+    d.cap('行を右クリックすると、メニューが開きます。\n「このファイルを残す」を選ぶと、同じグループのほかのファイルすべてが、削除の対象になります。');
+    tap(d, 'r-cleared', 'row:' + K('IMG_0412.jpg', F2), { dx: 200, dur: 1100 }); d.scene('ctx.jpg');
+    toPop(d, 'ctx', 120, 14, { dur: 1000 }); mark(d, 'ctx', 'popup', '', 3000); d.wait(8500);
+    d.click(); d.scene('r-keep-this.jpg'); mark(d, 'r-keep-this', 'marked', '2件・6.80MB', 4000);
+    d.cap('「IMG_0412.jpg」だけが残って、同じグループのほかの2つにチェックが付きました。'); d.wait(6500);
+    d.cap('もうひとつの「このフォルダ以下のファイルを全グループで残す」は、バックアップ側の「旅行写真」フォルダにあるファイルを、すべてのグループで残します。');
+    tap(d, 'r-keep-this', 'ClearMarksButton', { dur: 900 }); d.scene('r-cleared.jpg'); d.wait(500);
+    tap(d, 'r-cleared', 'row:' + K('卒業アルバム.jpg', F2), { dx: 200, dur: 1000 }); d.scene('ctx2.jpg');
+    toPop(d, 'ctx2', 120, 36, { dur: 1000 }); d.wait(5500); d.click(); d.scene('r-keep-folder.jpg');
+    mark(d, 'r-keep-folder', 'StatusText', '2グループを付け直し', 5000); d.wait(8000);
+    d.cap('メニューには、ファイルを開く・エクスプローラーで表示・パスのコピーもあります。'); d.wait(5500);
+  };
+
+  // ---------- 削除する ----------
+  SCRIPTS.delete = function (d) {
+    d.chapter('削除する'); d.scene('r-marked.jpg'); begin(d);
+    d.cap(DUMMY + '\n削除するファイルにチェックが付いたら、右上の「チェックしたファイルを削除」を押します。');
+    mark(d, 'r-marked', 'DeleteButton', '', 4000); tap(d, 'r-marked', 'DeleteButton', { dur: 1300 }); d.wait(300);
+    d.scene('confirm.jpg'); toPop(d, 'confirm', 205, 130, { dur: 1100 });
+    d.cap('確認のメッセージが出ます。消す件数・合計のサイズ・ごみ箱へ送るかどうかを確かめて、「はい」を押します。');
+    markR(d, P('confirm', 'popup'), '', 4500); d.wait(8500);
+    d.click(); d.scene('deleting.jpg');
+    d.cap('削除は1件ずつ進みます。進み具合は下の行に出て、「中止」を押すと止められます。');
+    markR(d, U('deleting', 'StatusText', 'WorkProgressBar'), '', 3800); d.wait(5800);
+    d.scene('deleted.jpg', { fade: 400 });
+    d.cap('終わると、消した件数が出ます。\n重複が1件だけになったグループは、もう重複ではないので、一覧から消えます。');
+    mark(d, 'deleted', 'StatusText', '', 3800); d.wait(7000);
+
+    d.chapter('ごみ箱');
+    d.cap('削除は、初期設定ではごみ箱へ移動します。\n「ごみ箱へ移動」のチェックを外すと、完全に削除されて、元に戻せません。');
+    d.scene('r-marked.jpg', { fade: 300 }); tap(d, 'r-marked', 'RecycleCheck', { dur: 1000 }); mark(d, 'r-marked', 'RecycleCheck', '外すと完全削除', 4800); d.wait(8500);
+
+    d.chapter('安全のしくみ');
+    d.cap('うっかり全部消してしまわないための安全策もあります。\nたとえば、同じグループのファイルすべてにチェックを付けた状態で削除を押すと…');
+    d.scene('all-checked.jpg', { fade: 300 });
+    zoomR(d, P('all-checked', 'grp:#1'), { minW: 700 }); mark(d, 'all-checked', 'grp:#1', 'すべてチェック', 4500); d.wait(7000); d.cam(null, { dur: 700 });
+    tap(d, 'all-checked', 'DeleteButton', { dur: 1200 }); d.wait(300); d.scene('refuse.jpg');
+    d.cap('「すべてのファイルにチェックが付いているグループがあります。各グループで最低1件はチェックを外して残してください。」と断られて、何も消えません。');
+    markR(d, P('refuse', 'popup'), '', 5200); d.wait(9500);
+    d.cap('そのほか、消す直前にも、検索したあとでファイルが変更・移動されていないか、残す側のファイルがちゃんと残っているかを確かめます。\nおかしいものは、消さずに知らせます。');
+    d.wait(6500);
+  };
+
+  DesktopDemo.start({
+    title: 'DuplicateFinder 機能デモ', icon: '🗑️', back: 'index.html', backLabel: '← DuplicateFinder の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、使い方のひととおりが分かります。そのあと、気になる機能を1本ずつの短いデモ(1分〜1分半ほど)で見られます。実際のアプリの画面を使っています。画面のフォルダ・ファイルは、すべてデモ用の架空のものです。',
+    frame: { w: FW, h: FH, title: 'DuplicateFinder ― ダミーのフォルダで動作' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', desc: '重複ファイルの検索から削除までの流れを、通しで見ます。', sec: 'まずは全体を見る', script: SCRIPTS.overview },
+      { id: 'folders', icon: '📁', title: '対象フォルダを決める', desc: 'フォルダの追加・ドラッグ&ドロップ・順番の入れ替え・外す。', sec: '機能ごとのデモ', script: SCRIPTS.folders },
+      { id: 'options', icon: '⚙️', title: '検索の条件', desc: '最小サイズ・拡張子・またがる重複だけ・隠しファイル・同時比較数。', sec: '機能ごとのデモ', script: SCRIPTS.options },
+      { id: 'results', icon: '🔎', title: '検索と結果の見かた', desc: '検索のしくみ、グループの見出し、列、並べ替え。', sec: '機能ごとのデモ', script: SCRIPTS.results },
+      { id: 'keep', icon: '✅', title: '残すものを決める', desc: '自動選択の6つのルール、手での付け替え、右クリックメニュー。', sec: '機能ごとのデモ', script: SCRIPTS.keep },
+      { id: 'delete', icon: '🗑️', title: '削除する', desc: '確認、ごみ箱、進み具合、全部消さないための安全策。', sec: '機能ごとのデモ', script: SCRIPTS.delete }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
