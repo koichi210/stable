@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ランチャー 機能デモ</title>
+<!--
+  ランチャー(Launcher)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=launch のように機能を指定します。
+  ・実際のアプリ(Windows の WPF アプリ)を起動して撮った画面に、カーソル・ズーム・字幕を重ねています。
+  ・画面の項目名・リンク先・保存先は、すべてデモ用に作ったダミーです(撮影用に作った架空の設定で動かしています)。
+  ・素材は demo-img/ (画面。2560x1440 のデスクトップ風の1枚)と demo-pts.js (ボタンなどの位置。その画像の画素)。
+    画面を変えたら撮り直してください。
+  ・画面を大きく見せるため、撮影用にだけ「ウィンドウの中身を2倍表示」にしたビルドで撮っています(見た目の作りは本物と同じ)。
+  ・「設定ファイルの中身」のカードは、本物のエディタではなく、config.json の中身を見せるためのイメージです。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 2560, FH = 1440, K = 2;   // 画像は 2560x1440(論理 1280x720 の2倍)
+  var DUMMY = '※ この画面の項目名・リンク先・保存先は、すべてデモ用のダミーです。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function P(s, k) { var r = (window.LN_PTS[s] || {})[k]; if (!r) throw new Error('座標なし: ' + s + '/' + k); return r; }
+  function to(d, s, k, o) { var r = P(s, k); o = o || {}; d.cursor(r.cx + (o.dx || 0) * K, r.cy + (o.dy || 0) * K, { dur: o.dur }); }
+  function tap(d, s, k, o) { to(d, s, k, o); d.wait(150); d.click(); }
+  function zoomR(d, r, o) { // 矩形 r が収まる 16:9 の範囲へズーム
+    o = o || {}; var pad = (o.pad != null ? o.pad : 40) * K, minW = (o.minW || 560) * K;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function U() { // 複数の要素を囲む枠(s, k1, k2, ...)
+    var s = arguments[0], x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var i = 1; i < arguments.length; i++) { var r = P(s, arguments[i]); x1 = Math.min(x1, r.x); y1 = Math.min(y1, r.y); x2 = Math.max(x2, r.x + r.w); y2 = Math.max(y2, r.y + r.h); }
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
+  }
+  function zoom(d, s) { var ks = Array.prototype.slice.call(arguments, 2); zoomR(d, U.apply(null, [s].concat(ks))); }
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 6 * K, y: r.y - 5 * K, w: r.w + 12 * K, h: r.h + 10 * K }, { label: label || '', dur: dur || 3200 }); }
+  function mark(d, s, k, label, dur) { markR(d, P(s, k), label, dur); }
+  function start(d, s, k) { var r = P(s, k); d.cursor(r.cx + 300 * K, r.cy + 120 * K, { dur: 0 }); }
+
+  // 画面の見せ方: all=全体 / top=上のほう(ツールバー+最初のセクション) / mid=真ん中あたり / dlg,mb=窓 / 名前の並び=その要素を囲む範囲
+  function view(d, s, mode, o) {
+    var m = P(s, 'main'), z = { pad: 12, minW: 470, dur: o && o.dur };
+    if (mode === 'all') { d.cam(null, { dur: z.dur }); return; }
+    if (mode === 'top') { zoomR(d, { x: m.x, y: m.y, w: m.w, h: 520, cx: m.cx, cy: m.y + 260 }, z); return; }
+    if (mode === 'low') { zoomR(d, { x: m.x, y: m.y + 560, w: m.w, h: 520, cx: m.cx, cy: m.y + 820 }, z); return; }
+    if (mode === 'mid') { zoomR(d, { x: m.x, y: m.y + 330, w: m.w, h: 520, cx: m.cx, cy: m.y + 590 }, z); return; }
+    if (mode === 'dlg') { zoomR(d, P(s, 'dlg'), { pad: 50, minW: 560, dur: z.dur }); return; }
+    if (mode === 'mb') { zoomR(d, P(s, 'mb'), { pad: 60, minW: 560, dur: z.dur }); return; }
+    if (mode === 'dlg+mb') { zoom.apply(null, [d, s, 'dlg', 'mb']); return; }
+    var ks = Array.prototype.slice.call(arguments, 2); zoomR(d, U.apply(null, [s].concat(ks)), { pad: 30, minW: 470, dur: z.dur });
+  }
+  // ================= 台本の部品(機能ごとの動画と、全体紹介で使い回す) =================
+  var C = {};
+
+  // 画面の見かた(最初の説明)
+  C.intro = function (d) {
+    d.chapter('ランチャーとは'); d.scene('main'); view(d, 'main', 'top'); start(d, 'main', 'addSection');
+    d.cap(DUMMY + '\nランチャーは、よく使うアプリ・フォルダ・Webページを、ボタン1つで開くためのツールです。'); d.wait(5200);
+    d.cap('ボタンは「セクション」ごとにまとまっています。見出しの左の丸いボタンで、開いたり畳んだりできます。');
+    markR(d, P('main', 'secBox:よく使うツール'), 'セクション', 3600); to(d, 'main', 'toggle:よく使うツール'); d.wait(3600);
+    d.cap('セクションの数も、項目の数も、上限はありません。');
+    markR(d, U('main', 'secBox:よく使うツール', 'secBox:資料', 'secBox:あとで読む'), '', 3000); d.wait(3200);
+  };
+
+  // 項目を押して起動
+  C.launch = function (d) {
+    d.chapter('ボタンを押して起動'); d.scene('main'); view(d, 'main', 'top'); start(d, 'main', 'item:文字コード表');
+    d.cap('リンク先は、アプリ(exe)のフルパス、http で始まるURL、ファイルやフォルダのパス、のどれでも登録できます。');
+    mark(d, 'main', 'item:Google', 'URL', 3000); to(d, 'main', 'item:Google'); d.wait(1500);
+    view(d, 'main', 'mid'); mark(d, 'main', 'item:週間予定', 'ファイル', 3000); to(d, 'main', 'item:週間予定'); d.wait(1500);
+    mark(d, 'main', 'item:資料フォルダ', 'フォルダ', 3000); to(d, 'main', 'item:資料フォルダ'); d.wait(1800);
+    view(d, 'main', 'top'); d.wait(500); d.cap('「文字コード表」(Windows に付いているアプリ)を押してみます。');
+    to(d, 'main', 'item:文字コード表'); d.wait(900); d.click(); d.wait(500);
+    d.scene('launched'); view(d, 'launched', 'all'); d.cap('アプリが開きました。ランチャーの窓はそのまま残るので、続けて別の項目も開けます。');
+    mark(d, 'launched', 'app', '起動したアプリ', 3600); d.wait(4200);
+    d.cap('URL の項目を押すと、いつものブラウザでそのページが開きます。フォルダの項目なら、エクスプローラーでそのフォルダが開きます。');
+    d.wait(5400);
+  };
+
+  // 起動に失敗したとき
+  C.error = function (d) {
+    d.chapter('開けなかったとき'); d.scene('main-err'); view(d, 'main-err', 'top'); start(d, 'main-err', 'item:古いツール');
+    d.cap('リンク先が見つからなかったときは、どうなるでしょう。存在しない場所を登録した「古いツール」を押してみます。'); d.wait(3200);
+    tap(d, 'main-err', 'item:古いツール', { dur: 900 }); d.wait(500);
+    d.scene('launch-error'); view(d, 'launch-error', 'mb'); d.cap('「起動エラー」の窓が出て、どのリンク先で失敗したかを教えてくれます。ランチャーが落ちることはありません。');
+    mark(d, 'launch-error', 'mb', '', 4500); d.wait(5200);
+    tap(d, 'launch-error', 'mb:ok', { dur: 800 }); d.wait(300);
+    d.scene('launch-error-closed'); view(d, 'launch-error-closed', 'top'); d.cap('OK を押すと、元の画面にもどります。登録の直し方は、「項目の追加・編集・削除」のデモで見られます。'); d.wait(4200);
+  };
+
+  // セクションを追加
+  C.secAdd = function (d) {
+    d.chapter('セクションを追加'); d.scene('main'); view(d, 'main', 'top'); start(d, 'main', 'addSection');
+    d.cap('セクションは、項目をまとめるグループです。「＋ セクション追加」を押します。'); d.wait(2600);
+    tap(d, 'main', 'addSection', { dur: 900 }); d.wait(500);
+    d.scene('sec-add-dlg'); view(d, 'sec-add-dlg', 'dlg'); d.cap('名前を入れる窓が開きます。「ゲーム」と入力します。'); d.wait(1500);
+    to(d, 'sec-add-dlg', 'dlg:input', { dur: 800 }); d.click(); d.wait(300);
+    d.scene('sec-add-typed'); view(d, 'sec-add-typed', 'dlg'); d.wait(1800);
+    tap(d, 'sec-add-typed', 'dlg:ok', { dur: 800 }); d.wait(500);
+    d.scene('sec-added'); view(d, 'sec-added', 'low'); d.cap('「ゲーム」セクションが、一番下に増えました。');
+    mark(d, 'sec-added', 'secBox:ゲーム', '新しいセクション', 3800); d.wait(4200);
+  };
+
+  // セクション名を変える
+  C.secRename = function (d) {
+    d.chapter('名前を変える'); d.scene('sec-added'); view(d, 'sec-added', 'low'); start(d, 'sec-added', 'secRename:あとで読む');
+    d.cap('名前を変えたいときは、そのセクションの「名前変更」を押します。「あとで読む」を変えてみます。'); d.wait(2800);
+    tap(d, 'sec-added', 'secRename:あとで読む', { dur: 900 }); d.wait(500);
+    d.scene('sec-rename-dlg'); view(d, 'sec-rename-dlg', 'dlg'); d.cap('今の名前が入った状態で、窓が開きます。'); d.wait(2800);
+    d.cap('「読みもの」に書き換えて OK を押します。');
+    to(d, 'sec-rename-dlg', 'dlg:input', { dur: 700 }); d.click(); d.wait(300);
+    d.scene('sec-rename-typed'); view(d, 'sec-rename-typed', 'dlg'); d.wait(1600);
+    tap(d, 'sec-rename-typed', 'dlg:ok', { dur: 800 }); d.wait(500);
+    d.scene('sec-renamed'); view(d, 'sec-renamed', 'low'); d.cap('名前が変わりました。'); d.wait(2800);
+  };
+
+  // 折りたたみ・展開
+  C.secFold = function (d) {
+    d.chapter('開く・畳む'); d.scene('sec-renamed'); view(d, 'sec-renamed', 'low'); start(d, 'sec-renamed', 'toggle:読みもの');
+    d.cap('見出しの左の丸いボタンで、セクションを開いたり畳んだりできます。今は「読みもの」が畳まれています。'); d.wait(3200);
+    tap(d, 'sec-renamed', 'toggle:読みもの', { dur: 900 }); d.wait(500);
+    d.scene('sec-expanded'); view(d, 'sec-expanded', 'low'); d.cap('開くと、中の項目が出てきます。');
+    mark(d, 'sec-expanded', 'secBox:読みもの', '', 3200); d.wait(3600);
+    d.cap('項目が増えてきたら、使わないセクションを畳んでおくと、画面がすっきりします。畳んだ状態も、設定に記憶されます。');
+    tap(d, 'sec-expanded', 'toggle:読みもの', { dur: 900 }); d.wait(500);
+    d.scene('sec-collapsed'); view(d, 'sec-collapsed', 'low'); d.wait(4200);
+  };
+
+  // セクションを削除
+  C.secDel = function (d) {
+    d.chapter('セクションを削除'); d.scene('sec-collapsed'); view(d, 'sec-collapsed', 'low'); start(d, 'sec-collapsed', 'secDel:ゲーム');
+    d.cap('いらなくなったセクションは、「削除」で消せます。「ゲーム」を消してみます。'); d.wait(2800);
+    tap(d, 'sec-collapsed', 'secDel:ゲーム', { dur: 900 }); d.wait(500);
+    d.scene('sec-del-confirm'); view(d, 'sec-del-confirm', 'mb'); d.cap('中の項目も全部消えるので、確認の窓が出ます。「はい」で削除、「いいえ」でやめられます。');
+    mark(d, 'sec-del-confirm', 'mb', '', 4200); d.wait(4600);
+    tap(d, 'sec-del-confirm', 'mb:yes', { dur: 900 }); d.wait(500);
+    d.scene('sec-deleted'); view(d, 'sec-deleted', 'low'); d.cap('「ゲーム」セクションが消えました。'); d.wait(3000);
+  };
+
+  // 項目を追加
+  C.itemAdd = function (d, withWarn) {
+    d.chapter('項目を追加'); d.scene('main'); view(d, 'main', 'top'); start(d, 'main', 'secAdd:資料');
+    d.cap('項目は、セクションの「＋項目」から追加します。「資料」セクションに足してみます。'); d.wait(2800);
+    tap(d, 'main', 'secAdd:資料', { dur: 900 }); d.wait(500);
+    d.scene('item-add-dlg'); view(d, 'item-add-dlg', 'dlg'); d.cap('タイトル(ボタンに出る名前)と、リンク先を入れます。');
+    mark(d, 'item-add-dlg', 'dlg:title', '', 2000); d.wait(2200);
+    d.cap('リンク先の右の「参照...」を押すと、ファイルを選ぶ窓が開きます。選んだファイルの名前は、タイトルが空なら自動で入ります。');
+    mark(d, 'item-add-dlg', 'dlg:browse', '参照...', 3800); to(d, 'item-add-dlg', 'dlg:browse', { dur: 900 }); d.wait(4200);
+    if (withWarn) {
+      d.cap('何も入れずに OK を押すと…');
+      tap(d, 'item-add-dlg', 'dlg:ok', { dur: 900 }); d.wait(500);
+      d.scene('item-empty-warn'); view(d, 'item-empty-warn', 'dlg+mb'); d.cap('「タイトルを入力してください。」と注意が出ます。リンク先が空のときも同じです。');
+      mark(d, 'item-empty-warn', 'mb', '', 3600); d.wait(4200);
+      tap(d, 'item-empty-warn', 'mb:ok', { dur: 900 }); d.wait(500);
+    }
+    d.cap('タイトルに「天気予報」、リンク先に URL を入れます。');
+    d.scene('item-typed'); view(d, 'item-typed', 'dlg'); to(d, 'item-typed', 'dlg:title', { dur: 800 }); d.wait(500); to(d, 'item-typed', 'dlg:path', { dur: 700 }); d.wait(2400);
+    tap(d, 'item-typed', 'dlg:ok', { dur: 800 }); d.wait(500);
+    d.scene('item-added'); view(d, 'item-added', 'mid'); d.cap('「資料」セクションに「天気予報」のボタンが増えました。押すと、この URL がブラウザで開きます。');
+    mark(d, 'item-added', 'item:天気予報', '新しい項目', 3800); d.wait(4200);
+  };
+
+  // 項目を編集
+  C.itemEdit = function (d) {
+    d.chapter('項目を編集'); d.scene('item-added'); view(d, 'item-added', 'mid'); start(d, 'item-added', 'edit:天気予報');
+    d.cap('登録した内容を直すときは、その行の右の「編集」を押します。'); d.wait(2600);
+    tap(d, 'item-added', 'edit:天気予報', { dur: 900 }); d.wait(500);
+    d.scene('item-edit-dlg'); view(d, 'item-edit-dlg', 'dlg'); d.cap('今の内容が入った窓が開きます。タイトルを「天気(東京)」に直して OK を押します。'); d.wait(3200);
+    to(d, 'item-edit-dlg', 'dlg:title', { dur: 700 }); d.click(); d.wait(300);
+    d.scene('item-edit-typed'); view(d, 'item-edit-typed', 'dlg'); d.wait(1800);
+    tap(d, 'item-edit-typed', 'dlg:ok', { dur: 800 }); d.wait(500);
+    d.scene('item-edited'); view(d, 'item-edited', 'mid'); d.cap('タイトルが「天気(東京)」に変わりました。');
+    mark(d, 'item-edited', 'item:天気(東京)', '', 3000); d.wait(3400);
+  };
+
+  // 項目を削除
+  C.itemDel = function (d) {
+    d.chapter('項目を削除'); d.scene('item-edited'); view(d, 'item-edited', 'mid'); start(d, 'item-edited', 'del:天気(東京)');
+    d.cap('消すときは、その行の右の「削除」を押します。'); d.wait(2400);
+    tap(d, 'item-edited', 'del:天気(東京)', { dur: 900 }); d.wait(500);
+    d.scene('item-del-confirm'); view(d, 'item-del-confirm', 'mb'); d.cap('確認の窓で「はい」を押すと消えます。「いいえ」ならやめられます。');
+    mark(d, 'item-del-confirm', 'mb', '', 3600); d.wait(4000);
+    tap(d, 'item-del-confirm', 'mb:yes', { dur: 900 }); d.wait(500);
+    d.scene('item-deleted'); view(d, 'item-deleted', 'mid'); d.cap('「天気(東京)」が消えました。'); d.wait(3000);
+  };
+
+  // 設定は自動保存・設定ファイル
+  C.cfgAuto = function (d) {
+    d.chapter('設定は自動で保存'); d.scene('cfg-main'); view(d, 'cfg-main', 'all'); start(d, 'cfg-main', 'folderText');
+    d.cap(DUMMY + '\nセクションや項目を変えると、設定は自動で保存されます。「保存」ボタンはありません。'); d.wait(4800);
+    d.cap('設定が保存されている場所は、窓の上のほうに「保存先: …」と出ています。');
+    mark(d, 'cfg-main', 'folderText', '保存先', 3800); to(d, 'cfg-main', 'folderText', { dur: 900 }); d.wait(4200);
+    d.cap('右は、その設定ファイル(config.json)の中身のイメージです。項目が1行ずつ、タイトルとリンク先のペアで書かれています。');
+    markR(d, P('cfg-main', 'card'), '', 4800); d.wait(5600);
+    d.cap('「設定ファイルを開く」を押すと、この config.json が、関連付けられたエディタ(メモ帳など)で開きます。たくさんの項目をまとめて直したいときに便利です。');
+    mark(d, 'cfg-main', 'openConfig', '', 5200); to(d, 'cfg-main', 'openConfig', { dur: 900 }); d.wait(6000);
+  };
+
+  // 手で編集して再読み込み
+  C.cfgReload = function (d) {
+    d.chapter('手で編集 → 再読み込み'); d.scene('cfg-ext-edited'); view(d, 'cfg-ext-edited', 'all'); start(d, 'cfg-ext-edited', 'reload');
+    d.cap('エディタで config.json を直して、保存しました。資料に1項目を足しています。でも、ランチャーの画面はまだ前のままです。');
+    markR(d, P('cfg-ext-edited', 'card'), '', 3800); d.wait(5200);
+    d.cap('「再読み込み」を押すと、直した内容が画面に反映されます。');
+    mark(d, 'cfg-ext-edited', 'reload', '', 2800); tap(d, 'cfg-ext-edited', 'reload', { dur: 1100 }); d.wait(500);
+    d.scene('cfg-reloaded'); view(d, 'cfg-reloaded', 'all'); d.cap('「手で足した項目」のボタンが増えました。');
+    mark(d, 'cfg-reloaded', 'item:手で足した項目', '', 3800); d.wait(4400);
+  };
+
+  // 書き間違えたとき
+  C.cfgBroken = function (d) {
+    d.chapter('書き間違えたとき'); d.scene('cfg-ext-broken'); view(d, 'cfg-ext-broken', 'all'); start(d, 'cfg-ext-broken', 'reload');
+    d.cap('手で直していて、書き間違えてしまいました。項目のあとに、余分なカンマが入っています。'); markR(d, P('cfg-ext-broken', 'card'), '', 3600); d.wait(4400);
+    tap(d, 'cfg-ext-broken', 'reload', { dur: 1000 }); d.wait(500);
+    d.scene('cfg-broken'); view(d, 'cfg-broken', 'all'); d.cap('この状態で「再読み込み」を押すと、読み込めなかったことを教えてくれます。');
+    mark(d, 'cfg-broken', 'mb', '', 3800); d.wait(4400);
+    d.cap('読み込めない間は、画面の内容で設定ファイルを上書きしません。手で直している途中のファイルを、うっかり消さないためです。'); d.wait(5600);
+    tap(d, 'cfg-broken', 'mb:ok', { dur: 900 }); d.wait(500);
+    d.scene('cfg-broken-closed'); view(d, 'cfg-broken-closed', 'all'); d.cap('ファイルを直して、もう一度「再読み込み」を押します。'); d.wait(2600);
+    d.scene('cfg-ext-fixed'); view(d, 'cfg-ext-fixed', 'all'); tap(d, 'cfg-ext-fixed', 'reload', { dur: 1000 }); d.wait(500);
+    d.scene('cfg-fixed'); view(d, 'cfg-fixed', 'all'); d.cap('元どおりに読み込めました。'); d.wait(2800);
+  };
+
+  // 保存先を変える(説明だけ。フォルダ選択の窓には実際のフォルダが並ぶので、このデモでは押していない)
+  C.cfgFolder = function (d) {
+    d.chapter('保存先を変える'); d.scene('cfg-fixed'); view(d, 'cfg-fixed', 'all'); start(d, 'cfg-fixed', 'changeFolder');
+    d.cap('設定ファイルの保存先は、「保存先フォルダを変更...」で、好きなフォルダに変えられます。共有フォルダなども選べます。');
+    mark(d, 'cfg-fixed', 'changeFolder', '', 5600); to(d, 'cfg-fixed', 'changeFolder', { dur: 1000 }); d.wait(6200);
+    d.cap('いまある config.json は、新しい保存先へ自動で移ります。選んだ先に config.json が既にあれば、そちらがそのまま使われます。'); d.wait(6200);
+    d.cap('※ このボタンを押すと、フォルダを選ぶ窓にパソコンの実際のフォルダが並ぶため、このデモでは押していません。'); d.wait(5200);
+  };
+
+  // ================= 機能ごとの台本 =================
+  var SCRIPTS = {};
+  // scene('main') のように拡張子なしで書けるよう、.jpg を補う
+  function J(fn) { return function (d) { var orig = d.scene; d.scene = function (n, o) { return orig(n.indexOf('.') >= 0 ? n : n + '.jpg', o); }; fn(d); }; }
+
+  SCRIPTS.overview = function (d) {
+    C.intro(d);
+    C.launch(d);
+    C.secAdd(d);
+    C.itemAdd(d, false);
+    C.itemEdit(d);
+    C.cfgReload(d);
+    C.cfgFolder(d);
+    d.chapter('おわり'); d.scene('cfg-fixed'); view(d, 'cfg-fixed', 'all');
+    d.cap('以上が、ランチャーの主な機能です。\n機能ごとの詳しいデモは、「機能一覧」から見られます。'); d.wait(5600);
+  };
+  SCRIPTS.launch = function (d) { C.intro(d); C.launch(d); C.error(d); };
+  SCRIPTS.section = function (d) { C.secAdd(d); C.secRename(d); C.secFold(d); C.secDel(d); };
+  SCRIPTS.item = function (d) { C.itemAdd(d, true); C.itemEdit(d); C.itemDel(d); };
+  SCRIPTS.config = function (d) { C.cfgAuto(d); C.cfgReload(d); C.cfgBroken(d); C.cfgFolder(d); };
+
+  DesktopDemo.start({
+    title: 'ランチャー 機能デモ', icon: '🚀', back: 'index.html', backLabel: '← ランチャーの図解にもどる',
+    lead: 'ランチャーは、よく使うアプリ・フォルダ・Webページを、ボタン1つで開くツールです。最初に全体紹介(約2分)を見ると、できることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ(1分ほど)で見られます。実際のアプリを動かして撮った画面を使っています。画面の項目名・リンク先・保存先は、すべてデモ用のダミーです。',
+    frame: { w: FW, h: FH, title: 'ランチャー' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', sec: 'まずは全体を見る', desc: '登録したボタンで起動 → セクション・項目の追加と編集 → 設定ファイルの手編集と再読み込み → 保存先、までをひととおり。', script: J(SCRIPTS.overview) },
+      { id: 'launch', icon: '🚀', title: '起動する', sec: '機能ごとのデモ', desc: 'ボタンを押して、アプリ・URL・ファイル・フォルダを開く。開けなかったときのエラー表示も。', script: J(SCRIPTS.launch) },
+      { id: 'section', icon: '🗂️', title: 'セクションの追加・名前変更・削除', sec: '機能ごとのデモ', desc: 'セクションを足す、名前を変える、開閉する、確認つきで消す。', script: J(SCRIPTS.section) },
+      { id: 'item', icon: '➕', title: '項目の追加・編集・削除', sec: '機能ごとのデモ', desc: 'タイトルとリンク先を登録、直す、確認つきで消す。入力もれの注意も。', script: J(SCRIPTS.item) },
+      { id: 'config', icon: '⚙️', title: '設定ファイルと保存先', sec: '機能ごとのデモ', desc: '自動保存・config.json の手編集と再読み込み・書き間違えたときの扱い・保存先の変更。', script: J(SCRIPTS.config) }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
