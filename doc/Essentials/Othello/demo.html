@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Othello 機能デモ</title>
+<!--
+  Othello(Essentials\Othello)の機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=mode のように機能を指定します。
+  ・実際のアプリ(Release の Othello.exe)を動かして撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+    実アプリの画面(MainWindow)を別プロセスではなく自前のホストの中で動かし、盤のクリックと、メニュー・ボタンの操作は、実アプリのクリック処理をそのまま呼んで進めました。
+  ・対局の中身(CPUの手・時間切れまでの流れ)は、撮った時の1局です。何度か撮ると手は変わります(COMには乱数の選択があるため)。
+  ・「棋譜 → 保存/読込」のファイル選択ダイアログは撮っていません(PCのフォルダ名が写るため)。読込のあとの画面は、アプリの読込処理に棋譜テキストを渡して撮りました。
+  ・素材は demo-img/ (スクショ。544x641)。座標は下の PT(撮影時に実アプリから取った、スクショ上の画素)。画面を変えたら撮り直してください。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = 544, FH = 641;
+  // ---- 撮影時に取った座標(スクショ上の画素: x, y, w, h) ----
+  var PT = {
+    board: [12, 30, 520, 525], status: [12, 559, 200, 18], time: [12, 577, 200, 18], restart: [137, 601, 75, 23],
+    m_game: [0, 0, 56, 18], m_mode: [56, 0, 77, 18], m_level: [133, 0, 83, 18], m_time: [216, 0, 72, 18], m_kifu: [288, 0, 52, 18],
+    i_start: [3, 21, 168, 22], i_undo: [3, 43, 168, 22], i_redo: [3, 65, 168, 22], i_exit: [3, 92, 168, 22], i_howto: [3, 119, 168, 22], i_version: [3, 141, 168, 22],
+    i_pp: [59, 21, 157, 22], i_pc: [59, 43, 157, 22], i_cp: [59, 65, 157, 22], i_cc: [59, 87, 157, 22],
+    i_l1: [136, 21, 120, 22], i_l2: [136, 43, 120, 22], i_l3: [136, 65, 120, 22],
+    t_none: [219, 21, 110, 22], t_30: [219, 43, 110, 22], t_1m: [219, 65, 110, 22], t_2m: [219, 87, 110, 22], t_3m: [219, 109, 110, 22], t_5m: [219, 131, 110, 22], t_10m: [219, 153, 110, 22], t_15m: [219, 175, 110, 22],
+    i_kshow: [291, 21, 130, 22], i_ksave: [291, 43, 130, 22], i_kload: [291, 65, 130, 22],
+    howto_ok: [376, 349, 75, 23], howto_frame: [76, 198, 391, 185], kshow_ok: [267, 342, 75, 23], kshow_frame: [186, 204, 172, 172],
+    rs_yes: [232, 333, 75, 23], rs_no: [314, 333, 75, 23], rs_frame: [139, 214, 266, 152]
+  };
+  var NOTE = '※ 画面は実際のアプリです。対局はデモ用に1局撮ったものです(COMの手は撮るたびに変わります)。';
+
+  // ---- 台本の小道具 ----
+  function R(k) { var a = PT[k]; if (!a) throw new Error('座標なし: ' + k); return { x: a[0], y: a[1], w: a[2], h: a[3], cx: a[0] + a[2] / 2, cy: a[1] + a[3] / 2 }; }
+  function cell(c, r) { var b = PT.board; return { x: b[0] + b[2] / 8 * c, y: b[1] + b[3] / 8 * r, w: b[2] / 8, h: b[3] / 8, cx: b[0] + b[2] / 8 * (c + 0.5), cy: b[1] + b[3] / 8 * (r + 0.5) }; }
+  function go(d, p, o) { d.cursor(p.cx, p.cy, o); }
+  function tap(d, p, o) { go(d, p, o); d.wait(120); d.click(); }
+  function park(d) { d.cursor(470, 590, { dur: 0 }); }
+  function zoomAt(d, cx, cy, w, o) { // (cx,cy)を中心に、幅 w の範囲へ(スクショと同じ縦横比)
+    var h = w * FH / FW, x = Math.min(Math.max(cx - w / 2, 0), FW - w), y = Math.min(Math.max(cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, o);
+  }
+  function mk(d, r, label, dur) { d.mark({ x: r.x - 3, y: r.y - 3, w: r.w + 6, h: r.h + 6 }, { label: label || '', dur: dur || 3000 }); }
+  function mkCells(d, cs, label, dur) { // マスの組(c,r)を1つの枠で囲む
+    var x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    cs.forEach(function (a) { var q = cell(a[0], a[1]); x1 = Math.min(x1, q.x); y1 = Math.min(y1, q.y); x2 = Math.max(x2, q.x + q.w); y2 = Math.max(y2, q.y + q.h); });
+    d.mark({ x: x1 + 2, y: y1 + 2, w: x2 - x1 - 4, h: y2 - y1 - 4 }, { label: label || '', dur: dur || 3000 });
+  }
+  // メニューを開く: 見出しを押して、開いた絵に切り替える
+  function open(d, hdr, scene) { tap(d, R(hdr)); d.scene(scene, { fade: 100 }); d.wait(250); }
+  // 項目を押す: 項目へ動いて押し、次の絵に切り替える
+  function pick(d, item, scene, o) { go(d, R(item), o); d.wait(150); d.click(); d.wait(120); d.scene(scene, { fade: 150 }); }
+  function put(d, c, r, scene) { tap(d, cell(c, r)); d.wait(140); d.scene(scene, { fade: 150 }); }
+  function ok(d, key, scene) { tap(d, R(key)); d.wait(100); d.scene(scene, { fade: 120 }); }
+
+  var SCRIPTS = {};
+
+  // ================= 全体紹介 =================
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('start.png'); park(d);
+    d.cap('Othello は、黒と白が交互に石を置き、挟んだ相手の石を裏返していく、Windows 用のオセロです。\n' + NOTE); d.wait(5200);
+    d.cap('画面は、いちばん上のメニュー、緑の盤、下の状態表示、「ReStart」ボタンだけの、シンプルな作りです。');
+    mk(d, { x: 0, y: 0, w: 340, h: 18 }, 'メニュー', 2600); d.wait(2800);
+    mk(d, { x: PT.board[0], y: PT.board[1], w: PT.board[2], h: PT.board[3] }, '盤', 2600); d.wait(2800);
+    mk(d, R('status'), '状態表示', 2600); d.wait(2800);
+
+    d.chapter('遊び方');
+    d.cap('ルールは、メニューの「ゲーム → 遊び方」で確かめられます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_game', 'menu-game.png'); d.wait(1500);
+    pick(d, 'i_howto', 'howto.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('黒が先手です。置ける場所が無いときは自動的にパスされ、双方とも置けなくなったら終局です。石の多い方が勝ちです。');
+    mk(d, R('howto_frame'), '', 5000); d.wait(6600);
+    ok(d, 'howto_ok', 'start.png'); d.wait(800);
+
+    d.chapter('石を置く');
+    d.cap('灰色の小さな円が、いま石を置ける場所です。\nそのマスをクリックすると、石が置けます。');
+    mkCells(d, [[3, 2], [2, 3], [5, 4], [4, 5]], '置ける場所', 3600); d.wait(3800);
+    put(d, 3, 2, 'p1.png');
+    d.cap('挟まれた白の石が、黒にひっくり返りました。\n状態表示が「白の番 (黒:4 白:1)」に変わり、石の数も分かります。');
+    mk(d, R('status'), '手番と石数', 3600); d.wait(4200);
+    put(d, 4, 2, 'p2.png'); d.wait(1800); put(d, 5, 3, 'p3.png'); d.wait(1800);
+    d.cap('最初からやり直したいときは、左下の「ReStart」を押します。');
+    mk(d, R('restart'), 'ReStart', 2600); tap(d, R('restart'), { dur: 900 }); d.wait(150); d.scene('restart-dlg.png', { fade: 120 }); d.wait(1200);
+    d.cap('「初期画面にもどります。よろしいですか？」と確認が出ます。「はい」で、設定はそのまま、初期の盤にもどります。');
+    mk(d, R('rs_yes'), '', 3000); d.wait(4200);
+    ok(d, 'rs_yes', 'restarted.png'); d.wait(1500);
+
+    d.chapter('対戦モード');
+    d.cap('「対戦モード」で、人どうし・人とCOM・COMどうしなど、4つの遊び方を選べます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_mode', 'menu-mode.png'); d.wait(2800);
+    d.cap('「人 vs COM」を選ぶと、新しい対局が始まり、人が黒(先手)、COMが白になります。');
+    pick(d, 'i_pc', 'pc-start.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(1500);
+    d.cap('黒を置くと、COMがすぐに白を打ち返してきます。');
+    put(d, 3, 2, 'pc-after.png'); d.wait(3600);
+    d.cap('「COM vs COM」にすると、COMどうしの対局を眺められます。\nどちらも置けなくなったら終局で、石の数と勝ち負けが出ます。');
+    d.scene('cc-end.png', { fade: 500 }); mk(d, R('status'), '終局', 3800); d.wait(6200);
+
+    d.chapter('COMレベル');
+    d.cap('COMの強さは、「COMレベル」で1〜3から選びます。\nレベル1は中心寄り、レベル2は局面に合わせて返す石の数を見て、レベル3は周りの空きマスが少ない手を選びます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_level', 'menu-level.png');
+    mk(d, { x: 133, y: 18, w: 126, h: 72 }, '', 5200); d.wait(8200); d.cam(null, { dur: 600 });
+
+    d.chapter('一手戻す');
+    d.cap('「一手戻す」で、直前の手を取り消せます。「一手進める」でやり直せます。');
+    go(d, R('m_game')); d.wait(200); d.scene('u-before.png', { fade: 0 }); zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(500);
+    open(d, 'm_game', 'u-menu.png'); d.wait(2200);
+    pick(d, 'i_undo', 'u-undone.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(3000);
+
+    d.chapter('持ち時間');
+    d.cap('「持ち時間」を決めると、黒と白それぞれの、1局ぜんたいの持ち時間が減っていきます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(400); open(d, 'm_time', 'menu-time.png'); d.wait(2800);
+    pick(d, 't_30', 'time-start.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(900);
+    put(d, 3, 2, 'time-run.png');
+    mk(d, R('time'), '残り時間', 3600); d.cap('状態表示の下に、黒と白の残り時間が出ます。先に0になった側の負けです。'); d.wait(4200);
+
+    d.chapter('棋譜');
+    d.cap('「棋譜」では、ここまでの手順を見たり、ファイルに保存したり、読み込んで並べ直したりできます。');
+    d.scene('k-played.png'); zoomAt(d, 300, 110, 272, { dur: 600 }); d.wait(300); open(d, 'm_kifu', 'menu-kifu.png'); d.wait(2600);
+    pick(d, 'i_kshow', 'k-show.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(3200);
+    d.cap('「手数 : 列.行 色」の形で、1手ずつ表示されます。');
+    mk(d, R('kshow_frame'), '', 3200); d.wait(3600);
+
+    d.chapter('おわり');
+    d.cap('以上が、Othello の主な機能です。\n機能ごとのデモは、「機能一覧」から見られます。'); d.scene('cc-end.png'); d.wait(4500);
+  };
+
+  // ================= 石を置く・遊び方 =================
+  SCRIPTS.play = function (d) {
+    d.chapter('遊び方'); d.scene('start.png'); park(d);
+    d.cap(NOTE + '\nまずは、メニューの「ゲーム → 遊び方」で、ルールを確かめます。'); d.wait(3800);
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_game', 'menu-game.png'); d.wait(1200);
+    pick(d, 'i_howto', 'howto.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('黒が先手です。挟める場所をクリックすると石が置けて、挟まれた石は自分の色になります。\n置ける場所が無いときは自動的にパスされ、双方とも置けなくなったら終局です。');
+    mk(d, R('howto_frame'), '', 4800); d.wait(6200);
+    ok(d, 'howto_ok', 'start.png'); d.wait(800);
+
+    d.chapter('石を置く');
+    d.cap('灰色の小さな円は、いま石を置ける場所です。');
+    mkCells(d, [[3, 2], [2, 3], [5, 4], [4, 5]], '置ける場所', 3400); d.wait(3600);
+    d.cap('黒は、上から3段目の左から4つ目のマスに置いてみます。');
+    put(d, 3, 2, 'p1.png');
+    d.cap('挟まれた白の石が、黒にひっくり返りました。\n次は白の番で、置ける場所が灰色の円で示されます。'); d.wait(4800);
+    mk(d, R('status'), '「白の番 (黒:4 白:1)」', 3600); d.cap('状態表示には、いまの手番と、黒と白の石の数が出ます。'); d.wait(4200);
+    d.cap('人どうしの対局では、黒と白が交互にクリックして進めます。');
+    put(d, 4, 2, 'p2.png'); d.wait(2800);
+    put(d, 5, 3, 'p3.png'); d.wait(3200);
+
+    d.chapter('ReStart');
+    d.cap('最初からやり直したいときは、左下の「ReStart」を押します。');
+    mk(d, R('restart'), 'ReStart', 2600); tap(d, R('restart'), { dur: 900 }); d.wait(150); d.scene('restart-dlg.png', { fade: 120 }); d.wait(1200);
+    d.cap('「初期画面にもどります。よろしいですか？」と確認が出ます。\n「はい」を押すと、対戦モード・COMレベル・持ち時間の設定はそのままで、初期の盤にもどります。');
+    mk(d, R('rs_yes'), '', 3200); d.wait(3800);
+    ok(d, 'rs_yes', 'restarted.png'); d.wait(3500);
+  };
+
+  // ================= 対戦モード =================
+  SCRIPTS.mode = function (d) {
+    d.chapter('対戦モード'); d.scene('start.png'); park(d);
+    d.cap(NOTE + '\nメニューの「対戦モード」で、誰が打つかを選びます。'); d.wait(3800);
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_mode', 'menu-mode.png');
+    d.cap('「人 vs 人」「人 vs COM」「COM vs 人」「COM vs COM」の4つです。\n選ぶと、新しい対局が始まります。');
+    mk(d, { x: 56, y: 18, w: 170, h: 96 }, '', 4200); d.wait(5600);
+
+    d.chapter('人 vs COM');
+    d.cap('「人 vs COM」は、人が黒(先手)、COMが白です。');
+    pick(d, 'i_pc', 'pc-start.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(2800);
+    d.cap('黒を置くと、COMが少し間をおいて、白を打ち返します。');
+    put(d, 3, 2, 'pc-after.png'); d.wait(3800);
+
+    d.chapter('COM vs 人');
+    d.cap('「COM vs 人」は、COMが黒(先手)、人が白です。\n選ぶとCOMが先に打ち、人の番になります。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_mode', 'menu-mode-pc.png'); d.wait(1200);
+    pick(d, 'i_cp', 'cp-start.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(4200);
+
+    d.chapter('COM vs COM');
+    d.cap('「COM vs COM」では、COMどうしの対局を眺められます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_mode', 'menu-mode-cp.png'); d.wait(1200);
+    pick(d, 'i_cc', 'cc-mid.png'); d.wait(300); d.cam(null, { dur: 700 }); d.wait(3200);
+    d.cap('どちらも置けなくなったら終局です。\n状態表示に、石の数と勝ち負けが出ます。');
+    d.scene('cc-end.png', { fade: 400 }); mk(d, R('status'), '終局', 3800); d.wait(5200);
+  };
+
+  // ================= COMレベル =================
+  SCRIPTS.level = function (d) {
+    d.chapter('COMレベル'); d.scene('cc-end.png'); park(d);
+    d.cap(NOTE + '\nCOMの打ち方の強さは、メニューの「COMレベル」で選びます。'); d.wait(3800);
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_level', 'menu-level.png');
+    d.cap('レベルは1〜3の3段階です。最初はレベル1で、チェックが付いています。\nレベルを選んでも、対局は新しくならず、そのまま続きます。');
+    mk(d, { x: 133, y: 18, w: 126, h: 72 }, '', 4200); d.wait(6200);
+    d.cap('レベル1は、盤の中心に近い手を優先して打ちます。'); mk(d, R('i_l1'), 'レベル1', 3000); d.wait(3400);
+    d.cap('レベル2は、序盤は中心寄り、中盤は返す石が少ない手、終盤は返す石が多い手を優先します。'); mk(d, R('i_l2'), 'レベル2', 4200); d.wait(4600);
+    d.cap('レベル3は、打ったあとに周りの空きマスが少ない手(開放度が低い手)を優先します。'); mk(d, R('i_l3'), 'レベル3', 4200); d.wait(4600);
+
+    d.chapter('レベル3で対局');
+    d.cap('レベル3を選んでみます。');
+    pick(d, 'i_l3', 'menu-level3.png'); d.wait(2000);
+    d.cap('メニューを開き直すと、チェックがレベル3に移っています。'); d.wait(3200);
+    d.cap('「人 vs COM」にして対局してみます。COMがレベル3の考え方で、白を打ち返します。');
+    d.scene('lv-start.png', { fade: 300 }); d.cam(null, { dur: 700 }); d.wait(2800);
+    put(d, 3, 2, 'lv-after1.png'); d.wait(4200);
+  };
+
+  // ================= 一手戻す・進める =================
+  SCRIPTS.undo = function (d) {
+    d.chapter('一手戻す'); d.scene('u-before.png'); park(d);
+    d.cap(NOTE + '\n黒と白が1手ずつ打った、ここまでの局面です。\nここから、直前の1手を取り消します。'); d.wait(5200);
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_game', 'u-menu.png');
+    d.cap('「ゲーム → 一手戻す」で、直前の1手を取り消せます。\n戻した結果がCOMの手番なら、COMがすぐに打ち直します。');
+    mk(d, R('i_undo'), '', 3600); d.wait(5200);
+    pick(d, 'i_undo', 'u-undone.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('白の手が取り消されて、白の番にもどりました。石の数も元にもどっています。');
+    mk(d, R('status'), '白の番にもどった', 3400); d.wait(4600);
+
+    d.chapter('一手進める');
+    d.cap('取り消した手は、「一手進める」でやり直せます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_game', 'u-menu2.png'); d.wait(1500);
+    mk(d, R('i_redo'), '', 3200); d.wait(2800);
+    pick(d, 'i_redo', 'u-redone.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('取り消した白の手が、もとどおり置かれました。\n戻す前の局面から、続きを打てます。'); d.wait(5200);
+  };
+
+  // ================= 持ち時間 =================
+  SCRIPTS.time = function (d) {
+    d.chapter('持ち時間'); d.scene('start.png'); park(d);
+    d.cap(NOTE + '\nメニューの「持ち時間」で、黒と白それぞれの、1局ぜんたいの持ち時間を決められます。'); d.wait(4200);
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_time', 'menu-time.png');
+    d.cap('「なし」のほか、30秒から15分まで8つの中から選びます。\n選ぶと、新しい対局になります。');
+    mk(d, { x: 216, y: 18, w: 116, h: 182 }, '', 4200); d.wait(5600);
+    pick(d, 't_30', 'time-start.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('30秒を選びました。状態表示の下に、黒と白の残り時間が出ます。');
+    mk(d, R('time'), '残り時間', 3600); d.wait(4600);
+
+    d.chapter('時間が減る');
+    d.cap('黒が置くと、白の持ち時間が減りはじめます。いまの手番の側の時間だけが減ります。');
+    put(d, 3, 2, 'time-run.png'); mk(d, R('time'), '白の時間が減っている', 4000); d.wait(5000);
+
+    d.chapter('時間切れ');
+    d.cap('持ち時間が先に0になった側は、負けになります。\n状態表示に「時間切れ(白) 黒の勝ち」と出て、対局は終わります。');
+    d.scene('time-out.png', { fade: 400 }); mk(d, R('status'), '時間切れ', 4000); mk(d, R('time'), '', 4000); d.wait(6000);
+    d.cap('持ち時間を使わないときは、「持ち時間」から「なし」を選びます。');
+    d.scene('time-reset.png', { fade: 300 }); d.wait(3500);
+  };
+
+  // ================= 棋譜 =================
+  SCRIPTS.kifu = function (d) {
+    d.chapter('棋譜'); d.scene('k-played.png'); park(d);
+    d.cap(NOTE + '\n3手打った局面です。メニューの「棋譜」で、この手順を扱います。'); d.wait(4200);
+    zoomAt(d, 300, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_kifu', 'menu-kifu.png');
+    d.cap('「棋譜」には、表示・保存・読込があります。');
+    mk(d, { x: 288, y: 18, w: 136, h: 72 }, '', 3600); d.wait(4200);
+
+    d.chapter('表示');
+    pick(d, 'i_kshow', 'k-show.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('「表示」を押すと、ここまでの手順が、メッセージボックスに出ます。\n1手が「手数 : 列.行 色」の形です。列はA〜H、行は1〜8です。');
+    mk(d, R('kshow_frame'), '', 5200); d.wait(6600);
+    ok(d, 'kshow_ok', 'k-played.png'); d.wait(600);
+
+    d.chapter('保存');
+    d.cap('「保存」を押すと、この手順をテキストファイルに保存できます。\n(ファイルを選ぶ画面は、ここでは省略しています)');
+    zoomAt(d, 300, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_kifu', 'menu-kifu.png'); mk(d, R('i_ksave'), '保存', 3600); d.wait(4800);
+    d.cam(null, { dur: 600 });
+
+    d.chapter('読込');
+    d.cap('いったん、新しい対局にしてみます。');
+    d.scene('k-restart.png', { fade: 300 }); d.wait(2800);
+    d.cap('「読込」で、保存した棋譜を選ぶと、最初から再生した局面になります。\n(ここでは、読み込んだあとの画面を表示しています)');
+    d.scene('k-loaded.png', { fade: 400 }); d.wait(300);
+    mk(d, R('status'), '開始待ち', 4200); d.wait(5600);
+    d.cap('読み込んだ直後は、「開始」を押すまで、COMも人も打たず、持ち時間も減りません。\n状態表示にも、そう出ています。'); d.wait(5200);
+
+    d.chapter('開始');
+    d.cap('「ゲーム → 開始」を押すと、読み込んだ局面から対局を始められます。');
+    zoomAt(d, 150, 110, 272, { dur: 700 }); d.wait(300); open(d, 'm_game', 'menu-game.png'); mk(d, R('i_start'), '', 3200); d.wait(3600);
+    pick(d, 'i_start', 'k-continue.png'); d.wait(300); d.cam(null, { dur: 700 });
+    d.cap('状態表示の「開始で続きから」が消えて、続きを打てるようになりました。'); d.wait(4800);
+  };
+
+  DesktopDemo.start({
+    title: 'Othello 機能デモ', icon: '⚫', back: 'index.html', backLabel: '← Othello の図解にもどる',
+    lead: '実際の Othello の画面を動かして撮ったスクショに、「ここを押すとこうなる」を重ねた、短いデモです。<b>まずは全体紹介（約2分）</b>を見ると、ひととおり分かります。そのあと、気になる機能を1本ずつ（30秒〜1分ほど）見られます。再生速度や10秒の送り・戻しも使えます。',
+    frame: { w: FW, h: FH, title: 'Othello' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', sec: 'まずは全体を見る', title: '全体紹介', desc: '画面の見かた・石を置く・対戦モード・一手戻す・持ち時間・棋譜を、ひととおり。', script: SCRIPTS.overview },
+      { id: 'play', icon: '⚫', sec: '機能ごとのデモ', title: '石を置く・遊び方', desc: 'ルールの確認と、置ける場所(灰色の円)、ひっくり返る様子、ReStart。', script: SCRIPTS.play },
+      { id: 'mode', icon: '🤖', sec: '機能ごとのデモ', title: '対戦モード', desc: '人 vs 人 / 人 vs COM / COM vs 人 / COM vs COM。終局の表示まで。', script: SCRIPTS.mode },
+      { id: 'level', icon: '🎚️', sec: '機能ごとのデモ', title: 'COMレベル', desc: 'レベル1〜3の打ち方の違いと、選んだあとの対局。', script: SCRIPTS.level },
+      { id: 'undo', icon: '↩️', sec: '機能ごとのデモ', title: '一手戻す・一手進める', desc: '直前の手を取り消して、やり直す。', script: SCRIPTS.undo },
+      { id: 'time', icon: '⏱️', sec: '機能ごとのデモ', title: '持ち時間', desc: '30秒〜15分の持ち時間、減っていく残り時間、時間切れ。', script: SCRIPTS.time },
+      { id: 'kifu', icon: '📜', sec: '機能ごとのデモ', title: '棋譜', desc: '手順の表示・保存・読込と、読込のあとの「開始」。', script: SCRIPTS.kifu }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
