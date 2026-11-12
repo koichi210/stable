@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFEdit 機能デモ</title>
+<!--
+  FFEditの機能ごとのデモ(1機能=1本の短い動画風ページ)。demo.html?f=number のように機能を指定します。
+  ・実際のアプリ(Release の FFEdit.exe)を、撮影用のダミーフォルダだけに向けて動かして撮ったスクショに、カーソル・ズーム・字幕を重ねています。
+  ・画面に出るフォルダ・ファイル名は、すべて撮影用に作った架空のものです(実際のファイルには触れていません)。
+  ・素材は demo-img/ (スクショ。ウィンドウの中身だけ)と demo-pts.js (各コントロールの位置。UI Automation で取った、スクショ上の画素)。
+    アプリの画面を変えたら撮り直してください(撮影スクリプトは、リポジトリの外に置いています)。
+  ・再生部品は ../lib/demo-player.js(Essentials共通)。
+-->
+<script src="../lib/demo-player.js"></script>
+<script src="demo-pts.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var FW = window.FFE_FRAME.w, FH = window.FFE_FRAME.h;   // 760 x 497
+  var DUMMY = '※ 画面のフォルダ・ファイルは、すべて撮影用に作ったダミー(架空)です。';
+
+  // ---- 台本の小道具(座標は demo-pts.js から。推測の座標は使わない) ----
+  function R(k) {
+    var r = window.FFE_PTS[k]; if (!r) throw new Error('座標なし: ' + k);
+    return { x: r.x, y: r.y, w: r.w, h: r.h, cx: r.x + r.w / 2, cy: r.y + r.h / 2 };
+  }
+  function to(d, k, o) { var r = R(k); o = o || {}; d.cursor(r.cx + (o.dx || 0), r.cy + (o.dy || 0), { dur: o.dur }); }
+  function tap(d, k, o) { to(d, k, o); d.wait(110); d.click(); }
+  function item(d, prefix, name, o) { var r = R('item:' + prefix + ':' + name); o = o || {}; d.cursor(r.x + 60, r.cy, { dur: o.dur }); d.wait(100); d.click(); }
+  function field(d, k, o) { var r = R(k); o = o || {}; d.cursor(r.x + r.w * 0.45, r.cy, { dur: o.dur }); d.wait(110); d.click(); }  // 入力欄は、真ん中あたりを押す
+  function markR(d, r, label, dur) { d.mark({ x: r.x - 4, y: r.y - 3, w: r.w + 8, h: r.h + 6 }, { label: label || '', dur: dur || 3000 }); }
+  function mark(d, k, label, dur) { markR(d, R(k), label, dur); }
+  function list(d) { var r = R('listBox'); return { x: r.x, y: r.y, w: r.w, h: Math.min(r.h, 160), cx: r.cx, cy: r.y + 80 }; }
+  function zoomR(d, r, o) {          // 矩形 r が収まる範囲へズーム(画面と同じ縦横比)
+    o = o || {}; var pad = o.pad != null ? o.pad : 30, minW = o.minW || 400;
+    var w = Math.max(r.w + pad * 2, minW), h = w * FH / FW;
+    if (h < r.h + pad * 2) { h = r.h + pad * 2; w = h * FW / FH; }
+    if (w >= FW) { d.cam(null, { dur: o.dur }); return; }
+    var x = Math.min(Math.max(r.cx - w / 2, 0), FW - w), y = Math.min(Math.max(r.cy - h / 2, 0), FH - h);
+    d.cam({ x: x, y: y, w: w, h: h }, { dur: o.dur });
+  }
+  function start(d, k) { var r = R(k); d.cursor(r.cx + 90, r.cy + 70, { dur: 0 }); }
+
+  var SCRIPTS = {};
+
+  // ---------- 対象を選ぶ ----------
+  SCRIPTS.target = function (d) {
+    d.chapter('フォルダを開く'); d.scene('a-empty.png'); start(d, 'comboBox_TargetDir');
+    d.cap(DUMMY + '\nFFEditは、フォルダの中のファイル(またはフォルダ)の名前を、まとめて変えるツールです。\nまず「対象フォルダ」に、処理したいフォルダを入れます。'); d.wait(5200);
+    mark(d, 'comboBox_TargetDir', '対象フォルダ', 2600); field(d, 'comboBox_TargetDir'); d.scene('a-path.png'); d.key('フォルダのパスを入力', { dur: 900 }); d.wait(1200);
+    d.cap('「リストアップ」を押すと、フォルダの中身が、右の一覧に出ます。\n左下には、総数と選んだ数が出ます。');
+    tap(d, 'button_Listup'); d.scene('a-list.png'); d.wait(700); markR(d, list(d), '一覧', 2600); d.wait(1200); mark(d, 'textBox_StatusBar', '総数=9', 2400); d.wait(2600);
+
+    d.chapter('絞り込む');
+    d.cap('このフォルダには、jpg・png・txt が混ざっています。\n「フィルター」に「*.jpg」と入れて、もう一度リストアップすると、jpg だけに絞れます。');
+    mark(d, 'textBox_Target_Extension', 'フィルター', 2600); field(d, 'textBox_Target_Extension'); d.scene('a-filter-typed.png'); d.key('*.jpg', { dur: 800 }); d.wait(1200);
+    tap(d, 'button_Listup'); d.scene('a-filter.png'); d.wait(4200);
+
+    d.chapter('選んだものだけ');
+    d.cap('一覧で項目を選んで、「選択項目のみ」にチェックを入れると、選んだ項目だけが処理の対象になります。\nオフなら、一覧の全項目が対象です。');
+    item(d, 'jpg', 'IMG_4822.jpg'); d.wait(300); d.scene('a-sel-items.png'); item(d, 'jpg', 'IMG_4824.jpg', { dur: 600 }); d.key('Ctrl + クリック', { dur: 700 }); d.wait(800);
+    tap(d, 'checkBox_Target_SelectFile'); d.scene('a-sel.png'); mark(d, 'textBox_StatusBar', '選択数=2', 2600); d.wait(3600);
+
+    d.chapter('フォルダ・サブフォルダ');
+    d.cap('別のフォルダ「Work」を開きます。\n「ファイル」を選ぶと、フォルダの直下のファイルだけが一覧に出ます。'); d.scene('a-work-file.png'); d.wait(4200);
+    d.cap('「サブフォルダも表示」にチェックを入れると、中のフォルダのファイルも、相対パスで出ます。');
+    tap(d, 'checkBox_Target_SubDirectory'); d.scene('a-work-sub.png'); d.wait(4000);
+    d.cap('「フォルダ」を選ぶと、ファイルではなく、フォルダの名前が対象になります。');
+    tap(d, 'radioButton_Target_Dir'); d.scene('a-work-dir.png'); d.wait(4200);
+  };
+
+  // ---------- 通し番号 ----------
+  SCRIPTS.number = function (d) {
+    d.chapter('通し番号'); d.scene('n-list.png'); start(d, 'radioButton_ChangeNumber');
+    d.cap(DUMMY + '\n「名称変換」の「通し番号」は、名前を「連番＋拡張子」に変えます。\nここでは、jpg 6枚を対象にしています。'); d.wait(5200);
+    mark(d, 'radioButton_ChangeNumber', '通し番号', 2600); tap(d, 'radioButton_ChangeNumber'); d.wait(1500);
+    d.cap('「最初の値」は番号の始まり、右の欄は0埋めの桁数です。\n「3桁」にすると、001、002、…になります。(「自動」なら、件数に合わせます)');
+    tap(d, 'textBox_ChangeNumber_FirstVal'); d.scene('n-set.png'); mark(d, 'comboBox_ChangeNumber_Digit', '3桁', 2800); tap(d, 'comboBox_ChangeNumber_Digit', { dur: 900 }); d.wait(3800);
+    d.chapter('実行');
+    d.cap('「実行」を押すと、一覧の並び順に、番号が振られます。');
+    tap(d, 'button_Execute'); d.scene('n-done.png'); d.wait(700); markR(d, list(d), '001〜006', 3000); d.wait(4200);
+    d.cap('「復元」を押すと、1回分だけ元に戻せます。');
+    tap(d, 'button_Restore'); d.scene('n-restored.png'); d.wait(4000);
+    d.chapter('元の名前を残す');
+    d.cap('「もとのファイル名を残す」にチェックを入れると、連番の後ろに元の名前が続きます。\n最初の値を10にして実行します。');
+    tap(d, 'checkBox_ChangeNumber_OrgName'); d.wait(300); field(d, 'textBox_ChangeNumber_FirstVal'); d.scene('n-keep-set.png'); d.wait(2400);
+    tap(d, 'button_Execute'); d.scene('n-keep-done.png'); d.wait(4800);
+  };
+
+  // ---------- 文字の置換・追加・削除 ----------
+  SCRIPTS.text = function (d) {
+    d.chapter('文字の置換'); d.scene('t-list.png'); start(d, 'radioButton_ChangeReplace');
+    d.cap(DUMMY + '\n「Memo」フォルダの5つのファイルで、名前の一部を直していきます。\nまずは「文字の置換」です。'); d.wait(5000);
+    tap(d, 'radioButton_ChangeReplace'); d.wait(300);
+    d.cap('「置換前」に draft、「置換後」に final と入れて、実行します。\n名前の中の draft が、すべて final に変わります。');
+    field(d, 'comboBox_String1'); d.scene('t-rep-set.png'); d.key('draft → final', { dur: 800 }); mark(d, 'comboBox_String1', '置換前', 1800); d.wait(1500); mark(d, 'comboBox_String2', '置換後', 1800); d.wait(1800);
+    tap(d, 'button_Execute'); d.scene('t-rep-done.png'); d.wait(3800);
+
+    d.chapter('指定文字の削除');
+    d.cap('次は「指定文字の削除」です。\n「削除文字」に _v1 と入れると、名前の中の _v1 が、すべて取り除かれます。');
+    tap(d, 'radioButton_ChangeDelete'); d.wait(300); field(d, 'comboBox_String1'); d.scene('t-del-set.png'); d.key('_v1', { dur: 800 }); d.wait(2800);
+    tap(d, 'button_Execute'); d.scene('t-del-done.png'); d.wait(3600);
+
+    d.chapter('文字の追加');
+    d.cap('「文字の追加」は、先頭と、拡張子の手前に、文字を足します。\n先頭に 2026_ を足してみます。');
+    tap(d, 'radioButton_ChangeAdd'); d.wait(300); field(d, 'comboBox_String1'); d.scene('t-add-set.png'); d.key('2026_', { dur: 800 }); d.wait(2800);
+    tap(d, 'button_Execute'); d.scene('t-add-done.png'); d.wait(3600);
+
+    d.chapter('文字数で削除');
+    d.cap('「指定文字数だけ削除」は、名前の先頭から(または拡張子の手前から)、決めた文字数を削ります。\n先頭から5文字(2026_)を削除します。');
+    tap(d, 'radioButton_ChangeDelNum'); d.wait(300); field(d, 'comboBox_String1'); d.scene('t-cut-set.png'); d.key('5', { dur: 800 }); d.wait(2800);
+    tap(d, 'button_Execute'); d.scene('t-cut-done.png'); d.wait(4200);
+  };
+
+  // ---------- 拡張子・フォルダ名 ----------
+  SCRIPTS.ext = function (d) {
+    d.chapter('拡張子変更'); d.scene('e-ext-set.png'); start(d, 'radioButton_ChangeExt');
+    d.cap(DUMMY + '\n「拡張子変更」は、名前の「.」より後ろだけを変えます。\n「.」は付けずに入れます。ここでは jpg を jpeg にします。'); d.wait(5200);
+    mark(d, 'radioButton_ChangeExt', '拡張子変更', 2400); field(d, 'comboBox_String1'); d.key('jpeg', { dur: 800 }); d.wait(2400);
+    tap(d, 'button_Execute'); d.scene('e-ext-done.png'); d.wait(2000);
+    d.cap('対象は、フィルターで絞った jpg だけです。そのため、一覧は空になりました。');
+    d.wait(3200);
+    d.cap('フィルターを「*」に戻して見ると、jpg だけが jpeg になっていて、png と txt はそのままです。');
+    tap(d, 'textBox_Target_Extension'); d.scene('e-ext-all.png'); markR(d, list(d), '', 3200); d.wait(4600);
+
+    d.chapter('フォルダ名を追加');
+    d.cap('「フォルダ名をファイル名に追加」は、サブフォルダの中のファイルに、フォルダ名を付けます。\n「サブフォルダも表示」をオンにして、Workフォルダに使います。'); d.scene('e-dir-set.png');
+    tap(d, 'radioButton_ChangeAddDirName'); d.wait(5600);
+    tap(d, 'button_Execute'); d.scene('e-dir-done.png'); d.wait(600); zoomR(d, list(d), { minW: 480 }); d.wait(700);
+    d.cap('パスの「\\」が「_」に変わった名前になります(例: 2026_autumn\\c.txt → 2026_autumn_c.txt)。\n置き場所は変わりません。直下の readme.txt は、そのままです。'); d.wait(6200);
+  };
+
+  // ---------- タイムスタンプ ----------
+  SCRIPTS.time = function (d) {
+    d.chapter('タイムスタンプ'); d.scene('t-list.png'); start(d, 'tabPage_TimeStamp');
+    d.cap(DUMMY + '\n「タイムスタンプ」のタブでは、ファイルの日時をまとめて書き換えます。\n名前は変わりません。'); d.wait(4800);
+    tap(d, 'tabPage_TimeStamp'); d.scene('ts-start.png'); d.wait(1200);
+    d.cap('「基準日」と時刻に、1件目に設定する日時を入れます。\n空欄なら、今日の日付を使います。');
+    mark(d, 'dateTimePicker_Days', '基準日', 2400); d.wait(1000); mark(d, 'textBox_Time', '時刻', 2400); d.wait(2800);
+    d.chapter('加算間隔');
+    d.cap('「加算間隔」は、2件目以降の日時を、1件ごとにどれだけ進めるかです。\n「分」なら、9:00、9:01、9:02、…と進みます。(「無し」なら、全部同じ日時です)');
+    field(d, 'dateTimePicker_Days'); d.scene('ts-set.png'); d.wait(500); mark(d, 'comboBox_TimeSpan', '分', 3000); tap(d, 'comboBox_TimeSpan', { dur: 900 }); d.wait(4200);
+    d.chapter('更新対象と実行');
+    d.cap('「更新対象」で、書き換える日時を選びます。作成日時・更新日時・アクセス日時のうち、チェックを入れたものだけが変わります。\nここでは、アクセス日時を外します。');
+    tap(d, 'checkBox_LastAccessTime'); d.scene('ts-opt.png'); mark(d, 'checkBox_CreationTime', '', 1400); d.wait(1000); markR(d, { x: R('checkBox_CreationTime').x, y: R('checkBox_CreationTime').y, w: R('checkBox_LastAccessTime').w, h: R('checkBox_LastAccessTime').y + R('checkBox_LastAccessTime').h - R('checkBox_CreationTime').y }, '更新対象', 3200); d.wait(4200);
+    d.cap('「実行」を押すと、一覧の順に、日時が書き換わります。\n結果は、エクスプローラーでファイルのプロパティなどを開くと確かめられます。(名前は変わらないので、一覧は同じです)');
+    tap(d, 'button_Execute'); d.scene('ts-done.png'); d.wait(5600);
+    d.cap('なお、タイムスタンプの変更は、「復元」では元に戻せません。'); mark(d, 'button_Restore', '戻せない', 3000); to(d, 'button_Restore', { dur: 800 }); d.wait(3800);
+  };
+
+  // ---------- 機能タブ ----------
+  SCRIPTS.func = function (d) {
+    d.chapter('空フォルダの削除'); d.scene('a-work-dir.png'); start(d, 'tabPage_Function');
+    d.cap(DUMMY + '\n「機能」のタブには、空のフォルダの削除、移動、コピーがあります。\nまず、Workフォルダの中にある、空のフォルダを消してみます。'); d.wait(5600);
+    tap(d, 'tabPage_Function'); d.scene('f-start.png'); d.wait(1200);
+    d.cap('一覧(フォルダ)の配下にある、空のサブフォルダが対象です。\n2026_autumn\\empty_b と 2026_spring\\empty_a が空のフォルダです。');
+    tap(d, 'radioButton_Delete_BlankDir'); d.scene('f-del-set.png'); markR(d, list(d), '', 1800); d.wait(3800);
+    tap(d, 'button_Execute'); d.scene('f-del-done.png'); d.wait(600); markR(d, list(d), '空の2つが消えた', 3000); d.wait(3800);
+    d.cap('この操作は、元に戻せません。');
+    d.wait(2400);
+
+    d.chapter('移動');
+    d.cap('次は「移動」です。Memoフォルダのファイルを、別のフォルダ(Backup)へ移します。'); d.scene('f-move-list.png'); d.wait(4200);
+    tap(d, 'radioButton_Move_Target'); d.wait(300); tap(d, 'checkBox_Operation_AnyDir');
+    d.cap('「フォルダを指定する」にチェックを入れて、移動先のフォルダを入れます。\n(オフなら、対象フォルダの直下に集めます。移動先が無ければ、作られます)');
+    d.scene('f-move-set.png'); d.wait(300); mark(d, 'textBox_Function_Any_Directory', '移動先', 2800); d.wait(3600);
+    d.cap('一覧で1つ選んで、「選択項目のみ」にチェックを入れてから、「実行」を押します。');
+    tap(d, 'button_Execute'); d.scene('f-move-done.png'); d.wait(700); markR(d, list(d), 'minutes が消えた', 2800); d.wait(3800);
+
+    d.chapter('コピー');
+    d.cap('「コピー」は、同じ手順で、元のファイルを残したまま、コピー先へ複製します。\ndraft_plan_v1.txt を選んで、実行します。');
+    tap(d, 'radioButton_Copy_Target'); d.scene('f-copy-set.png'); d.wait(2800);
+    tap(d, 'button_Execute'); d.scene('f-copy-done.png'); d.wait(1000); markR(d, list(d), '元のまま残る', 2600); d.wait(3200);
+    d.cap('Backupフォルダを開くと、移動した minutes と、コピーした plan が入っています。\n(移動は「復元」で戻せますが、コピーは戻せません)');
+    d.scene('f-backup.png'); d.wait(5800);
+  };
+
+  // ---------- 元に戻す ----------
+  SCRIPTS.restore = function (d) {
+    d.chapter('実行して'); d.scene('t-rep-set.png'); start(d, 'button_Execute');
+    d.cap(DUMMY + '\n名前を変えたあとで「あ、元に戻したい」となったときは、「復元」を押します。\nまず、「draft」を「final」に置換してみます。'); d.wait(5600);
+    tap(d, 'button_Execute'); d.scene('r-done.png'); d.wait(800); markR(d, list(d), 'final_… になった', 2600); d.wait(3000);
+    d.chapter('復元');
+    d.cap('「復元」を押すと、直前の実行が、1回分だけ元に戻ります。');
+    tap(d, 'button_Restore'); d.scene('r-restored.png'); d.wait(800); markR(d, list(d), '元の名前に戻った', 2800); d.wait(3200);
+    d.chapter('戻せるもの・戻せないもの');
+    d.cap('復元で戻せるのは、名称変換と、移動です。\n何回か実行したときは、新しい方から1回分ずつ戻ります。');
+    mark(d, 'button_Restore', '復元', 3200); d.wait(5400);
+    d.cap('タイムスタンプの変更・コピー・空フォルダの削除は、戻せません。\nまた、復元の履歴は、アプリを終了すると消えます。戻せるうちに、押してください。'); d.wait(8400);
+  };
+
+  // ---------- 全体紹介(約2分) ----------
+  SCRIPTS.overview = function (d) {
+    d.chapter('はじめに'); d.scene('a-empty.png'); start(d, 'comboBox_TargetDir');
+    d.cap(DUMMY + '\nFFEditは、フォルダの中のファイルやフォルダの名前を、まとめて変えるツールです。\n名前のほかに、日時の書き換え、移動、コピー、空フォルダの削除もできます。'); d.wait(7200);
+    d.cap('このデモでは、ひととおりの使い方を、2分ほどで紹介します。\n(機能ごとの詳しいデモは、一覧から見られます)'); d.wait(4200);
+
+    d.chapter('対象を選ぶ');
+    d.cap('まず「対象フォルダ」にフォルダを入れて、「リストアップ」を押します。\n中身が、右の一覧に出ます。');
+    mark(d, 'comboBox_TargetDir', '', 2200); field(d, 'comboBox_TargetDir'); d.scene('a-path.png'); d.wait(700);
+    tap(d, 'button_Listup'); d.scene('a-list.png'); d.wait(4000);
+    d.cap('「フィルター」で、*.jpg のように、名前を絞れます。');
+    field(d, 'textBox_Target_Extension'); d.scene('a-filter-typed.png'); d.wait(600); tap(d, 'button_Listup'); d.scene('a-filter.png'); d.wait(4000);
+
+    d.chapter('通し番号');
+    d.cap('「名称変換」のタブから、やりたい変換を選びます。\n「通し番号」は、001、002、…のように、名前を連番に変えます。');
+    d.scene('n-set.png'); tap(d, 'radioButton_ChangeNumber'); d.wait(5200);
+    tap(d, 'button_Execute'); d.scene('n-done.png'); d.wait(700); markR(d, list(d), '001〜006', 2600); d.wait(3600);
+
+    d.chapter('文字の置換など');
+    d.cap('ほかにも、文字の置換・追加・削除、拡張子の変更などが選べます。\n別のフォルダで、「draft」を「final」に置換してみます。'); d.scene('t-list.png'); d.wait(5200);
+    tap(d, 'radioButton_ChangeReplace'); field(d, 'comboBox_String1'); d.scene('t-rep-set.png'); d.wait(1400);
+    tap(d, 'button_Execute'); d.scene('t-rep-done.png'); d.wait(700); markR(d, list(d), '', 2400); d.wait(3200);
+
+    d.chapter('拡張子・フォルダ名');
+    d.cap('「拡張子変更」は、名前の「.」より後ろだけを変えます。\nここでは、jpg のファイルを jpeg にします。(png と txt は、そのままです)');
+    d.scene('e-ext-set.png'); tap(d, 'radioButton_ChangeExt'); d.wait(1200); field(d, 'comboBox_String1'); d.wait(2400);
+    tap(d, 'button_Execute'); d.scene('e-ext-all.png'); d.wait(700); markR(d, list(d), 'jpg → jpeg', 2800); d.wait(3200);
+    d.cap('「フォルダ名をファイル名に追加」は、サブフォルダの中のファイルに、フォルダ名を付けます。\n置き場所は変わりません。');
+    d.scene('e-dir-set.png'); tap(d, 'radioButton_ChangeAddDirName'); d.wait(4200);
+    tap(d, 'button_Execute'); d.scene('e-dir-done.png'); d.wait(4800);
+
+    d.chapter('元に戻す');
+    d.cap('名称変換は、「復元」で、直前の実行を1回分だけ元に戻せます。\n間違えて実行しても、すぐに戻せるので安心です。');
+    d.scene('t-rep-done.png'); d.wait(2200); tap(d, 'button_Restore'); d.scene('r-restored.png'); d.wait(5600);
+
+    d.chapter('タイムスタンプ');
+    d.cap('「タイムスタンプ」のタブでは、ファイルの日時を書き換えます。\n基準日と時刻、加算間隔(1件ごとに進める時間)、更新する日時を決めて、実行します。');
+    tap(d, 'tabPage_TimeStamp'); d.scene('ts-start.png'); d.wait(1000); field(d, 'dateTimePicker_Days'); d.scene('ts-set.png'); d.wait(4600);
+    tap(d, 'button_Execute'); d.scene('ts-done.png'); d.wait(3000);
+
+    d.chapter('機能(移動・コピー)');
+    d.cap('「機能」のタブには、空フォルダの削除、移動、コピーがあります。\n移動先のフォルダを入れて、選んだファイルを移します。');
+    tap(d, 'tabPage_Function'); d.scene('f-move-set.png'); d.wait(500); mark(d, 'textBox_Function_Any_Directory', '移動先', 2800); d.wait(3400);
+    tap(d, 'button_Execute'); d.scene('f-move-done.png'); d.wait(3800);
+
+    d.chapter('おわり');
+    d.cap('以上が、FFEditの主な機能です。\n名前の変更と移動は、「復元」で戻せます。日時の変更・コピー・空フォルダの削除は戻せないので、気をつけて使ってください。\n機能ごとの詳しいデモは、一覧から見られます。'); d.wait(10000);
+  };
+
+  DesktopDemo.start({
+    title: 'FFEdit 機能デモ', icon: '✏️', back: 'index.html', backLabel: '← FFEdit の図解にもどる',
+    lead: '最初に全体紹介(約2分)を見ると、FFEditでできることがひととおり分かります。そのあと、気になる機能を1本ずつの短いデモ(30秒〜1分ほど)で見られます。実際のアプリの画面に、カーソルや字幕を重ねて、「ここを押すとこうなる」を見られます。画面に出るフォルダとファイルは、すべて撮影用に作ったダミーです。',
+    frame: { w: FW, h: FH, title: 'FFEdit' }, imgBase: 'demo-img/',
+    features: [
+      { id: 'overview', icon: '🎬', title: '全体紹介', sec: 'まずは全体を見る', desc: '対象フォルダの指定・通し番号・文字の置換・タイムスタンプ・移動・復元まで、FFEditの使い方をひととおり。', script: SCRIPTS.overview },
+      { id: 'target', icon: '📂', title: '対象を選ぶ', sec: '機能ごとのデモ', desc: '対象フォルダ・リストアップ・フィルター・選択項目のみ・サブフォルダ・フォルダ/ファイルの切り替え。', script: SCRIPTS.target },
+      { id: 'number', icon: '🔢', title: '通し番号', sec: '機能ごとのデモ', desc: '名前を 001、002、… の連番に。最初の値・桁数・もとの名前を残す、と、元に戻す操作。', script: SCRIPTS.number },
+      { id: 'text', icon: '🔤', title: '文字の置換・追加・削除', sec: '機能ごとのデモ', desc: '名前の一部を置換・削除・追加し、先頭から文字数で削る。4つの変換を順に実行。', script: SCRIPTS.text },
+      { id: 'ext', icon: '🧩', title: '拡張子・フォルダ名', sec: '機能ごとのデモ', desc: '拡張子だけを変える。サブフォルダの中のファイルに、フォルダ名を付ける。', script: SCRIPTS.ext },
+      { id: 'time', icon: '🕒', title: 'タイムスタンプ', sec: '機能ごとのデモ', desc: '基準日と時刻、加算間隔、更新する日時を決めて、ファイルの日時をまとめて書き換える。', script: SCRIPTS.time },
+      { id: 'func', icon: '🚚', title: '空フォルダ削除・移動・コピー', sec: '機能ごとのデモ', desc: '「機能」タブ。空のフォルダを消す、ファイルを別のフォルダへ移す・コピーする。', script: SCRIPTS.func },
+      { id: 'restore', icon: '↩️', title: '元に戻す(復元)', sec: '機能ごとのデモ', desc: '直前の実行を1回分だけ戻す。戻せるもの・戻せないもの。', script: SCRIPTS.restore }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
