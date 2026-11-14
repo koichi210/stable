@@ -290,22 +290,16 @@ window.CUB_MENUS = {
   "layout": [
    [
     {
-     "label": "カブ8取り込み",
-     "color": "#DCEDC8",
-     "kind": "message",
-     "text": "カブ8取り込み"
-    },
-    {
-     "label": "年プロ取り込み",
-     "color": "#C5E1A5",
-     "kind": "message",
-     "text": "年プロ取り込み"
-    },
-    {
-     "label": "予定削除",
-     "color": "#AED581",
+     "label": "✅ 出欠",
+     "color": "#FFF59D",
      "kind": "liff",
-     "view": "events-delete"
+     "view": "attendance"
+    },
+    {
+     "label": "活動編集",
+     "color": "#DCEDC8",
+     "kind": "switch",
+     "target": "events-edit"
     }
    ],
    [
@@ -326,6 +320,40 @@ window.CUB_MENUS = {
      "color": "#CFD8DC",
      "kind": "switch",
      "target": "admin"
+    }
+   ]
+  ]
+ },
+ "events-edit": {
+  "name": "s8-cub 活動編集サブメニュー",
+  "rowHeight": null,
+  "layout": [
+   [
+    {
+     "label": "カブ8取り込み",
+     "color": "#DCEDC8",
+     "kind": "message",
+     "text": "カブ8取り込み"
+    },
+    {
+     "label": "年プロ取り込み",
+     "color": "#C5E1A5",
+     "kind": "message",
+     "text": "年プロ取り込み"
+    }
+   ],
+   [
+    {
+     "label": "予定削除",
+     "color": "#AED581",
+     "kind": "liff",
+     "view": "events-delete"
+    },
+    {
+     "label": "◀ 戻る",
+     "color": "#CFD8DC",
+     "kind": "switch",
+     "target": "events"
     }
    ]
   ]
