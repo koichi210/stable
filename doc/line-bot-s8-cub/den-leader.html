@@ -358,7 +358,59 @@
     },
   });
 
-  // 組の輪と子ども4人・DL・指導者(④⑤で共通の並び)。kids[3] はDL自身の子ども
+  // DLが減ると組が減り、いなくなると指導者だけで全員を見ることになる。最後はDLが戻ってきて、組が元に戻る(やさしく締める)
+  function lerp2(a, b, k) { return [lerp(a[0], b[0], k), lerp(a[1], b[1], k)]; }
+  chapter({
+    title: '④ DLがいないと', dur: 17500,
+    caps: [
+      [0, '反対に、DLが少ないと…'],
+      [2600, '組の数が減って、1つの組の人数が多くなり、大人の目が届きにくくなります。'],
+      [6600, 'DLがいないと組に分かれることができず、指導者だけで全員を見ることになってしまいます。'],
+      [10200, '実は毎年、DLを引き受けてくださる方が、なかなか見つからないのが現状です。'],
+      [13200, 'DLがいれば、子どもたちは組で安心して活動できます。\nひとりでも多くの方のご協力を、お願いします。'],
+    ],
+    build: function (root, ch) {
+      ch.f = makeField(root, 5, 20);
+      ch.L5 = kidSpots(5, 20); ch.L3 = kidSpots(3, 20); ch.L0 = [];
+      for (var i = 0; i < 20; i++) { var a = i / 20 * Math.PI * 2; ch.L0.push([Math.cos(a) * 2.4, Math.sin(a) * 2.4 + 0.3]); }
+      ch.c5 = [0, 1, 2, 3, 4].map(function (j) { return centerOf(j, 5); });
+      ch.c3 = [0, 1, 2].map(function (j) { return centerOf(j, 3); });
+      ch.leader = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); root.add(ch.leader);
+      ch.sweat = sprite('💦', { bg: 'none', h: 0.85 }); root.add(ch.sweat);
+    },
+    // 指導者だけになったところは、少し寄って見せる
+    cam: function (t) {
+      var z = ph(t, 7600, 1800) * (1 - ph(t, 12800, 1600));
+      return { p: [0, lerp(13, 8.2, z), lerp(11.5, 7.6, z)], l: [0, lerp(0, 0.6, z), lerp(0.6, 0.4, z)] };
+    },
+    update: function (t, ch) {
+      var f = ch.f, k1 = ph(t, 2600, 2400), k2 = ph(t, 6600, 2600), k3 = ph(t, 13200, 2800);
+      var moving = (k1 > 0 && k1 < 1) || (k2 > 0 && k2 < 1) || (k3 > 0 && k3 < 1);
+      // 子ども: 5組 → 3組 → 組なし(指導者のまわりに1つの大きな輪) → 5組に戻る
+      f.kids.forEach(function (k, i) {
+        var p = k1 < 1 ? lerp2(ch.L5[i], ch.L3[i], k1) : lerp2(ch.L3[i], ch.L0[i], k2);
+        if (k3 > 0) p = lerp2(ch.L0[i], ch.L5[i], k3);
+        place(k, p[0], p[1], moving ? Math.abs(Math.sin(t * 0.02 + i)) * 0.08 : 0);
+      });
+      // 組の輪とDL: 4・5組目のDLが先に抜け、そのあと残りのDLも抜ける。最後に全員戻ってくる
+      for (var j = 0; j < 5; j++) {
+        var c5 = ch.c5[j], early = j >= 3;
+        var cpos = k3 > 0 || early ? c5 : lerp2(c5, ch.c3[j], k1);
+        var vis = k3 > 0 ? k3 : early ? 1 - k1 : 1 - k2;
+        setGroup(f, j, cpos, vis);
+        var d = f.dls[j], kl = early ? ph(t, 2600 + (j - 3) * 300, 1800) : ph(t, 6600 + j * 300, 1800), kb = ph(t, 13200 + j * 200, 2000);
+        if (kb > 0) { d.visible = true; walk(d, [c5[0] * 3, c5[1] * 3], c5, kb); }
+        else { d.visible = kl < 1; walk(d, cpos, [cpos[0] * 3, cpos[1] * 3], kl); }
+      }
+      // 指導者: 端から真ん中へ入って全員を見る(💦) → DLが戻ったら端へ戻る
+      var LS = [-6.2, -2.4], mid = [0, 0.3], kin = ph(t, 7000, 2200), kout = ph(t, 13200, 2000);
+      if (kout > 0) walk(ch.leader, mid, LS, kout); else walk(ch.leader, LS, mid, kin);
+      pop(ch.sweat, t > 9000 && t < 13400 ? 1 : 0);
+      ch.sweat.position.set(ch.leader.position.x + 0.75, 2.6 + Math.abs(Math.sin(t * 0.006)) * 0.12, ch.leader.position.z + 0.3);
+    },
+  });
+
+  // 組の輪と子ども4人・DL・指導者(活動の日・お休みのときで共通の並び)。kids[3] はDL自身の子ども
   var DL_HOME = [1.5, 0.9], LEADER_AT = [-2.4, -2.6], GATE = [4.4, 4.0];
   function denScene(root, ch) {
     var ring = ringMesh(COLOR.groups[0]); ring.scale.setScalar(1.25); root.add(ring);
@@ -372,7 +424,7 @@
   function idle(k, i, t) { place(k, k.userData.home[0], k.userData.home[1], Math.max(0, Math.sin(t * 0.004 + i * 1.3)) * 0.05); }
 
   chapter({
-    title: '④ 活動の日', dur: 27500,
+    title: '⑤ 活動の日', dur: 27500,
     caps: [
       [0, 'DLは、隊集会に基本的に毎回参加します。\n用事があるときは、お休みもできます。'],
       [4200, 'LINEグループは、隊全体と組ごとの2つ。\n組の子の欠席の連絡は、組のグループで、保護者からDLに届きます。'],
@@ -437,7 +489,7 @@
   });
 
   chapter({
-    title: '⑤ お休みのとき', dur: 13000,
+    title: '⑥ お休みのとき', dur: 13000,
     caps: [
       [0, 'DLが用事でお休みの日は…'],
       [2600, 'ほかの保護者が、代理でDLをします。'],
@@ -467,7 +519,7 @@
   });
 
   chapter({
-    title: '⑥ 地区ラリーの日', dur: 12000,
+    title: '⑦ 地区ラリーの日', dur: 12000,
     caps: [
       [0, '地区ラリーの日は、指導者は運営に回ります。'],
       [4500, 'この日は指導者のサポートがなく、DLだけで組を連れて活動します。'],
@@ -517,7 +569,7 @@
     return new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.3), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
   }
   chapter({
-    title: '⑦ 組のお仕事', dur: 9500,
+    title: '⑧ 組のお仕事', dur: 9500,
     caps: [
       [0, '活動の日のほかにも、組のためのお仕事があります。'],
       [5200, '1年を通して、組の活動を支えます。'],
@@ -541,7 +593,7 @@
   });
 
   chapter({
-    title: '⑧ みんなで支える', dur: 16500,
+    title: '⑨ みんなで支える', dur: 16500,
     caps: [
       [0, '隊活動は、指導者・DL・お手伝いの保護者のみんなで支えています。'],
       [4000, 'お手伝いの保護者が少ない日は、その分をDLや指導者が受け持つことになります。'],
@@ -575,7 +627,7 @@
   });
 
   chapter({
-    title: '⑨ 決め方', dur: 12500,
+    title: '⑩ 決め方', dur: 12500,
     caps: [
       [0, 'まず指導者から、来年度のDLを決めたいと連絡があります。'],
       [3400, '担当いただける保護者が、手を挙げます。'],
@@ -608,7 +660,7 @@
   });
 
   chapter({
-    title: '⑩ 相談', dur: 10000,
+    title: '⑪ 相談', dur: 10000,
     caps: [
       [0, '分からないことや不安なことは、指導者に気軽に聞いてください。'],
       [6500, 'デンリーダーのお仕事の紹介は、以上です。'],
