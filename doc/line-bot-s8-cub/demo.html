@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>カブナビ8ちゃん デモ動画</title>
 <!--
-  カブナビ8ちゃんの使い方デモ(上のタブで 保護者向け / 指導者向け を切り替え。?v=parents で保護者向けから開く)。自動で流れる動画風のページです。
+  カブナビ8ちゃんの使い方デモ(上のタブで 保護者向け / 指導者向け を切り替え。何も付けなければ保護者向け、?v=admin で指導者向けから開く)。自動で流れる動画風のページです。
   ・スマホ画面はThree.jsの3Dスマホに、実物の画面を貼って動かしています。
     リッチメニューは実際に登録している画像、LIFFの画面(組編成・予定表など)は本物の画面にダミーデータを入れて撮ったスクショです。
   ・素材は lib/demo-assets.js (自動生成。画像はdata URIで埋め込み、file://でも開ける)。名前・予定・IDはすべてダミー。
@@ -484,7 +484,7 @@
   document.getElementById('prog').onclick = function (e) { var r = this.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * TOTAL); };
 
   // URLの #t=ミリ秒 で、その時刻から一時停止で開く(確認用)
-  build(/[?&]v=parents/.test(location.search) ? "parents" : "admin");
+  build(/[?&]v=admin/.test(location.search) ? "admin" : "parents"); // 何も付いていなければ保護者向け
   var m = location.hash.match(/t=(\d+)/);
   if (m) { seek(Number(m[1])); playing = false; document.getElementById('play').textContent = '▶ 再生'; }
 
