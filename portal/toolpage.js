@@ -84,13 +84,13 @@
 
     // 左メニュー
     var side = $('.tp-side');
-    var sh = '<a class="home" href="' + root + 'index.html">🔮 トップ</a>';
+    var sh = '<a class="home" href="' + root + 'index.html" title="トップ"><span>🔮</span><span class="t">トップ</span></a>';
     CAT.groups.forEach(function (g) {
       var its = CAT.items.filter(function (it) { return it.group === g.id; });
       if (!its.length) return;
       sh += '<h4 style="--c:' + g.color + '">' + esc(g.name) + '</h4><ul style="--c:' + g.color + '">';
       its.forEach(function (it) {
-        sh += '<li><a href="' + root + it.href + '"' + (it.id === item.id ? ' class="cur" aria-current="page"' : '') + '>' +
+        sh += '<li><a href="' + root + it.href + '" title="' + esc(it.name) + '"' + (it.id === item.id ? ' class="cur" aria-current="page"' : '') + '>' +
           '<span>' + it.emoji + '</span><span>' + esc(it.name) + '</span></a></li>';
       });
       sh += '</ul>';
@@ -99,6 +99,30 @@
     $('.burger').addEventListener('click', function () { document.body.classList.toggle('side-open'); });
     app.addEventListener('click', function (e) {
       if (document.body.classList.contains('side-open') && !side.contains(e.target) && !e.target.closest('.burger')) document.body.classList.remove('side-open');
+    });
+
+    // 左メニューと説明パネルは、境目の丸いボタンで閉じたり開いたりできる(Bitbucketのサイドバー風)。
+    // 閉じた左メニューは絵文字だけの細い帯、閉じた説明パネルは細い帯(押すと開く)。状態はブラウザに覚えておく
+    [['side', 'ツール一覧'], ['panel', '説明']].forEach(function (f) {
+      var cls = f[0] + '-closed', key = 'stable.tp.' + cls, btn = el('button', 'tp-fold ' + f[0]);
+      btn.type = 'button';
+      app.appendChild(btn);
+      function apply(closed) {
+        document.body.classList.toggle(cls, closed);
+        btn.textContent = closed ? '›' : '‹';
+        btn.title = f[1] + (closed ? 'を開く' : 'を閉じる');
+        btn.setAttribute('aria-expanded', String(!closed));
+      }
+      var saved = false;
+      try { saved = localStorage.getItem(key) === '1'; } catch (e) {}
+      apply(saved);
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var closed = !document.body.classList.contains(cls);
+        apply(closed);
+        try { localStorage.setItem(key, closed ? '1' : '0'); } catch (err) {}
+      });
+      if (f[0] === 'panel') panel.addEventListener('click', function () { if (document.body.classList.contains(cls)) btn.click(); });
     });
 
     // 凡例（使っている種類だけ）
