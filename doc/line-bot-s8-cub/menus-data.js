@@ -15,6 +15,11 @@ window.CUB_MENUS = {
      "label": "SNS",
      "color": "#BBDEFB",
      "kind": "url"
+    },
+    {
+     "label": "DLのお仕事",
+     "color": "#FFE0B2",
+     "kind": "url"
     }
    ],
    [
@@ -114,6 +119,11 @@ window.CUB_MENUS = {
     {
      "label": "SNS",
      "color": "#BBDEFB",
+     "kind": "url"
+    },
+    {
+     "label": "DLのお仕事",
+     "color": "#FFE0B2",
      "kind": "url"
     }
    ],

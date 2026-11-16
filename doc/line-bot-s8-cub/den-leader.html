@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>デンリーダーのお仕事</title>
+<!--
+  デンリーダー(DL)のお仕事の紹介。来年度のDL募集で、保護者に「DLが何をするのか」を見せるためのページ(カブナビ8ちゃんのメニュー「DLのお仕事」から開く)。
+  ・demo.html と同じ、字幕付きで自動再生する動画風のページ。3Dの広場で、子ども・DL・指導者のコマを動かして見せる。
+  ・台本は下の CHAPTERS(章ごとに 長さ・字幕・カメラ・動き)。動きは章の中の経過時間 t から毎フレーム計算するので、どこへ飛んでも絵が崩れない。
+  ・公開ページなので、人名は書かない(役割名だけ)。書くのは、DLのお仕事についての客観的な事実だけ。
+-->
+<style>
+  :root { --bg: #17142a; --ink: #f4f1ff; --green: #06c755; --gold: #f59e0b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; left: 0; top: 56px; bottom: 56px; right: 440px; }
+  canvas#gl { display: block; width: 100%; height: 100%; }
+  .top { position: fixed; left: 0; right: 0; top: 0; height: 56px; display: flex; gap: 8px; align-items: center; padding: 0 14px; z-index: 2; }
+  #chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; white-space: nowrap; scrollbar-width: none; }
+  .top a.back { color: #cfc8ff; text-decoration: none; font-size: 14px; margin-right: 6px; white-space: nowrap; }
+  .top h1 { font-size: 16px; margin: 0 12px 0 0; white-space: nowrap; }
+  .chip { border: 1px solid #ffffff44; background: #ffffff14; color: var(--ink); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip.on { background: var(--gold); border-color: var(--gold); color: #2b1a00; font-weight: bold; }
+  .cap-wrap { position: fixed; right: 20px; top: 56px; bottom: 56px; width: 400px; display: flex; align-items: center; pointer-events: none; z-index: 2; }
+  .cap { width: 100%; background: #ffffff10; border: 1px solid #ffffff2a; color: #fff; padding: 18px 22px; border-radius: 14px; font-size: 19px; line-height: 1.75; text-align: left; white-space: pre-line; }
+  .cap:empty { display: none; }
+  .cap small { display: block; font-size: 14px; color: #ffd98a; margin-bottom: 6px; font-weight: bold; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #000000b0; z-index: 3; }
+  .bar select { border: 1px solid #ffffff55; background: #2a2640; color: #fff; border-radius: 8px; padding: 6px 6px; font: inherit; font-size: 14px; cursor: pointer; }
+  .bar button { border: 1px solid #ffffff55; background: #ffffff1c; color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+  .prog { flex: 1; height: 10px; background: #ffffff30; border-radius: 5px; overflow: hidden; cursor: pointer; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--gold); }
+  .time { font-size: 12px; color: #cfc8ff; min-width: 78px; text-align: right; }
+  @media (max-width: 900px) {
+    .bar { gap: 8px 6px; padding: 8px 8px 10px; flex-wrap: wrap; }
+    .prog { order: -1; flex: 1 1 100%; }
+    .time { margin-left: auto; min-width: 0; }
+    .bar button, .bar select { padding: 6px 8px; font-size: 13px; }
+    .bar .wide { display: none; }
+    #stage { right: 0; bottom: 200px; }
+    .cap-wrap { left: 12px; right: 12px; width: auto; top: auto; bottom: 80px; height: 114px; }
+    .cap { font-size: 14.5px; padding: 10px 14px; line-height: 1.6; max-height: 114px; overflow-y: auto; }
+    .top h1 { display: none; }
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+<div id="stage"><canvas id="gl"></canvas></div>
+<div class="top"><a class="back" href="index.html">← もどる</a><h1>🧢 デンリーダーのお仕事</h1><span id="chips"></span></div>
+<div class="cap-wrap"><div class="cap" id="cap"></div></div>
+<div class="bar">
+  <button id="play">⏸ 一時停止</button><button id="back10" title="10秒もどる(←キー)">⏪ 10秒</button><button id="fwd10" title="10秒すすむ(→キー)">10秒 ⏩</button><select id="speed" title="再生速度"><option value="0.8">0.8倍</option><option value="1" selected>1.0倍</option><option value="1.2">1.2倍</option><option value="1.5">1.5倍</option><option value="2">2.0倍</option></select><button id="restart" class="wide">⟲ 最初から</button>
+  <div class="prog" id="prog"><i id="progi"></i></div><span class="time" id="time">0:00</span>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var FONT = '"Yu Gothic","Meiryo",sans-serif';
+
+  // ================= 小道具 =================
+  var clamp = function (x, a, b) { return Math.max(a, Math.min(b, x)); };
+  var lerp = function (a, b, k) { return a + (b - a) * k; };
+  // t(ミリ秒)が start から dur のあいだに 0→1 へ進む(ゆっくり始まってゆっくり止まる)
+  function ph(t, start, dur) { var x = clamp((t - start) / dur, 0, 1); return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+
+  var COLOR = {
+    kid: 0x3b82f6, dl: 0xf59e0b, leader: 0x15803d, helper: 0xec4899, parent: 0x9ca3af,
+    groups: [0xef4444, 0x3b82f6, 0x22c55e, 0xeab308, 0xa855f7],
+  };
+
+  // ================= 3D(Three.js) =================
+  var canvas = document.getElementById('gl');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x17142a);
+  scene.fog = new THREE.Fog(0x17142a, 30, 60);
+  var camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  var key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(5, 10, 8); scene.add(key);
+  var rim = new THREE.PointLight(0x8b7bff, 1.0, 40); rim.position.set(-8, 4, -6); scene.add(rim);
+
+  // 広場(地面)と、ふわふわ浮く光の粒(demo.html と同じ雰囲気)
+  var ground = new THREE.Mesh(new THREE.CircleGeometry(16, 64), new THREE.MeshStandardMaterial({ color: 0x24452f, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; scene.add(ground);
+  var NP = 200, ppos = new Float32Array(NP * 3), seed = [];
+  for (var i = 0; i < NP; i++) { ppos[i * 3] = (Math.random() - 0.5) * 34; ppos[i * 3 + 1] = 1 + Math.random() * 12; ppos[i * 3 + 2] = -6 - Math.random() * 14; seed.push(Math.random() * 6.28); }
+  var pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(ppos, 3));
+  scene.add(new THREE.Points(pg, new THREE.PointsMaterial({ color: 0xb9a8ff, size: 0.09, transparent: true, opacity: 0.8 })));
+
+  // 文字の札(常に正面を向く)。h は1行ぶんの高さ(3D空間の単位)
+  function sprite(text, o) {
+    o = o || {};
+    var fs = 64, lines = String(text).split('\n'), plain = o.bg === 'none', pad = plain ? 6 : 24;
+    var c = document.createElement('canvas'), x = c.getContext('2d');
+    x.font = 'bold ' + fs + 'px ' + FONT;
+    var w = 0; lines.forEach(function (l) { w = Math.max(w, x.measureText(l).width); });
+    var lh = fs * 1.3;
+    c.width = Math.ceil(w + pad * 2); c.height = Math.ceil(lines.length * lh + pad);
+    x.font = 'bold ' + fs + 'px ' + FONT;
+    if (!plain) {
+      var r = Math.min(30, c.height / 2);
+      x.fillStyle = o.bg || 'rgba(20,16,40,0.82)';
+      x.beginPath(); x.moveTo(r, 0); x.arcTo(c.width, 0, c.width, c.height, r); x.arcTo(c.width, c.height, 0, c.height, r); x.arcTo(0, c.height, 0, 0, r); x.arcTo(0, 0, c.width, 0, r); x.closePath(); x.fill();
+    }
+    x.fillStyle = o.fg || '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    lines.forEach(function (l, j) { x.fillText(l, c.width / 2, pad / 2 + lh * (j + 0.5)); });
+    var tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+    var s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    var hh = (o.h || 0.42) * (c.height / lh);
+    s.scale.set(hh * c.width / c.height, hh, 1); s.renderOrder = 10;
+    s.userData.base = s.scale.clone();
+    return s;
+  }
+  // 札をぽんと出す(k=0で消えて、1で元の大きさ)
+  function pop(s, k) { s.visible = k > 0.01; var b = s.userData.base; var e = k < 1 ? k * (1 + 0.25 * Math.sin(k * Math.PI)) : 1; s.scale.set(b.x * e, b.y * e, 1); }
+
+  // 人のコマ(胴+頭)。size: 子ども0.85 / 大人1.3。label を付けると頭の上に札が出る
+  var GEO = { body: new THREE.CylinderGeometry(0.2, 0.28, 0.62, 16), head: new THREE.SphereGeometry(0.19, 20, 14) };
+  var SKIN = new THREE.MeshStandardMaterial({ color: 0xf2c9a0, roughness: 0.8 });
+  function person(color, size, label, labelOpt) {
+    var g = new THREE.Group();
+    var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6 });
+    var b = new THREE.Mesh(GEO.body, mat); b.position.y = 0.31; g.add(b);
+    var h = new THREE.Mesh(GEO.head, SKIN); h.position.y = 0.8; g.add(h);
+    g.scale.setScalar(size); g.userData.mat = mat; g.userData.size = size;
+    if (label) {
+      var sp = sprite(label, labelOpt || {});
+      sp.scale.multiplyScalar(1 / size); sp.userData.base = sp.scale.clone(); sp.position.y = 1.4;
+      g.add(sp); g.userData.label = sp;
+    }
+    return g;
+  }
+  function place(o, x, z, y) { o.position.set(x, y || 0, z); }
+  // a → b へ歩く(k: 0→1)。歩いているあいだだけ、ぴょこぴょこ跳ねる
+  function walk(o, a, b, k) { place(o, lerp(a[0], b[0], k), lerp(a[1], b[1], k), k > 0 && k < 1 ? Math.abs(Math.sin(k * Math.PI * 7)) * 0.1 : 0); }
+  function ringMesh(color) {
+    var m = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.42, 48), new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.02; return m;
+  }
+
+  // ---- 組の並べ方(組の数 N、子どもの数 K) ----
+  function centerOf(i, N) {
+    var R = [0, 0, 2.6, 3.4, 3.9, 4.5][N];
+    var a = Math.PI / 2 + (i + 0.5) * 2 * Math.PI / N + Math.PI;
+    return [Math.cos(a) * R, Math.sin(a) * R];
+  }
+  function kidSpots(N, K) {
+    var out = [];
+    for (var i = 0; i < K; i++) {
+      var gi = i % N, idx = Math.floor(i / N), cnt = Math.floor((K - 1 - gi) / N) + 1, c = centerOf(gi, N);
+      var a = idx / cnt * 2 * Math.PI + 0.5, r = cnt > 5 ? 0.95 : 0.8;
+      out.push([c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r]);
+    }
+    return out;
+  }
+  // 広場に、子ども K 人・組 maxN 個ぶんの輪とDLを作って、N 組の並びに置く
+  function makeField(root, N, K, maxN) {
+    maxN = maxN || N;
+    var f = { kids: [], dls: [], rings: [], tags: [] };
+    for (var i = 0; i < K; i++) { var k = person(COLOR.kid, 0.85); root.add(k); f.kids.push(k); }
+    for (var j = 0; j < maxN; j++) {
+      var r = ringMesh(COLOR.groups[j]); root.add(r); f.rings.push(r);
+      var tag = sprite((j + 1) + '組', { bg: '#' + COLOR.groups[j].toString(16).padStart(6, '0'), h: 0.34 }); root.add(tag); f.tags.push(tag);
+      var d = person(COLOR.dl, 1.3, 'DL', { bg: '#b45309', h: 0.36 }); root.add(d); f.dls.push(d);
+    }
+    setField(f, N, K, 1);
+    return f;
+  }
+  // N 組の並びに置く。vis=0〜1 で、N 組目以降の輪の出方(組が増えるところ)
+  function setGroup(f, j, c, vis) {
+    var r = f.rings[j]; r.visible = vis > 0.01; r.scale.setScalar(Math.max(0.01, vis)); place(r, c[0], c[1], 0.02);
+    var tg = f.tags[j]; pop(tg, vis); place(tg, c[0], c[1] + 1.75, 0.3);
+  }
+  function setField(f, N, K) {
+    var spots = kidSpots(N, K);
+    f.kids.forEach(function (k, i) { place(k, spots[i][0], spots[i][1]); });
+    for (var j = 0; j < f.rings.length; j++) {
+      var on = j < N, c = centerOf(j, Math.max(N, 2));
+      setGroup(f, j, c, on ? 1 : 0); f.dls[j].visible = on; if (on) place(f.dls[j], c[0], c[1]);
+    }
+  }
+
+  // ================= 台本(章ごと) =================
+  // caps: [開始ミリ秒, 字幕] / cam(t): { p: カメラの位置, l: 見る点 } / update(t): その章の動き
+  var CHAPTERS = [];
+  function chapter(o) { o.root = new THREE.Group(); scene.add(o.root); o.build(o.root, o); CHAPTERS.push(o); }
+
+  chapter({
+    title: 'はじめに', dur: 8000,
+    caps: [[0, 'デンリーダー(DL)は、カブ隊の活動を支える保護者の役割です。\nどんなお仕事なのか、順番に見ていきます。']],
+    build: function (root, ch) {
+      ch.f = makeField(root, 4, 20);
+      var ld = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); place(ld, 0, 0); root.add(ld);
+      ch.title3d = sprite('デンリーダーのお仕事', { bg: 'none', h: 0.9, fg: '#ffd98a' }); ch.title3d.position.set(0, 4.2, 0); root.add(ch.title3d);
+    },
+    cam: function (t) { var a = 0.5 + t * 0.00008; return { p: [Math.sin(a) * 12, 8.5, Math.cos(a) * 12], l: [0, 0.8, 0] }; },
+    update: function (t, ch) { pop(ch.title3d, ph(t, 300, 900)); },
+  });
+
+  chapter({
+    title: '① DLとは', dur: 11000,
+    caps: [
+      [0, 'カブ隊は、子どもたちを「組(デン)」に分けて活動します。'],
+      [3000, '組ごとに、保護者が1人ずつ「デンリーダー(DL)」としてつきます。'],
+      [7500, 'デンのリーダーなので、デンリーダーです。\n担当するのは1年間です。'],
+    ],
+    build: function (root, ch) { ch.f = makeField(root, 4, 20); },
+    cam: function () { return { p: [0, 10.5, 10], l: [0, 0, 0.3] }; },
+    update: function (t, ch) {
+      ch.f.dls.forEach(function (d, j) {
+        var c = centerOf(j, 4), from = [c[0] * 3.2, c[1] * 3.2], k = ph(t, 3200 + j * 600, 1800);
+        d.visible = true; walk(d, from, c, k);
+      });
+    },
+  });
+
+  // 3組 → 4組 → 5組。DLが1人来るたびに、子どもが組に分かれ直す
+  var K2 = 20;
+  chapter({
+    title: '② DLの人数と組', dur: 16000,
+    caps: [
+      [0, 'DLの人数で、組の数が決まります。'],
+      [2600, 'DLが1人増えると…'],
+      [5200, '組が1つ増えて、1つの組の人数が少なくなります。'],
+      [12800, '反対に、DLが足りないと組の数が減って、1つの組の人数が多くなります。'],
+    ],
+    build: function (root, ch) {
+      ch.f = makeField(root, 3, K2, 5);
+      ch.L = [3, 4, 5].map(function (n) { return { kids: kidSpots(n, K2), c: [0, 1, 2, 3, 4].map(function (j) { return centerOf(j, n); }) }; });
+      ch.count = [3, 4, 5].map(function (n) { var s = sprite('DL ' + n + '人 ＝ 組 ' + n + 'つ', { h: 0.62, bg: 'rgba(245,158,11,0.92)', fg: '#2b1a00' }); s.position.set(0, 0.5, 0.2); root.add(s); return s; });
+    },
+    cam: function () { return { p: [0, 13.5, 11.5], l: [0, 0, 0.6] }; },
+    update: function (t, ch) {
+      var f = ch.f, L = ch.L;
+      var k1 = ph(t, 5000, 2400), k2 = ph(t, 10000, 2400);
+      // 今の並び(3→4→5 を k1, k2 でつなぐ)
+      function mix(sel) {
+        var a = sel(L[0]), b = sel(L[1]), c = sel(L[2]);
+        return function (i) {
+          var p = k2 > 0 ? [lerp(b[i][0], c[i][0], k2), lerp(b[i][1], c[i][1], k2)] : [lerp(a[i][0], b[i][0], k1), lerp(a[i][1], b[i][1], k1)];
+          return p;
+        };
+      }
+      var kid = mix(function (l) { return l.kids; }), ctr = mix(function (l) { return l.c; });
+      f.kids.forEach(function (k, i) { var p = kid(i); var moving = (k1 > 0 && k1 < 1) || (k2 > 0 && k2 < 1); place(k, p[0], p[1], moving ? Math.abs(Math.sin(t * 0.02 + i)) * 0.08 : 0); });
+      for (var j = 0; j < 5; j++) {
+        var vis = j < 3 ? 1 : j === 3 ? k1 : k2;
+        var c = ctr(j);
+        if (j === 3 && k1 < 1) c = L[1].c[3];
+        if (j === 4 && k2 < 1) c = L[2].c[4];
+        setGroup(f, j, c, vis);
+        var d = f.dls[j];
+        if (j < 3) { d.visible = true; place(d, c[0], c[1]); continue; }
+        // 4人目・5人目のDLが、外から歩いてくる
+        var start = j === 3 ? 2600 : 7600, home = j === 3 ? L[1].c[3] : L[2].c[4];
+        var kw = ph(t, start, 2200);
+        d.visible = t >= start;
+        if (kw < 1) walk(d, [home[0] * 3, home[1] * 3], home, kw); else place(d, c[0], c[1]);
+      }
+      var n = t < 6200 ? 0 : t < 11200 ? 1 : 2;
+      ch.count.forEach(function (s, i) { pop(s, i === n ? ph(t, [0, 6200, 11200][i], 500) : 0); });
+    },
+  });
+
+  chapter({
+    title: '③ 組が多いと', dur: 16000,
+    caps: [
+      [0, '組が多いと、子どもたちにとって良いことがあります。'],
+      [2500, '① 大人の目が届きやすくなり、野外活動や工作も、より安全・安心に。'],
+      [7000, '② スタンツの発表などで、一人ひとりの出番が増えます。'],
+      [11500, '③ 組長・次長を経験できる子が増えます。'],
+    ],
+    build: function (root, ch) {
+      ch.f = makeField(root, 5, 20);
+      ch.eyes = ch.f.dls.map(function (d) {
+        var m = new THREE.Mesh(new THREE.CircleGeometry(1.5, 40), new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, opacity: 0.22, depthWrite: false }));
+        m.rotation.x = -Math.PI / 2; m.position.set(d.position.x, 0.03, d.position.z); root.add(m); return m;
+      });
+      ch.stars = ch.f.kids.map(function (k) { var s = sprite('⭐', { bg: 'none', h: 0.4 }); s.position.set(k.position.x, 1.35, k.position.z); root.add(s); return s; });
+      // 各組の最初の2人が組長・次長
+      ch.badges = [];
+      ch.f.kids.forEach(function (k, i) {
+        if (i >= 10) return;
+        var s = sprite(i < 5 ? '組長' : '次長', { h: 0.26, bg: i < 5 ? 'rgba(234,179,8,0.95)' : 'rgba(203,213,225,0.95)', fg: '#2b1a00' });
+        s.position.set(k.position.x, 1.25, k.position.z); root.add(s); ch.badges.push(s);
+      });
+    },
+    cam: function () { return { p: [0, 13, 11.5], l: [0, 0, 0.6] }; },
+    update: function (t, ch) {
+      var ke = ph(t, 2500, 1200);
+      ch.eyes.forEach(function (m) { m.visible = ke > 0; m.scale.setScalar(Math.max(0.01, ke * (1 + 0.04 * Math.sin(t * 0.004)))); });
+      ch.stars.forEach(function (s, i) { var k = t < 11500 ? ph(t, 7000 + i * 120, 500) : 1 - ph(t, 11300, 400); pop(s, k); s.position.y = 1.35 + Math.sin(t * 0.005 + i) * 0.06; });
+      ch.badges.forEach(function (s, i) { pop(s, ph(t, 11800 + i * 150, 500)); });
+    },
+  });
+
+  chapter({
+    title: '④ 活動の日', dur: 14000,
+    caps: [
+      [0, '活動のあいだ、DLは組のそばについて、子どもたちをサポートします。'],
+      [3500, 'たとえば、トイレへ行く子の付き添い。'],
+      [10000, '活動を進めるのは指導者。DLは、組の子どもたちが活動しやすいように手助けします。'],
+    ],
+    build: function (root, ch) {
+      var ring = ringMesh(COLOR.groups[0]); ring.scale.setScalar(1.25); root.add(ring);
+      ch.kids = [];
+      for (var i = 0; i < 5; i++) {
+        var a = Math.PI * (1.15 + i * 0.175), k = person(COLOR.kid, 0.85);
+        k.userData.home = [Math.cos(a) * 1.3, Math.sin(a) * 1.3 + 0.3]; place(k, k.userData.home[0], k.userData.home[1]); root.add(k); ch.kids.push(k);
+      }
+      ch.dl = person(COLOR.dl, 1.3, 'DL', { bg: '#b45309', h: 0.36 }); ch.dl.userData.home = [1.5, 0.9]; root.add(ch.dl);
+      var ld = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); place(ld, -2.4, -2.6); root.add(ld);
+      var hut = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.5, 1.1), new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.7 }));
+      hut.position.set(4.7, 0.75, 1.6); root.add(hut);
+      var roof = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.55, 4), new THREE.MeshStandardMaterial({ color: 0x1e3a8a })); roof.position.set(4.7, 1.78, 1.6); roof.rotation.y = Math.PI / 4; root.add(roof);
+      var tag = sprite('🚽 トイレ', { h: 0.34 }); tag.position.set(4.7, 2.5, 1.6); root.add(tag);
+    },
+    cam: function () { return { p: [1.8, 6.6, 10.4], l: [1.6, 0.7, 0.6] }; },
+    update: function (t, ch) {
+      var kid = ch.kids[4], kh = kid.userData.home, dh = ch.dl.userData.home;
+      var go = ph(t, 4300, 2800), back = ph(t, 8800, 2800);
+      var kDoor = [4.0, 1.6], dWait = [3.3, 2.5];
+      if (back > 0) { walk(kid, kDoor, kh, back); walk(ch.dl, dWait, dh, back); }
+      else { walk(kid, kh, kDoor, go); walk(ch.dl, dh, dWait, go); }
+      if (t > 3600 && t < 4300) kid.position.y = Math.abs(Math.sin((t - 3600) * 0.012)) * 0.25; // 「トイレ!」と立ち上がる
+      kid.visible = !(t > 7300 && t < 8700); // トイレの中
+      ch.kids.forEach(function (k, i) { if (i < 4) place(k, k.userData.home[0], k.userData.home[1], Math.max(0, Math.sin(t * 0.004 + i * 1.3)) * 0.05); });
+    },
+  });
+
+  var JOBS = [
+    ['💰', '育成会費の集金', ''], ['📒', '組費の管理', ''], ['🛒', '備品の買い出し', 'ラムネなど'],
+    ['🎭', 'スタンツの準備', '夏の発表など'], ['💐', '前のDLへの色紙', ''], ['📚', 'DL研修に参加', ''],
+  ];
+  function jobCard(job) {
+    var c = document.createElement('canvas'); c.width = 400; c.height = 260; var x = c.getContext('2d');
+    x.fillStyle = '#fffaf0'; x.beginPath(); x.moveTo(24, 0); x.arcTo(400, 0, 400, 260, 24); x.arcTo(400, 260, 0, 260, 24); x.arcTo(0, 260, 0, 0, 24); x.arcTo(0, 0, 400, 0, 24); x.closePath(); x.fill();
+    x.strokeStyle = '#f59e0b'; x.lineWidth = 8; x.stroke();
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '84px ' + FONT; x.fillText(job[0], 200, job[2] ? 78 : 92);
+    x.fillStyle = '#2b1a00'; x.font = 'bold 40px ' + FONT; x.fillText(job[1], 200, job[2] ? 166 : 190);
+    if (job[2]) { x.fillStyle = '#7c5a1a'; x.font = '30px ' + FONT; x.fillText(job[2], 200, 216); }
+    var tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+    return new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.3), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+  }
+  chapter({
+    title: '⑤ 組のお仕事', dur: 15500,
+    caps: [
+      [0, '活動の日のほかにも、組のためのお仕事があります。'],
+      [12000, '1年を通して、組の活動を支えます。'],
+    ],
+    build: function (root, ch) {
+      var dl = person(COLOR.dl, 1.3, 'DL', { bg: '#b45309', h: 0.36 }); place(dl, 0, 2.6); root.add(dl);
+      ch.cards = JOBS.map(function (job, i) {
+        var m = jobCard(job); m.userData.at = [(i % 3 - 1) * 2.3, i < 3 ? 4.15 : 2.7]; root.add(m); return m;
+      });
+    },
+    cam: function () { return { p: [0, 3.0, 10.2], l: [0, 2.5, 0] }; },
+    update: function (t, ch) {
+      ch.cards.forEach(function (m, i) {
+        var k = ph(t, 1200 + i * 1700, 900), a = m.userData.at;
+        m.visible = k > 0.01; m.scale.setScalar(Math.max(0.01, k));
+        m.position.set(lerp(0, a[0], k), lerp(1.6, a[1], k) + Math.sin(t * 0.002 + i) * 0.04, -0.6);
+        m.rotation.y = (1 - k) * Math.PI;
+      });
+    },
+  });
+
+  // 3本の柱(指導者・DL・お手伝いの保護者)で、屋根(隊活動)を支える
+  chapter({
+    title: '⑥ みんなで支える', dur: 16500,
+    caps: [
+      [0, '隊活動は、指導者・DL・お手伝いの保護者のみんなで支えています。'],
+      [4000, 'お手伝いの保護者が少ない日は、その分をDLや指導者が受け持つことになります。'],
+      [7800, '指導者が手伝いに回ると、活動の進行にも影響が出てしまいます。'],
+      [11200, 'お手伝いに来ていただけると、DLの負担がぐっと軽くなります。\nDLを担当しない年も、できる範囲でご協力をお願いします。'],
+    ],
+    build: function (root, ch) {
+      var cols = [COLOR.leader, COLOR.dl, COLOR.helper], names = ['指導者', 'DL', 'お手伝いの保護者'];
+      ch.pillars = cols.map(function (c, i) {
+        var m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1, 24), new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
+        m.userData.color = new THREE.Color(c); m.position.x = (i - 1) * 3; root.add(m);
+        var s = sprite(names[i], { h: 0.32 }); s.position.set((i - 1) * 3, 0.1, 3.2); root.add(s);
+        return m;
+      });
+      ch.roof = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.3, 2.2), new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 })); root.add(ch.roof);
+      ch.roofTag = sprite('隊活動', { h: 0.42, bg: 'rgba(139,90,43,0.95)' }); root.add(ch.roofTag);
+      for (var i = 0; i < 4; i++) { var k = person(COLOR.kid, 0.7); place(k, -1.9 + i * 1.25, -0.2); root.add(k); }
+      ch.leader = person(COLOR.leader, 1.15); place(ch.leader, -3, 2.2); root.add(ch.leader);
+      ch.dl = person(COLOR.dl, 1.15); place(ch.dl, 0, 2.2); root.add(ch.dl);
+      ch.helpers = [0, 1, 2].map(function (i) { var h = person(COLOR.helper, 1.15); h.userData.home = [2.4 + i * 0.6, 2.2]; root.add(h); return h; });
+      ch.sweat = [sprite('💦', { bg: 'none', h: 0.5 }), sprite('💦', { bg: 'none', h: 0.5 })];
+      ch.sweat[0].position.set(-2.55, 2.3, 2.2); ch.sweat[1].position.set(0.45, 2.3, 2.2); ch.sweat.forEach(function (s) { root.add(s); });
+    },
+    cam: function () { return { p: [0, 4.6, 11.5], l: [0, 1.7, 0.4] }; },
+    update: function (t, ch) {
+      var down = ph(t, 4000, 2600), up = ph(t, 11200, 2600), s = 1 - 0.5 * down + 0.5 * up, strain = (1 - s) / 0.5;
+      var H = 3;
+      ch.pillars.forEach(function (m, i) {
+        var h = i === 2 ? H * s : H, w = i === 2 ? 0.45 + 0.55 * s : 1;
+        m.scale.set(w, h, w); m.position.y = h / 2;
+        if (i < 2) {
+          m.material.color.copy(m.userData.color).lerp(new THREE.Color(0xdc2626), strain * 0.55);
+          m.position.x = (i - 1) * 3 + Math.sin(t * 0.05 + i) * 0.03 * strain;
+        }
+      });
+      // 屋根は指導者とDLの柱で支えたまま。お手伝いの柱が届かなくなると、ぐらぐら揺れる
+      var wob = Math.sin(t * 0.012) * 0.035 * strain;
+      ch.roof.position.set(0, H + 0.15, 0); ch.roof.rotation.z = wob;
+      ch.roof.material.color.set(0x8b5a2b).lerp(new THREE.Color(0xdc2626), strain * 0.35);
+      ch.roofTag.position.set(0, H + 0.75, 0.6);
+      ch.sweat.forEach(function (sp, i) { pop(sp, strain > 0.3 ? 1 : 0); sp.position.y = 2.3 + Math.abs(Math.sin(t * 0.006 + i)) * 0.12; });
+      // お手伝いの保護者: 3人 → 1人 → また3人(右から歩いてくる)
+      ch.helpers.forEach(function (h, i) {
+        if (i === 0) { place(h, h.userData.home[0], h.userData.home[1]); return; }
+        var leave = ph(t, 4000, 1600), come = ph(t, 11000 + i * 300, 1800), out = [9, 2.2];
+        if (come > 0) { h.visible = true; walk(h, out, h.userData.home, come); }
+        else { h.visible = leave < 1; walk(h, h.userData.home, out, leave); }
+      });
+    },
+  });
+
+  chapter({
+    title: '⑦ 決め方', dur: 14500,
+    caps: [
+      [0, 'DLは、保護者どうしで相談して決めます。\n(学校のPTA役員決めに近い形です)'],
+      [3800, '話し合いがスムーズに進むように、指導者もサポートします。'],
+      [6800, '組の数だけDLが決まったら、指導者へ連絡します。'],
+      [10200, '登録や研修の準備があるので、1月末ごろまでに決めます。'],
+    ],
+    build: function (root, ch) {
+      ch.parents = [];
+      for (var i = 0; i < 6; i++) {
+        var a = i / 6 * Math.PI * 2 + Math.PI / 2, p = person(COLOR.parent, 1.25, 'DL', { bg: '#b45309', h: 0.36 });
+        place(p, Math.cos(a) * 1.8, Math.sin(a) * 1.8); root.add(p); ch.parents.push(p);
+        var b = sprite('💬', { bg: 'none', h: 0.5 }); b.position.set(Math.cos(a) * 1.8, 2.05, Math.sin(a) * 1.8); root.add(b); p.userData.bubble = b;
+      }
+      ch.leader = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); place(ch.leader, 3.6, 1.2); root.add(ch.leader);
+      ch.support = sprite('🤝 サポート', { h: 0.34, bg: 'rgba(21,128,61,0.92)' }); ch.support.position.set(3.6, 2.6, 1.2); root.add(ch.support);
+      var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 8), new THREE.MeshStandardMaterial({ color: 0xe5e7eb })); pole.position.set(-3.9, 1.3, -0.6); root.add(pole);
+      ch.flag = sprite('📅 1月末ごろまで', { h: 0.36, bg: 'rgba(220,38,38,0.92)' }); ch.flag.position.set(-3.9, 2.75, -0.6); root.add(ch.flag);
+      ch.pole = pole;
+    },
+    cam: function () { return { p: [0, 6.8, 10.8], l: [0, 0.9, 0.2] }; },
+    update: function (t, ch) {
+      var dlOrder = [0, 2, 3, 5];
+      ch.parents.forEach(function (p, i) {
+        var b = p.userData.bubble, on = t < 6600 && Math.sin(t * 0.004 + i * 1.7) > 0.2;
+        pop(b, on ? 1 : 0); b.position.y = 2.05 + Math.sin(t * 0.006 + i) * 0.05;
+        var n = dlOrder.indexOf(i), k = n < 0 ? 0 : ph(t, 7000 + n * 500, 600);
+        p.userData.mat.color.set(COLOR.parent).lerp(new THREE.Color(COLOR.dl), k);
+        pop(p.userData.label, k);
+      });
+      pop(ch.support, ph(t, 3900, 600));
+      var kf = ph(t, 10200, 700); ch.pole.visible = kf > 0.01; ch.pole.scale.y = Math.max(0.01, kf); ch.pole.position.y = 1.3 * kf;
+      pop(ch.flag, ph(t, 10600, 500));
+    },
+  });
+
+  chapter({
+    title: '⑧ 相談', dur: 10000,
+    caps: [
+      [0, '分からないことや不安なことは、指導者に気軽に聞いてください。'],
+      [6500, 'デンリーダーのお仕事の紹介は、以上です。'],
+    ],
+    build: function (root, ch) {
+      var p = person(COLOR.parent, 1.3, '保護者', { h: 0.34 }); place(p, -2.4, 0); root.add(p);
+      var ld = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); place(ld, 2.4, 0); root.add(ld);
+      ch.q = sprite('❓', { bg: 'none', h: 0.6 }); ch.q.position.set(-2.4, 2.5, 0); root.add(ch.q);
+      ch.a = sprite('💡', { bg: 'none', h: 0.6 }); ch.a.position.set(2.4, 2.5, 0); root.add(ch.a);
+      ch.smile = sprite('😊', { bg: 'none', h: 0.6 }); ch.smile.position.set(-2.4, 2.5, 0); root.add(ch.smile);
+      ch.dots = [0, 1, 2, 3, 4].map(function () { var m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffd98a })); root.add(m); return m; });
+    },
+    cam: function () { return { p: [0, 3.4, 8.2], l: [0, 1.2, 0] }; },
+    update: function (t, ch) {
+      pop(ch.q, t < 5200 ? ph(t, 300, 500) : 0);
+      ch.dots.forEach(function (m, i) {
+        var k = clamp((t - 1300 - i * 350) / 1500, 0, 1);
+        m.visible = k > 0 && k < 1;
+        m.position.set(lerp(-2.1, 2.1, k), 1.6 + Math.sin(k * Math.PI) * 1.0, 0);
+      });
+      pop(ch.a, t < 6000 ? ph(t, 3900, 500) : 0);
+      pop(ch.smile, ph(t, 5200, 500));
+    },
+  });
+
+  // ================= 再生 =================
+  var TOTAL = 0;
+  CHAPTERS.forEach(function (c) { c.at = TOTAL; TOTAL += c.dur; });
+  document.documentElement.dataset.chapters = JSON.stringify(CHAPTERS.map(function (c) { return [c.title, c.at]; })) + ' total=' + TOTAL;
+  var vt = 0, playing = true, snap = true;
+  function chapterAt(ms) { var cur = 0; CHAPTERS.forEach(function (c, i) { if (ms >= c.at) cur = i; }); return cur; }
+  function seek(ms) { vt = clamp(ms, 0, TOTAL); snap = true; }
+
+  function resize() {
+    var el = document.getElementById('stage'), w = el.clientWidth, h = el.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize); resize();
+
+  var camP = new THREE.Vector3(), camL = new THREE.Vector3(), lastIdx = -1;
+  function frame(wall) {
+    var idx = chapterAt(Math.min(vt, TOTAL - 1)), ch = CHAPTERS[idx], t = vt - ch.at;
+    if (idx !== lastIdx) snap = true;
+    lastIdx = idx;
+    CHAPTERS.forEach(function (c, i) { c.root.visible = i === idx; });
+    ch.update(t, ch);
+    // カメラ: 縦長の画面では、少し引いて全体が入るようにする
+    var c = ch.cam(t, ch), fit = camera.aspect < 1.3 ? Math.min(1.65, 1.3 / camera.aspect) : 1;
+    var p = new THREE.Vector3(c.l[0] + (c.p[0] - c.l[0]) * fit, c.l[1] + (c.p[1] - c.l[1]) * fit, c.l[2] + (c.p[2] - c.l[2]) * fit);
+    var l = new THREE.Vector3(c.l[0], c.l[1], c.l[2]);
+    if (snap) { camP.copy(p); camL.copy(l); snap = false; } else { camP.lerp(p, 0.06); camL.lerp(l, 0.06); }
+    camera.position.copy(camP); camera.lookAt(camL);
+    for (var i = 0; i < NP; i++) pg.attributes.position.array[i * 3 + 1] += Math.sin(wall + seed[i]) * 0.0016;
+    pg.attributes.position.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+
+  // ================= 画面まわり(字幕・ボタン) =================
+  var capEl = document.getElementById('cap'), progi = document.getElementById('progi'), timeEl = document.getElementById('time');
+  var chipsEl = document.getElementById('chips'), playBtn = document.getElementById('play');
+  function setPlaying(v) { playing = v; playBtn.textContent = v ? '⏸ 一時停止' : '▶ 再生'; }
+  var chipBtns = CHAPTERS.map(function (c) {
+    var b = document.createElement('button'); b.className = 'chip'; b.textContent = c.title.replace(/^[①-⑨] /, '');
+    b.onclick = function () { seek(c.at + 50); setPlaying(true); };
+    chipsEl.appendChild(b); return b;
+  });
+  function fmt(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  var lastCapKey = '';
+  function ui() {
+    var idx = chapterAt(Math.min(vt, TOTAL - 1)), ch = CHAPTERS[idx], t = vt - ch.at, text = '';
+    ch.caps.forEach(function (c) { if (t >= c[0]) text = c[1]; });
+    var keyStr = ch.title + '|' + text;
+    if (keyStr !== lastCapKey) {
+      lastCapKey = keyStr; capEl.innerHTML = '';
+      if (text) { var sm = document.createElement('small'); sm.textContent = ch.title; capEl.appendChild(sm); capEl.appendChild(document.createTextNode(text)); }
+    }
+    progi.style.width = (vt / TOTAL * 100) + '%'; timeEl.textContent = fmt(vt) + ' / ' + fmt(TOTAL);
+    chipBtns.forEach(function (b, i) { b.classList.toggle('on', i === idx); });
+  }
+  playBtn.onclick = function () { if (vt >= TOTAL) seek(0); setPlaying(!playing); };
+  document.getElementById('restart').onclick = function () { seek(0); setPlaying(true); };
+  document.getElementById('prog').onclick = function (e) { var r = this.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * TOTAL); };
+  function skip(ms) { seek(vt + ms); if (vt >= TOTAL) setPlaying(false); }
+  document.getElementById('back10').onclick = function () { skip(-10000); };
+  document.getElementById('fwd10').onclick = function () { skip(10000); };
+  var speed = 1, speedEl = document.getElementById('speed');
+  try { var saved = Number(localStorage.getItem('demoSpeed')); if ([0.8, 1, 1.2, 1.5, 2].indexOf(saved) >= 0) speed = saved; } catch (e) {}
+  speedEl.value = String(speed);
+  speedEl.onchange = function () { speed = Number(speedEl.value) || 1; try { localStorage.setItem('demoSpeed', String(speed)); } catch (e) {} };
+  document.addEventListener('keydown', function (e) {
+    if (e.target && /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft') { skip(-10000); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { skip(10000); e.preventDefault(); }
+    else if (e.key === ' ' && e.target.tagName !== 'BUTTON') { playBtn.click(); e.preventDefault(); }
+  });
+
+  // URLの #t=ミリ秒 で、その時刻から一時停止で開く(確認用)
+  var m = location.hash.match(/t=(\d+)/);
+  if (m) { seek(Number(m[1])); setPlaying(false); }
+
+  var prev = performance.now();
+  function loop(now) {
+    var dt = Math.min(100, now - prev); prev = now;
+    if (playing) { vt = Math.min(TOTAL, vt + dt * speed); if (vt >= TOTAL) setPlaying(false); }
+    frame(now / 1000);
+    ui();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
