@@ -581,7 +581,7 @@
       [6600, 'やってみたい保護者が、手を挙げます。'],
       [9600, '話し合いは、顔を合わせて口頭で行います(LINEでは行いません)。\n話し合いがスムーズに進むように、指導者もサポートします。'],
       [14000, '組の数だけDLが決まったら、指導者へ連絡します。'],
-      [17400, '登録や研修の準備があるので、1月末ごろまでに決めます。\n登録の費用は隊が出します(DLの負担はありません)。'],
+      [17400, 'DLの登録の費用は、隊が出します(DLの負担はありません)。'],
     ],
     build: function (root, ch) {
       ch.parents = [];
@@ -594,9 +594,6 @@
       ch.leader = person(COLOR.leader, 1.3, '指導者', { bg: '#14532d', h: 0.36 }); place(ch.leader, 3.6, 1.2); root.add(ch.leader);
       ch.call = sprite('📢 来年度のDLを決めます', { h: 0.34, bg: 'rgba(21,128,61,0.92)' }); ch.call.position.set(3.0, 2.6, 1.2); root.add(ch.call);
       ch.support = sprite('🤝 サポート', { h: 0.34, bg: 'rgba(21,128,61,0.92)' }); ch.support.position.set(3.6, 2.6, 1.2); root.add(ch.support);
-      var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 8), new THREE.MeshStandardMaterial({ color: 0xe5e7eb })); pole.position.set(-3.9, 1.3, -0.6); root.add(pole);
-      ch.flag = sprite('📅 1月末ごろまで', { h: 0.36, bg: 'rgba(220,38,38,0.92)' }); ch.flag.position.set(-3.9, 2.75, -0.6); root.add(ch.flag);
-      ch.pole = pole;
     },
     cam: function () { return { p: [0, 6.8, 10.8], l: [0, 0.9, 0.2] }; },
     update: function (t, ch) {
@@ -613,8 +610,6 @@
       });
       pop(ch.call, t < 6600 ? ph(t, 3300, 600) : 0);
       pop(ch.support, t > 9600 ? ph(t, 9800, 600) : 0);
-      var kf = ph(t, 17400, 700); ch.pole.visible = kf > 0.01; ch.pole.scale.y = Math.max(0.01, kf); ch.pole.position.y = 1.3 * kf;
-      pop(ch.flag, ph(t, 17800, 500));
     },
   });
 
