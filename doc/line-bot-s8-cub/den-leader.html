@@ -571,14 +571,13 @@
   });
 
   chapter({
-    title: '⑨ 決め方', dur: 21500,
+    title: '⑨ 決め方', dur: 18500,
     caps: [
-      [0, 'DLは、保護者どうしで相談して決めます。\n(学校のPTA役員決めに近い形です)'],
-      [3200, 'まず指導者から、来年度のDLを決めたいと連絡があります。'],
-      [6600, 'やってみたい保護者が、手を挙げます。'],
-      [9600, '話し合いは、顔を合わせて口頭で行います(LINEでは行いません)。\n話し合いがスムーズに進むように、指導者もサポートします。'],
-      [14000, '組の数だけDLが決まったら、指導者へ連絡します。'],
-      [17400, 'DLの登録の費用は、隊が出します(DLの負担はありません)。'],
+      [0, 'まず指導者から、来年度のDLを決めたいと連絡があります。'],
+      [3400, 'やってみたい保護者が、手を挙げます。'],
+      [6600, '話し合いは、顔を合わせて口頭で行います(LINEでは行いません)。\n話し合いがスムーズに進むように、指導者もサポートします。'],
+      [11000, '組の数だけDLが決まったら、指導者へ連絡します。'],
+      [14400, 'DLの登録の費用は、隊が出します(DLの負担はありません)。'],
     ],
     build: function (root, ch) {
       ch.parents = [];
@@ -597,16 +596,16 @@
       // 手を挙げた2人(0と3)から順にDLになる
       var dlOrder = [0, 3, 2, 5], raised = [0, 3];
       ch.parents.forEach(function (p, i) {
-        var b = p.userData.bubble, on = t > 9600 && t < 13800 && Math.sin(t * 0.004 + i * 1.7) > 0.2;
+        var b = p.userData.bubble, on = t > 6600 && t < 10800 && Math.sin(t * 0.004 + i * 1.7) > 0.2;
         pop(b, on ? 1 : 0); b.position.y = 2.05 + Math.sin(t * 0.006 + i) * 0.05;
-        var hk = raised.indexOf(i) < 0 || t > 14000 ? 0 : ph(t, 6900 + raised.indexOf(i) * 400, 500);
+        var hk = raised.indexOf(i) < 0 || t > 11000 ? 0 : ph(t, 3700 + raised.indexOf(i) * 400, 500);
         pop(p.userData.hand, hk); p.userData.hand.position.y = 1.75 + Math.sin(t * 0.008 + i) * 0.06;
-        var n = dlOrder.indexOf(i), k = n < 0 ? 0 : ph(t, 14200 + n * 500, 600);
+        var n = dlOrder.indexOf(i), k = n < 0 ? 0 : ph(t, 11200 + n * 500, 600);
         p.userData.mat.color.set(COLOR.parent).lerp(new THREE.Color(COLOR.dl), k);
         pop(p.userData.label, k);
       });
-      pop(ch.call, t < 6600 ? ph(t, 3300, 600) : 0);
-      pop(ch.support, t > 9600 ? ph(t, 9800, 600) : 0);
+      pop(ch.call, t < 3400 ? ph(t, 300, 600) : 0);
+      pop(ch.support, t > 6600 ? ph(t, 6800, 600) : 0);
     },
   });
 
