@@ -112,6 +112,7 @@
     { id: 'trash',    icon: '🗑️', title: 'ゴミ出し', adm: false, len: '約0:30', desc: '「今日は何ゴミの日か」と、曜日ごとの収集スケジュールが見られます。' },
     { id: 'game',     icon: '🎮', title: 'ゲーム', adm: false, len: '約0:30', desc: 'おみくじ、アルカナのミニ勝負、アルカナ本体(対戦ページ)への案内。' },
     { id: 'schedule', icon: '📅', title: '予定(Googleカレンダー)', adm: false, len: '約0:45', desc: '自分のGoogleカレンダーを登録して、今日の予定・今後一週間の予定をトークで見ます。' },
+    { id: 'calendar', icon: '🔗', title: 'カレンダー登録のやり方(くわしく)', adm: false, len: '約2:40', desc: 'Googleカレンダー(パソコン)でミライBotに共有して、カレンダーIDをLINEで登録するまでを、1画面ずつ見せます。「予定」がうまく出ないときもこちら。' },
     { id: 'memo',     icon: '📝', title: 'メモ', adm: false, len: '約0:40', desc: '買い物メモなどの個人用TODO。フォームで追加・削除、一覧はトークに表示します。' },
     { id: 'reminder', icon: '⏰', title: 'リマインダー', adm: false, len: '約0:55', desc: '決めた時刻に通知してくれます。毎日・毎週・毎月・1回だけ。管理者が許可した人だけ使えます。' },
     { id: 'announce', icon: '📢', title: 'アナウンス', adm: true, len: '約1:05', desc: 'グループトークに、決めた日時でお知らせを自動で送ります。送り先グループの登録から、予約の追加・削除まで。' },
@@ -146,7 +147,8 @@
 
   // ================= 状態と時間 =================
   var st, vt = 0, playing = true, TOTAL = 0;
-  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, cap: '', capTag: '' }; }
+  // device: 'phone' / 'pc'(パソコンのブラウザ。カレンダー登録のくわしいデモだけで使う)。hl: 目立たせる枠。pop: スマホの「貼り付け」吹き出し
+  function fresh() { return { menu: 'main', menuFrom: null, menuAt: -1e9, bubbles: [], liff: null, finger: null, flash: null, cap: '', capTag: '', device: 'phone', pc: null, mouse: null, pcFlash: null, hl: null, pop: null, focus: null }; }
   st = fresh();
 
   var EV = [], CH = [], T = 0;
@@ -154,7 +156,7 @@
   function wait(ms) { T += ms; }
   function chapter(title, menu) {
     CH.push({ title: title, at: T });
-    at(function () { st.bubbles = []; st.liff = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; });
+    at(function () { st.bubbles = []; st.liff = null; st.finger = null; st.menu = menu; st.menuFrom = null; st.capTag = title; st.hl = null; st.pop = null; });
   }
   function cap(text) { at(function () { st.cap = text; }); }
 
@@ -234,7 +236,7 @@
     var img = shotImg[L.shot], ih = img.complete ? img.naturalHeight / 2 : H; // スクショは2倍で撮ってある
     g.save(); g.translate(0, oy);
     g.fillStyle = '#f5f7f5'; g.fillRect(0, 0, W, H);
-    if (img.complete) g.drawImage(img, 0, 46, W, ih);
+    if (img.complete) g.drawImage(img, 0, 46 - liffScroll(L), W, ih);
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, 46);
     g.fillStyle = '#e5e5e5'; g.fillRect(0, 46, W, 1);
     g.fillStyle = '#111'; g.font = 'bold 15px ' + FONT; g.textAlign = 'center'; g.fillText(BOT, W / 2, 29);
@@ -269,10 +271,243 @@
     g.font = '34px ' + FONT; g.textAlign = 'left'; g.fillText('👆', x - 12, y + 34 - press * 4);
   }
 
+  // 目立たせる枠(点滅するオレンジの枠)。ctx はスマホ/パソコンどちらの画面にも使う
+  function drawHl(ctx, dev) {
+    var h = st.hl; if (!h || h.dev !== dev) return;
+    var a = clamp((vt - h.at) / 300, 0, 1), pulse = 0.5 + 0.5 * Math.sin((vt - h.at) / 160);
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.strokeStyle = 'rgba(245,158,11,' + (0.55 + 0.45 * pulse) + ')'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); var x = h.x - 5, y = h.y - 5, w = h.w + 10, hh = h.h + 10, r = 8;
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = 'rgba(245,158,11,0.10)'; ctx.fill();
+    ctx.restore();
+  }
+
+  // スマホの「貼り付け」吹き出し(入力欄を押したときに出るもの)
+  function drawPop() {
+    var p = st.pop; if (!p) return;
+    var a = clamp((vt - p.at) / 200, 0, 1);
+    g.globalAlpha = a; g.fillStyle = '#333'; rr(p.x, p.y, 92, 36, 8); g.fill();
+    g.beginPath(); g.moveTo(p.x + 38, p.y + 36); g.lineTo(p.x + 46, p.y + 44); g.lineTo(p.x + 54, p.y + 36); g.fill();
+    g.fillStyle = '#fff'; g.font = 'bold 14px ' + FONT; g.textAlign = 'center'; g.fillText('貼り付け', p.x + 46, p.y + 23);
+    g.globalAlpha = 1;
+  }
+
   function renderScreen() {
     g.setTransform(S, 0, 0, S, 0, 0);
     g.clearRect(0, 0, W, H);
-    drawChat(); drawLiff(); drawFinger();
+    drawChat(); drawLiff(); drawHl(g, 'phone'); drawPop(); drawFinger();
+  }
+
+  // ================= パソコンの画面(Googleカレンダーの設定。実物ではなく、似せて描いた画面) =================
+  var PW = 960, PH = 600, PS = 2;
+  var cvp = document.createElement('canvas'); cvp.width = PW * PS; cvp.height = PH * PS;
+  var p2 = cvp.getContext('2d');
+  var SHARE = 'mirai-bot@sample-project.iam.gserviceaccount.com'; // ダミー(本物はミライBotの画面に出る)
+  var MYCAL = 'sample.user@example.com';
+  var PERMS = ['予定の表示(時間枠のみ、詳細は非表示)', '予定の表示(すべての予定の詳細)', '予定の変更', '変更および共有の管理'];
+  var NAV_TOP = 122, CT_TOP = 142, CT_X = 300;   // 設定画面: 左の列 / 右の内容のはじまり
+  var NAV = ['全般', '  言語と地域', '  タイムゾーン', '  予定の設定', '  表示設定', 'カレンダーを追加', 'インポート/エクスポート', '#マイカレンダーの設定', '@cal'];
+
+  function txt(t, x, y, size, color, bold, align) { p2.fillStyle = color || '#3c4043'; p2.font = (bold ? 'bold ' : '') + size + 'px ' + FONT; p2.textAlign = align || 'left'; p2.fillText(t, x, y); }
+  function box(x, y, w, h, r, fill, stroke) { p2.beginPath(); p2.moveTo(x + r, y); p2.arcTo(x + w, y, x + w, y + h, r); p2.arcTo(x + w, y + h, x, y + h, r); p2.arcTo(x, y + h, x, y, r); p2.arcTo(x, y, x + w, y, r); p2.closePath(); if (fill) { p2.fillStyle = fill; p2.fill(); } if (stroke) { p2.strokeStyle = stroke; p2.lineWidth = 1; p2.stroke(); } }
+
+  function pcScroll() { var P = st.pc; if (!P) return 0; var q = ease(clamp((vt - P.sAt) / 650, 0, 1)); return P.sFrom + (P.sTo - P.sFrom) * q; }
+  // 共有の一覧(行の数で、追加ボタンより下の位置が変わる)
+  function shareRows() { return st.pc && st.pc.shared ? 2 : 1; }
+  // 名前つきの場所(マウスで押す所・枠で囲む所)の、画面上の四角。scroll を省略すると、スクロールし終わった位置で計算
+  function pcRect(name, scroll) {
+    var P = st.pc, s = scroll == null ? (P ? P.sTo : 0) : scroll, cy = function (y) { return CT_TOP + y - s; };
+    var addY = 372 + shareRows() * 58 + 8;
+    switch (name) {
+      case 'gear': return { x: 866, y: 76, w: 40, h: 40 };
+      case 'set': return { x: 726, y: 122, w: 186, h: 38 };
+      case 'mycal': return { x: 8, y: NAV_TOP + 8 * 34 + 6, w: 252, h: 34 };
+      case 'shareSec': return { x: CT_X, y: cy(330), w: 630, h: addY - 330 + 44 };
+      case 'add': return { x: CT_X + 6, y: cy(addY), w: 262, h: 40 };
+      case 'botrow': return { x: CT_X, y: cy(372 + 58), w: 630, h: 54 };
+      case 'calid': return { x: CT_X + 6, y: cy(812), w: 232, h: 30 };
+      case 'calsec': return { x: CT_X, y: cy(760), w: 630, h: 140 };
+      case 'email': return { x: 270, y: 216, w: 420, h: 44 };
+      case 'perm': return { x: 270, y: 306, w: 420, h: 42 };
+      case 'opt1': return { x: 270, y: 352 + 40, w: 420, h: 40 };
+      case 'send': return { x: 604, y: 424, w: 90, h: 38 };
+    }
+    throw new Error('pc rect: ' + name);
+  }
+
+  function drawBrowser(url) {
+    p2.fillStyle = '#dee1e6'; p2.fillRect(0, 0, PW, 30);
+    box(10, 5, 250, 30, 8, '#fff'); p2.fillStyle = '#fff'; p2.fillRect(10, 22, 250, 10);
+    p2.fillStyle = '#1a73e8'; p2.fillRect(22, 12, 14, 14); txt('31', 29, 23, 8, '#fff', true, 'center');
+    txt(st.pc.page === 'settings' ? 'Googleカレンダー - 設定' : 'Googleカレンダー', 44, 23, 13, '#3c4043');
+    txt('✕', 246, 23, 11, '#5f6368', false, 'right');
+    p2.fillStyle = '#fff'; p2.fillRect(0, 30, PW, 36);
+    txt('←   →   ⟳', 16, 54, 16, '#5f6368');
+    box(110, 36, 820, 24, 12, '#f1f3f4'); txt('🔒 ' + url, 124, 53, 13, '#202124');
+    p2.fillStyle = '#dadce0'; p2.fillRect(0, 66, PW, 1);
+  }
+
+  function drawCalPage() {
+    var P = st.pc;
+    drawBrowser('calendar.google.com/calendar/r/week');
+    p2.fillStyle = '#fff'; p2.fillRect(0, 67, PW, PH - 67);
+    txt('☰', 20, 104, 22, '#5f6368');
+    p2.fillStyle = '#1a73e8'; box(58, 82, 30, 30, 4, '#1a73e8'); txt('31', 73, 103, 14, '#fff', true, 'center');
+    txt('カレンダー', 98, 105, 21, '#3c4043');
+    box(222, 82, 64, 34, 17, '#fff', '#dadce0'); txt('今日', 254, 105, 14, '#3c4043', false, 'center');
+    txt('‹   ›', 300, 106, 20, '#5f6368'); txt('2026年 11月', 360, 106, 21, '#3c4043');
+    txt('🔍', 790, 106, 18, '#5f6368'); txt('?', 836, 106, 20, '#5f6368', true);
+    var gh = P.gear || (st.mouse && Math.abs(st.mouse.tx - 886) < 30 && Math.abs(st.mouse.ty - 96) < 30);
+    if (gh) { p2.fillStyle = '#e8eaed'; p2.beginPath(); p2.arc(886, 96, 20, 0, 7); p2.fill(); }
+    txt('⚙', 886, 104, 24, '#5f6368', false, 'center');
+    p2.fillStyle = '#dadce0'; p2.fillRect(0, 122, PW, 1);
+    // 左の列
+    box(16, 136, 120, 46, 16, '#fff', '#dadce0'); txt('＋  作成', 40, 166, 16, '#3c4043');
+    txt('2026年11月', 20, 214, 13, '#3c4043', true);
+    var dn = ['日', '月', '火', '水', '木', '金', '土'];
+    for (var i = 0; i < 7; i++) txt(dn[i], 24 + i * 24, 238, 11, '#70757a', false, 'center');
+    for (var d = 1; d <= 30; d++) { var c = (d + 6 - 1) % 7, r = Math.floor((d + 6 - 1) / 7); txt(String(d), 24 + c * 24, 260 + r * 22, 11, d === 18 ? '#1a73e8' : '#3c4043', d === 18, 'center'); }
+    txt('マイカレンダー', 20, 420, 14, '#3c4043', true);
+    box(22, 434, 16, 16, 3, '#1a73e8'); txt('✓', 30, 447, 12, '#fff', true, 'center'); txt('サンプル ユーザー', 48, 447, 14, '#3c4043');
+    // 週の表
+    var gx = 220, gw = (PW - gx - 16) / 7, top = 190;
+    for (i = 0; i < 7; i++) { txt(dn[i], gx + gw * i + gw / 2, 146, 12, '#70757a', false, 'center'); txt(String(15 + i), gx + gw * i + gw / 2, 174, 22, i === 3 ? '#1a73e8' : '#3c4043', false, 'center'); }
+    p2.fillStyle = '#dadce0';
+    for (var hr = 0; hr < 8; hr++) { p2.fillRect(gx, top + hr * 50, PW - gx - 16, 1); txt((9 + hr) + ':00', gx - 8, top + hr * 50 + 5, 11, '#70757a', false, 'right'); p2.fillStyle = '#dadce0'; }
+    for (i = 0; i <= 7; i++) p2.fillRect(gx + gw * i, top - 10, 1, 410);
+    [[1, 0.5, 1, '打ち合わせ'], [3, 0.5, 1, '打ち合わせ'], [3, 3, 1, 'ランチ'], [1, 5, 1, '歯医者'], [6, 1, 2, '買い物']].forEach(function (e) {
+      box(gx + gw * e[0] + 3, top + e[1] * 50 + 2, gw - 8, e[2] * 50 - 4, 5, '#039be5'); txt(e[3], gx + gw * e[0] + 9, top + e[1] * 50 + 20, 12, '#fff', true);
+    });
+    // 歯車メニュー
+    if (P.gear) {
+      p2.save(); p2.shadowColor = 'rgba(0,0,0,0.25)'; p2.shadowBlur = 12; box(722, 118, 194, 210, 6, '#fff'); p2.restore();
+      ['設定', 'ゴミ箱', '外観', '印刷', 'アドオンを入手'].forEach(function (t, j) {
+        var y = 124 + j * 40, hot = j === 0 && st.mouse && st.mouse.ty > y && st.mouse.ty < y + 40 && st.mouse.tx > 722;
+        if (hot) { p2.fillStyle = '#f1f3f4'; p2.fillRect(722, y, 194, 40); }
+        txt(t, 742, y + 26, 15, '#3c4043');
+      });
+    }
+  }
+
+  function drawSettingsPage() {
+    var P = st.pc, s = pcScroll(), cy = function (y) { return CT_TOP + y - s; };
+    drawBrowser('calendar.google.com/calendar/r/settings' + (P.cal ? '/calendar/…' : ''));
+    p2.fillStyle = '#fff'; p2.fillRect(0, 67, PW, PH - 67);
+    txt('←', 24, 106, 22, '#5f6368'); txt('設定', 66, 106, 22, '#3c4043');
+    p2.fillStyle = '#dadce0'; p2.fillRect(0, 122, PW, 1); p2.fillRect(272, 123, 1, PH - 123);
+    // 左の列
+    NAV.forEach(function (t, i) {
+      var y = NAV_TOP + i * 34 + 6;
+      if (t[0] === '#') { txt(t.slice(1), 22, y + 23, 14, '#3c4043', true); return; }
+      if (t === '@cal') {
+        if (P.cal) { box(8, y, 252, 34, 17, '#e8f0fe'); }
+        p2.fillStyle = '#039be5'; p2.beginPath(); p2.arc(30, y + 17, 6, 0, 7); p2.fill();
+        txt('サンプル ユーザー', 46, y + 23, 15, P.cal ? '#1967d2' : '#3c4043', P.cal);
+        if (P.cal) ['カレンダーの設定', 'アクセス権限', 'ユーザーやグループと共有', '予定の通知', 'カレンダーの統合'].forEach(function (u, j) {
+          txt(u, 46, y + 58 + j * 28, 13, '#5f6368');
+        });
+        return;
+      }
+      var sub = t[0] === ' ';
+      if (i === 0 && !P.cal) box(8, y, 252, 34, 17, '#e8f0fe');
+      txt(t.trim(), sub ? 46 : 22, y + 23, sub ? 13 : 15, i === 0 && !P.cal ? '#1967d2' : '#3c4043', !sub && i === 0);
+    });
+    // 右の内容
+    p2.save(); p2.beginPath(); p2.rect(273, 123, PW - 273, PH - 123); p2.clip();
+    var X = CT_X + 6;
+    if (!P.cal) {
+      txt('言語と地域', X, cy(10), 20, '#3c4043');
+      [['言語', '日本語'], ['国', '日本'], ['日付の形式', '2026/12/31'], ['時刻の形式', '13:00']].forEach(function (r, j) {
+        txt(r[0], X, cy(60 + j * 60), 14, '#5f6368'); box(X, cy(70 + j * 60), 300, 34, 4, '#fff', '#dadce0'); txt(r[1] + '   ▾', X + 12, cy(92 + j * 60), 14, '#3c4043');
+      });
+    } else {
+      txt('カレンダーの設定', X, cy(10), 20, '#3c4043');
+      txt('名前', X, cy(50), 13, '#5f6368'); box(X, cy(58), 420, 38, 4, '#f8f9fa', '#dadce0'); txt('サンプル ユーザー', X + 12, cy(83), 15, '#3c4043');
+      txt('タイムゾーン', X, cy(124), 13, '#5f6368'); box(X, cy(132), 420, 38, 4, '#fff', '#dadce0'); txt('(GMT+09:00) 日本標準時   ▾', X + 12, cy(157), 15, '#3c4043');
+      p2.fillStyle = '#dadce0'; p2.fillRect(CT_X, cy(200), 630, 1);
+      txt('アクセス権限', X, cy(236), 20, '#3c4043');
+      box(X, cy(256), 18, 18, 3, '#fff', '#5f6368'); txt('一般公開して誰でも利用できるようにする', X + 30, cy(271), 14, '#3c4043');
+      p2.fillStyle = '#dadce0'; p2.fillRect(CT_X, cy(306), 630, 1);
+      txt('特定のユーザーまたはグループと共有する', X, cy(344), 20, '#3c4043');
+      var rows = [['サ', '#7cb342', 'サンプル ユーザー', MYCAL, '変更および共有の管理']];
+      if (P.shared) rows.push(['m', '#8e24aa', SHARE, '', PERMS[1]]);
+      rows.forEach(function (r, j) {
+        var y = cy(372 + j * 58);
+        p2.fillStyle = r[1]; p2.beginPath(); p2.arc(X + 18, y + 26, 17, 0, 7); p2.fill(); txt(r[0], X + 18, y + 32, 16, '#fff', true, 'center');
+        if (r[3]) { txt(r[2], X + 48, y + 22, 15, '#3c4043'); txt(r[3], X + 48, y + 42, 13, '#5f6368'); txt(r[4], CT_X + 624, y + 32, 13, '#5f6368', false, 'right'); }
+        else { txt(r[2], X + 48, y + 22, 14, '#3c4043'); txt(r[4] + '   ▾', X + 48, y + 43, 13, '#1967d2'); }
+      });
+      var ay = cy(372 + rows.length * 58 + 8);
+      box(X, ay, 262, 40, 20, '#fff', '#dadce0'); txt('＋  ユーザーやグループを追加', X + 20, ay + 26, 14, '#1a73e8', true);
+      p2.fillStyle = '#dadce0'; p2.fillRect(CT_X, cy(560), 630, 1);
+      txt('予定の通知', X, cy(598), 20, '#3c4043');
+      txt('通知  30 分前   ▾', X, cy(636), 14, '#5f6368'); txt('＋ 通知を追加', X, cy(672), 14, '#1a73e8');
+      p2.fillStyle = '#dadce0'; p2.fillRect(CT_X, cy(720), 630, 1);
+      txt('カレンダーの統合', X, cy(760), 20, '#3c4043');
+      txt('カレンダー ID', X, cy(800), 14, '#3c4043', true);
+      if (P.sel) {
+        var q = clamp((vt - P.sel) / 700, 0, 1); p2.font = '15px ' + FONT;
+        p2.fillStyle = '#b3d4fc'; p2.fillRect(X - 1, cy(812) + 4, p2.measureText(MYCAL).width * q + 2, 24);
+      }
+      txt(MYCAL, X, cy(832), 15, '#3c4043');
+      txt('このカレンダーの公開 URL', X, cy(874), 14, '#3c4043', true); txt('https://calendar.google.com/calendar/embed?src=…', X, cy(900), 13, '#5f6368');
+      txt('iCal 形式の公開アドレス', X, cy(940), 14, '#3c4043', true); txt('https://calendar.google.com/calendar/ical/…', X, cy(966), 13, '#5f6368');
+    }
+    p2.restore();
+    // 共有のダイアログ
+    var D = P.dialog;
+    if (D) {
+      var a = clamp((vt - D.at) / 250, 0, 1);
+      p2.globalAlpha = a; p2.fillStyle = 'rgba(32,33,36,0.45)'; p2.fillRect(0, 0, PW, PH);
+      p2.save(); p2.shadowColor = 'rgba(0,0,0,0.3)'; p2.shadowBlur = 24; box(240, 150, 480, 330, 8, '#fff'); p2.restore();
+      txt('特定のユーザーやグループと共有する', 270, 194, 19, '#202124');
+      var er = pcRect('email');
+      p2.fillStyle = D.text ? '#1a73e8' : '#80868b'; p2.fillRect(er.x, er.y + er.h - 2, er.w, 2);
+      p2.fillStyle = '#f1f3f4'; p2.fillRect(er.x, er.y, er.w, er.h - 2);
+      if (D.text) txt(D.text, er.x + 10, er.y + 28, 14, '#202124'); else txt('メールアドレスまたは名前を追加', er.x + 10, er.y + 28, 14, '#80868b');
+      txt('権限', 270, 296, 13, '#5f6368');
+      var pr = pcRect('perm');
+      box(pr.x, pr.y, pr.w, pr.h, 4, '#fff', '#dadce0'); txt(PERMS[D.perm], pr.x + 12, pr.y + 27, 14, '#202124'); txt('▾', pr.x + pr.w - 14, pr.y + 27, 14, '#5f6368', false, 'right');
+      box(486, 424, 100, 38, 4, null); txt('キャンセル', 536, 449, 14, '#1a73e8', true, 'center');
+      box(604, 424, 90, 38, 4, '#1a73e8'); txt('送信', 649, 449, 14, '#fff', true, 'center');
+      if (D.open) {
+        p2.save(); p2.shadowColor = 'rgba(0,0,0,0.25)'; p2.shadowBlur = 14; box(pr.x, pr.y + pr.h, pr.w, 40 * PERMS.length + 8, 4, '#fff'); p2.restore();
+        PERMS.forEach(function (t, j) {
+          var y = pr.y + pr.h + 4 + j * 40;
+          if (j === D.perm) { p2.fillStyle = '#e8f0fe'; p2.fillRect(pr.x, y, pr.w, 40); }
+          txt(t, pr.x + 14, y + 26, 14, '#202124');
+        });
+      }
+      p2.globalAlpha = 1;
+    }
+  }
+
+  // キー操作の目印(Ctrl + V など)
+  function drawKeyTip() {
+    var k = st.pc && st.pc.key; if (!k) return;
+    var q = (vt - k.at) / 1800; if (q < 0 || q > 1) return;
+    var a = q < 0.15 ? q / 0.15 : q > 0.8 ? (1 - q) / 0.2 : 1;
+    p2.globalAlpha = a; box(PW / 2 - 90, PH - 92, 180, 52, 10, 'rgba(32,33,36,0.85)');
+    txt('⌨ ' + k.text, PW / 2, PH - 58, 20, '#fff', true, 'center'); p2.globalAlpha = 1;
+  }
+
+  function drawMouse() {
+    var m = st.mouse; if (!m) return;
+    var q = ease(clamp((vt - m.at) / m.dur, 0, 1)), x = m.fx + (m.tx - m.fx) * q, y = m.fy + (m.ty - m.fy) * q;
+    var f = st.pcFlash;
+    if (f) { var r = clamp((vt - f.at) / 600, 0, 1); if (r < 1) { p2.strokeStyle = 'rgba(245,158,11,' + (1 - r) + ')'; p2.lineWidth = 4; p2.beginPath(); p2.arc(f.x, f.y, 8 + r * 34, 0, 7); p2.stroke(); } }
+    p2.save(); p2.translate(x, y); p2.scale(1.3, 1.3);
+    p2.beginPath(); p2.moveTo(0, 0); p2.lineTo(0, 19); p2.lineTo(4.5, 15); p2.lineTo(8, 22.5); p2.lineTo(11, 21); p2.lineTo(7.5, 14); p2.lineTo(13.5, 14); p2.closePath();
+    p2.fillStyle = '#fff'; p2.fill(); p2.strokeStyle = '#111'; p2.lineWidth = 1.3; p2.stroke(); p2.restore();
+  }
+
+  function renderPc() {
+    p2.setTransform(PS, 0, 0, PS, 0, 0);
+    p2.clearRect(0, 0, PW, PH);
+    if (!st.pc) { p2.fillStyle = '#202124'; p2.fillRect(0, 0, PW, PH); return; }
+    if (st.pc.page === 'cal') drawCalPage(); else drawSettingsPage();
+    drawHl(p2, 'pc'); drawKeyTip(); drawMouse();
   }
 
   // ================= 台本の部品 =================
@@ -280,7 +515,8 @@
   function moveTo(x, y, v, dur) { var c = curPos(); st.finger = { fx: c.x, fy: c.y, tx: x, ty: y, at: v, dur: dur || 600 }; }
   function pressAt(x, y, w, h, v) { st.flash = { x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2, at: v }; }
 
-  function tapCell(label, after) {
+  // shot: LIFF画面を開くボタンのとき、ふだんと違う状態のスクショで開きたい場合に指定(例: 'calendar-empty')
+  function tapCell(label, after, shot) {
     var r;
     at(function (v) { r = cellRect(st.menu, label); moveTo(r.x + r.w / 2, r.y + r.h / 2, v); });
     wait(700);
@@ -290,20 +526,27 @@
       var d = cellRect(st.menu, label).cell.do;
       if (d.switch) { st.menuFrom = st.menu; st.menu = d.switch; st.menuAt = v; }
       else if (d.say) { st.bubbles.push({ from: 'me', text: d.say, at: v }); }
-      else if (d.liff) { st.liff = { shot: d.liff, openAt: v, closeAt: null, status: null }; }
+      else if (d.liff) { st.liff = { shot: shot || d.liff, openAt: v, closeAt: null, status: null }; }
     });
     wait(after == null ? 900 : after);
   }
   function bot(text, delay) { wait(delay == null ? 650 : delay); at(function (v) { st.bubbles.push({ from: 'bot', text: text, at: v }); }); }
   function me(text, delay) { wait(delay || 0); at(function (v) { st.bubbles.push({ from: 'me', text: text, at: v }); }); }
 
-  // LIFF画面の中(スクショ上の座標 → 画面座標は上に46pxの帯ぶん下がる)
+  // LIFF画面の中(スクショ上の座標 → 画面座標は上に46pxの帯ぶん下がり、スクロールしたぶん上がる)
+  function liffScroll(L) { if (!L || L.sTo == null) return 0; var q = ease(clamp((vt - L.sAt) / 500, 0, 1)); return L.sFrom + (L.sTo - L.sFrom) * q; }
   function shotRect(kind, idx) {
-    var p = A.pts[st.liff.shot] || {}, r = kind === 'btn' ? p.btn : p.items[idx];
-    return { x: r[0], y: 46 + r[1], w: r[2], h: r[3] };
+    var p = A.pts[st.liff.shot] || {}, r = kind === 'btn' ? p.btn : kind === 'item' ? p.items[idx] : p[kind];
+    return { x: r[0], y: 46 + r[1] - (st.liff.sTo || 0), w: r[2], h: r[3] };
   }
   function tapShot(kind, idx, after) {
-    at(function (v) { var r = shotRect(kind, idx); moveTo(r.x + r.w / 2, r.y + r.h / 2, v); });
+    // 押す場所が画面の下にはみ出していたら、先にスクロールして見えるようにする
+    // (指の移動と同時にスクロールする。shotRect はスクロールし終わった位置を返す)
+    at(function (v) {
+      var r = shotRect(kind, idx), over = r.y + r.h + 24 - H;
+      if (over > 0) { st.liff.sFrom = liffScroll(st.liff); st.liff.sTo = (st.liff.sTo || 0) + over; st.liff.sAt = v; }
+      r = shotRect(kind, idx); moveTo(r.x + r.w / 2, r.y + r.h / 2, v);
+    });
     wait(700);
     at(function (v) { var r = shotRect(kind, idx); pressAt(r.x, r.y, r.w, r.h, v); });
     wait(260 + (after || 0));
@@ -328,6 +571,34 @@
     at(function (v) { if (st.liff) st.liff.closeAt = v; });
     wait(800);
   }
+
+  // ---- パソコン(Googleカレンダー)の操作 ----
+  function hlPhone(x, y, w, h) { at(function (v) { st.hl = { dev: 'phone', x: x, y: y, w: w, h: h, at: v }; }); }
+  function hlPc(name) { at(function (v) { var r = pcRect(name); st.hl = { dev: 'pc', x: r.x, y: r.y, w: r.w, h: r.h, at: v }; }); }
+  function hlOff() { at(function () { st.hl = null; }); }
+  function focusPc(x, y, z) { at(function () { st.focus = x == null ? null : { x: x, y: y, z: z || 0.7 }; }); }
+  function toPc() {
+    at(function (v) {
+      st.device = 'pc'; st.liff = null; st.finger = null; st.hl = null; st.pop = null;
+      st.pc = { page: 'cal', gear: false, cal: false, shared: false, dialog: null, sel: null, key: null, sFrom: 0, sTo: 0, sAt: v };
+      st.mouse = { fx: 640, fy: 420, tx: 640, ty: 420, at: v, dur: 1 };
+    });
+    wait(1300);
+  }
+  function toPhone() { at(function () { st.device = 'phone'; st.hl = null; st.focus = null; }); wait(1300); }
+  function pcScrollTo(y) { at(function (v) { st.pc.sFrom = pcScroll(); st.pc.sTo = y; st.pc.sAt = v; }); wait(800); }
+  function curMouse() { var m = st.mouse, q = ease(clamp((vt - m.at) / m.dur, 0, 1)); return { x: m.fx + (m.tx - m.fx) * q, y: m.fy + (m.ty - m.fy) * q }; }
+  function mouseTo(x, y, v, dur) { var c = curMouse(); st.mouse = { fx: c.x, fy: c.y, tx: x, ty: y, at: v, dur: dur || 700 }; }
+  // 名前つきの場所へマウスを動かしてクリックし、fn で画面を変える
+  function click(name, fn, after) {
+    at(function (v) { var r = pcRect(name); mouseTo(r.x + Math.min(r.w / 2, 60), r.y + r.h / 2, v); });
+    wait(800);
+    at(function (v) { var r = pcRect(name); st.pcFlash = { x: r.x + Math.min(r.w / 2, 60), y: r.y + r.h / 2, at: v }; });
+    wait(200);
+    at(function (v) { fn(st.pc, v); });
+    wait(after == null ? 700 : after);
+  }
+  function keyTip(text) { at(function (v) { st.pc.key = { text: text, at: v }; }); }
 
   // ================= 各機能の台本 =================
   var BACK = '戻る';
@@ -425,7 +696,7 @@
     chapter('ヘルプ', 'other');
     cap('使えるコマンドの一覧は「ヘルプ」で見られます。');
     wait(1800); tapCell('ヘルプ', 400);
-    bot('🤖 ミライBotでできること\n\n🌤️ 天気 〇〇 → 今日の天気\n📅 週間天気 〇〇 → 1週間分\n🌤️ 地域登録 住所 → 天気の住所登録\n\n🗑️ ゴミ → 今日の状況\n🗑️ ゴミの日 → 収集スケジュール\n\n📅 予定 → 今日の予定一覧\n📅 週間予定 → 今後1週間\n\n(以下、おみくじ・リマインド・メモなども並びます。ここでは一部を省略しています)', 900);
+    bot('🤖 ミライBotでできること\n\n🌤️ 天気 〇〇 → 今日の天気\n📅 週間天気 〇〇 → 1週間分\n🌤️ 地域登録 住所 → 天気の住所登録\n\n🗑️ ゴミ → 今日の状況\n🗑️ ゴミの日 → 収集スケジュール\n\n📅 予定 → 今日の予定一覧\n📅 週間予定 → 今後1週間\n🎬 カレンダー登録のやり方(動画)\n\n(以下、おみくじ・リマインド・メモなども並びます。ここでは一部を省略しています)', 900);
     wait(6500);
     cap('メニューのボタンを押す代わりに、このように文字を送っても、同じように使えます。');
     wait(4500);
@@ -494,7 +765,7 @@
     chapter('カレンダーを登録', 'main');
     cap('予定を見るには、自分のGoogleカレンダーを登録します。\n「その他 → カレンダー登録」を開きます。');
     wait(2500); tapCell('その他'); tapCell('カレンダー登録', 600);
-    cap('カレンダーのIDを入れて「保存する」を押します。\n(事前に、カレンダーをBot用のメールアドレスに「閲覧のみ」で共有しておきます)');
+    cap('カレンダーのIDを入れて「保存する」を押します。\n(事前に、画面上の枠のアドレスへ、Googleカレンダーを共有しておきます。くわしくは「カレンダー登録のやり方」のデモで)');
     wait(5000); submitForm('カレンダーを保存したよ📅\nsample.user@example.com');
     chapter('今日の予定', 'other');
     cap('登録したら、メニューの「予定」から見られます。');
@@ -510,6 +781,102 @@
     wait(7500);
     cap('登録できるのは自分のカレンダーだけです。他の人の予定が見えることはありません。');
     wait(4500);
+  };
+
+  SCRIPTS.calendar = function () {
+    chapter('はじめに', 'main');
+    cap('「予定」を使うには、最初に1回だけ準備がいります。\n① 自分のGoogleカレンダーを、ミライBotに見せる(共有する)\n② カレンダーのIDを、ミライBotに登録する\nこの2つを順番に見ていきます。');
+    wait(7500);
+    cap('①はGoogleカレンダーの設定画面でやります。スマホのカレンダーアプリには、この共有の設定がないので、パソコンのブラウザを使います。\n(スマホでも、ブラウザで「PC版サイト」に切り替えればできます)');
+    wait(8000);
+
+    chapter('共有先のアドレス', 'main');
+    cap('まず、共有する相手(ミライBot用のメールアドレス)を調べます。\n「その他 → カレンダー登録」を開きます。');
+    wait(3000); tapCell('その他'); tapCell('カレンダー登録', 900, 'calendar-empty');
+    cap('上の枠に出ているのが、共有する相手のアドレスです。\n「アドレスをコピー」を押すとコピーできます。');
+    hlPhone(35, 237, 320, 46); wait(3500);
+    tapShot('copy', 0, 0); hlOff();
+    at(function (v) { st.liff.status = { text: 'アドレスをコピーしたよ📋', at: v }; });
+    wait(2500);
+    cap('パソコンで作業するときは、このアドレスを自分あてにメールで送るなどしておくと、貼り付けるだけで済みます。\n※このデモのアドレスはダミーです。本物は、ミライBotの画面で確かめてください。');
+    wait(7000); closeLiff();
+    cap('トークで「カレンダー」と送っても、同じアドレスが届きます。\nパソコン版のLINEなら、ここからコピーできます。');
+    me('カレンダー', 300);
+    bot('カレンダーの使い方だよ📅\n(…)\n登録の前に、パソコンのブラウザでGoogleカレンダーの「設定」→自分のカレンダー→「特定のユーザーまたはグループと共有する」で、このアドレスを「予定の表示(すべての予定の詳細)」で追加してね👇\n' + SHARE + '\n(…)', 900);
+    wait(6500);
+
+    chapter('Googleカレンダーの設定を開く', 'other');
+    toPc();
+    cap('ここからはパソコンです。ブラウザでGoogleカレンダー(calendar.google.com)を開きます。');
+    wait(3500);
+    cap('右上の歯車マーク ⚙ を押して、「設定」を選びます。');
+    hlPc('gear'); wait(1500);
+    click('gear', function (P) { P.gear = true; st.hl = null; }, 900);
+    click('set', function (P) { P.gear = false; P.page = 'settings'; }, 1200);
+
+    chapter('自分のカレンダーを選ぶ', 'other');
+    cap('設定画面の左の列、「マイカレンダーの設定」の中から、予定を見たいカレンダーを押します。\n(ふつうは自分の名前のカレンダーです)');
+    focusPc(140, 400, 0.75); hlPc('mycal'); wait(4000);
+    click('mycal', function (P) { P.cal = true; st.hl = null; }, 1500);
+    focusPc(null);
+
+    chapter('ミライBotに共有する', 'other');
+    cap('右側を少し下へスクロールして、「特定のユーザーまたはグループと共有する」の欄を見ます。');
+    pcScrollTo(270); hlPc('shareSec'); wait(3000);
+    cap('「＋ ユーザーやグループを追加」を押します。');
+    hlPc('add'); focusPc(480, 320, 0.85); wait(1800);
+    click('add', function (P, v) { P.dialog = { at: v, text: '', perm: 0, open: false }; st.hl = null; }, 1200);
+    cap('さっきコピーした、ミライBotのアドレスを貼り付けます。');
+    focusPc(480, 315, 0.8); wait(1200);
+    click('email', function (P, v) { P.dialog.text = SHARE; P.key = { text: 'Ctrl + V', at: v }; }, 2600);
+    cap('「権限」は「予定の表示(すべての予定の詳細)」にします。\n「時間枠のみ」のままだと、予定の中身がミライBotから見えません。');
+    wait(2500);
+    click('perm', function (P) { P.dialog.open = true; }, 1600);
+    click('opt1', function (P) { P.dialog.perm = 1; P.dialog.open = false; }, 2000);
+    cap('「送信」を押します。');
+    click('send', function (P) { P.dialog = null; P.shared = true; }, 1200);
+    cap('共有の一覧に、ミライBotのアドレスが増えればOKです。');
+    focusPc(560, 330, 0.85); hlPc('botrow'); wait(4500); hlOff(); focusPc(null);
+
+    chapter('カレンダーIDをコピー', 'other');
+    cap('同じ画面をさらに下へスクロールして、「カレンダーの統合」の欄を見ます。');
+    pcScrollTo(660); hlPc('calsec'); wait(3000);
+    cap('「カレンダー ID」の文字が、このカレンダーのIDです。選んでコピーします。\n(いつもの自分のカレンダーなら、Gmailのアドレスと同じです)');
+    focusPc(500, 300, 0.8); hlPc('calid'); wait(3000);
+    at(function (v) { var r = pcRect('calid'); mouseTo(r.x + 2, r.y + r.h / 2, v, 700); }); wait(800);
+    at(function (v) { var r = pcRect('calid'); st.pc.sel = v; mouseTo(r.x + r.w, r.y + r.h / 2, v, 700); st.hl = null; }); wait(900);
+    keyTip('Ctrl + C'); wait(2500);
+    cap('このIDも、スマホで使えるように、自分あてにメールで送るなどしておきます。\nこれでパソコンの作業はおしまいです。');
+    focusPc(null); wait(5500);
+
+    chapter('ミライBotに登録', 'other');
+    toPhone();
+    cap('スマホのLINEにもどって、「その他 → カレンダー登録」を開きます。');
+    wait(1200); tapCell('カレンダー登録', 900, 'calendar-empty');
+    cap('「② カレンダーID」の欄に、コピーしたIDを貼り付けます。');
+    wait(1500); tapShot('id', 0, 0);
+    at(function (v) { var r = shotRect('id'); st.pop = { x: r.x + 40, y: r.y - 50, at: v }; }); wait(900);
+    at(function (v) { var r = shotRect('id'); moveTo(r.x + 86, r.y - 32, v, 400); }); wait(500);
+    at(function (v) { var r = shotRect('id'); pressAt(r.x + 40, r.y - 50, 92, 36, v); }); wait(250);
+    at(function () { st.pop = null; st.liff.shot = 'calendar-paste'; }); wait(1800);
+    cap('「保存する」を押せば、登録はおしまいです。');
+    wait(1500); submitForm('カレンダーを保存したよ📅\n' + MYCAL);
+
+    chapter('予定が見られるか確認', 'other');
+    cap('「予定 → 今日の予定」で、自分の予定が出てくれば成功です🎉');
+    wait(1500); tapCell(BACK); tapCell('予定'); tapCell('今日の予定', 400);
+    bot('📅 今日の予定だよ\n09:30-10:30 打ち合わせ\n12:00-13:00 ランチ\n19:00-20:00 ジム', 900);
+    wait(5000);
+
+    chapter('うまくいかないとき', 'schedule');
+    cap('「カレンダーが見られなかったよ」と返ってきたら、次を見直してください。\n・共有したアドレスが合っているか\n・権限が「予定の表示(すべての予定の詳細)」か\n・登録したカレンダーIDが合っているか');
+    me('予定', 1200);
+    bot('カレンダーが見られなかったよ…😢\n・共有先のアドレスが合っているか\n・権限が「予定の表示(すべての予定の詳細)」になっているか\n・登録したカレンダーIDが合っているか\nを確かめてみてね\n(このあと、このデモへのリンクが続きます)', 900);
+    wait(9000);
+    cap('このデモは、ミライBotの「ヘルプ」からも、いつでも開けます。');
+    tapCell(BACK); tapCell('その他'); tapCell('ヘルプ', 400);
+    bot('🤖 ミライBotでできること\n(…)\n📅 カレンダー登録 ID → 登録\n📅 予定 → 今日の予定一覧\n📅 週間予定 → 今後1週間\n📅 次の予定 → 直近の1件\n🎬 カレンダー登録のやり方(動画)\n  https://koichi210.github.io/stable/doc/line-bot-mirai/demo.html?f=calendar\n(…)', 900);
+    wait(6500);
   };
 
   SCRIPTS.memo = function () {
@@ -632,7 +999,7 @@
   // ================= 再生 =================
   var evIdx = 0;
   function seek(ms) {
-    st = fresh(); evIdx = 0; vt = 0;
+    st = fresh(); evIdx = 0; vt = 0; snap = true; // 飛んだ先では、スマホ/パソコンの入れかわりやズームを途中から始めない
     var target = clamp(ms, 0, TOTAL);
     while (evIdx < EV.length && EV[evIdx].at <= target) { vt = EV[evIdx].at; EV[evIdx].fn(vt); evIdx++; }
     vt = target;
@@ -670,6 +1037,21 @@
   var screen = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 5.8), new THREE.MeshBasicMaterial({ map: tex }));
   screen.position.z = 0.2; phone.add(screen);
 
+  // ノートパソコン(カレンダー登録のくわしいデモで、Googleカレンダーの画面を見せる)
+  var LW = 7.8, LH = 4.875, LID_Y = -2.6;   // 画面の大きさ(16:10)と、ちょうつがいの高さ
+  var laptop = new THREE.Group(); laptop.visible = false; scene.add(laptop);
+  var darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2840, metalness: 0.55, roughness: 0.4 });
+  var lid = new THREE.Group(); lid.position.y = LID_Y; lid.rotation.x = -0.06; laptop.add(lid);
+  var lidBox = new THREE.Mesh(new THREE.BoxGeometry(LW + 0.36, LH + 0.5, 0.14), darkMat); lidBox.position.set(0, LH / 2 + 0.2, -0.08); lid.add(lidBox);
+  var ptex = new THREE.CanvasTexture(cvp); ptex.anisotropy = 8;
+  var pscreen = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), new THREE.MeshBasicMaterial({ map: ptex })); pscreen.position.set(0, LH / 2 + 0.22, 0); lid.add(pscreen);
+  var base = new THREE.Mesh(new THREE.BoxGeometry(LW + 0.6, 0.18, 4.2), darkMat); base.position.set(0, LID_Y - 0.09, 2.05); laptop.add(base);
+  var kb = new THREE.Mesh(new THREE.PlaneGeometry(LW - 0.6, 2.2), new THREE.MeshStandardMaterial({ color: 0x1b1930, roughness: 0.8 }));
+  kb.rotation.x = -Math.PI / 2; kb.position.set(0, LID_Y + 0.005, 1.5); laptop.add(kb);
+  var SCREEN_CY = LID_Y + LH / 2 + 0.22;    // 画面の中心の高さ
+  // パソコン画面のピクセル位置 → 3Dの位置
+  function pcTo3d(x, y) { return { x: (x / PW - 0.5) * LW, y: SCREEN_CY + (0.5 - y / PH) * LH }; }
+
   var N = 220, pos = new Float32Array(N * 3), seed = [];
   for (var i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 26; pos[i * 3 + 1] = (Math.random() - 0.5) * 16; pos[i * 3 + 2] = -3 - Math.random() * 12; seed.push(Math.random() * 6.28); }
   var pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -683,11 +1065,12 @@
     renderer.setSize(w, h, false); camera.aspect = w / h;
     var t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     camera.userData.base = Math.max((7.3 / 2) / t, (4.4 / 2) / (t * camera.aspect));
+    camera.userData.basePc = Math.max((LH + 1.2) / 2 / t, (LW + 0.9) / 2 / (t * camera.aspect));
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize); resize();
 
-  var yaw = 0, zoom = 1;
+  var yaw = 0, zoom = 1, mix = 0, fx = 0, fy = 0, fz = 1, snap = false;
   function frame(tms) {
     var wall = tms / 1000;
     var tgtYaw = (st.liff && st.liff.closeAt == null ? -0.1 : 0.16) + Math.sin(wall * 0.5) * 0.12;
@@ -695,7 +1078,21 @@
     var tgtZoom = st.liff && st.liff.closeAt == null ? 0.9 : 1;
     zoom += (tgtZoom - zoom) * 0.05;
     phone.rotation.y = yaw; phone.rotation.x = Math.sin(wall * 0.37) * 0.04; phone.position.y = Math.sin(wall * 0.9) * 0.08;
-    camera.position.set(0, 0.4, camera.userData.base * zoom); camera.lookAt(0, 0, 0);
+    // スマホ ⇔ パソコンの入れかわり(スマホは左へ、パソコンは右から)
+    var k = snap ? 1 : 0.06;
+    mix += ((st.device === 'pc' ? 1 : 0) - mix) * k;
+    if (Math.abs(mix - Math.round(mix)) < 0.002) mix = Math.round(mix);
+    phone.position.x = -mix * 11; phone.visible = mix < 0.995;
+    laptop.position.x = (1 - mix) * 14; laptop.visible = mix > 0.005;
+    laptop.rotation.y = Math.sin(wall * 0.4) * 0.035;
+    // パソコンの見たい所へ寄る(focus)
+    var F = st.device === 'pc' && st.focus ? pcTo3d(st.focus.x, st.focus.y) : { x: 0, y: SCREEN_CY * mix };
+    var tz = st.device === 'pc' && st.focus ? st.focus.z : 1;
+    k = snap ? 1 : 0.05; snap = false;
+    fx += (F.x - fx) * k; fy += (F.y - fy) * k; fz += (tz - fz) * k;
+    var dist = (camera.userData.base * zoom) * (1 - mix) + camera.userData.basePc * fz * mix;
+    camera.position.set(fx, fy + 0.4 * (1 - mix) + 0.25 * mix, dist); camera.lookAt(fx, fy, 0);
+    if (laptop.visible) { renderPc(); ptex.needsUpdate = true; }
     ring.rotation.z = wall * 0.3; ring2.rotation.z = -wall * 0.2;
     for (var i = 0; i < N; i++) pg.attributes.position.array[i * 3 + 1] += Math.sin(wall + seed[i]) * 0.0016;
     pg.attributes.position.needsUpdate = true;
