@@ -112,7 +112,7 @@
     { id: 'trash',    icon: '🗑️', title: 'ゴミ出し', adm: false, len: '約0:30', desc: '「今日は何ゴミの日か」と、曜日ごとの収集スケジュールが見られます。' },
     { id: 'game',     icon: '🎮', title: 'ゲーム', adm: false, len: '約0:30', desc: 'おみくじ、アルカナのミニ勝負、アルカナ本体(対戦ページ)への案内。' },
     { id: 'schedule', icon: '📅', title: '予定(Googleカレンダー)', adm: false, len: '約0:45', desc: '自分のGoogleカレンダーを登録して、今日の予定・今後一週間の予定をトークで見ます。' },
-    { id: 'calendar', icon: '🔗', title: 'カレンダー登録のやり方(くわしく)', adm: false, len: '約2:40', desc: 'Googleカレンダー(パソコン)でミライBotに共有して、カレンダーIDをLINEで登録するまでを、1画面ずつ見せます。「予定」がうまく出ないときもこちら。' },
+    { id: 'calendar', icon: '🔗', title: 'カレンダー登録のやり方(くわしく)', adm: false, len: '約2:50', desc: 'Googleカレンダー(パソコン)でミライBotに共有して、カレンダーIDをLINEで登録するまでを、1画面ずつ見せます。「予定」がうまく出ないときもこちら。' },
     { id: 'memo',     icon: '📝', title: 'メモ', adm: false, len: '約0:40', desc: '買い物メモなどの個人用TODO。フォームで追加・削除、一覧はトークに表示します。' },
     { id: 'reminder', icon: '⏰', title: 'リマインダー', adm: false, len: '約0:55', desc: '決めた時刻に通知してくれます。毎日・毎週・毎月・1回だけ。管理者が許可した人だけ使えます。' },
     { id: 'announce', icon: '📢', title: 'アナウンス', adm: true, len: '約1:05', desc: 'グループトークに、決めた日時でお知らせを自動で送ります。送り先グループの登録から、予約の追加・削除まで。' },
@@ -575,6 +575,8 @@
   // ---- パソコン(Googleカレンダー)の操作 ----
   function hlPhone(x, y, w, h) { at(function (v) { st.hl = { dev: 'phone', x: x, y: y, w: w, h: h, at: v }; }); }
   function hlPc(name) { at(function (v) { var r = pcRect(name); st.hl = { dev: 'pc', x: r.x, y: r.y, w: r.w, h: r.h, at: v }; }); }
+  // LIFF画面の部品(shoot.js で位置を取ったもの)を枠で囲む
+  function hlShot(kind) { at(function (v) { var r = shotRect(kind), p = 4; st.hl = { dev: 'phone', x: r.x - p, y: r.y - p, w: r.w + p * 2, h: r.h + p * 2, at: v }; }); }
   function hlOff() { at(function () { st.hl = null; }); }
   function focusPc(x, y, z) { at(function () { st.focus = x == null ? null : { x: x, y: y, z: z || 0.7 }; }); }
   function toPc() {
@@ -794,7 +796,7 @@
     cap('まず、共有する相手(ミライBot用のメールアドレス)を調べます。\n「その他 → カレンダー登録」を開きます。');
     wait(3000); tapCell('その他'); tapCell('カレンダー登録', 900, 'calendar-empty');
     cap('上の枠に出ているのが、共有する相手のアドレスです。\n「アドレスをコピー」を押すとコピーできます。');
-    hlPhone(35, 237, 320, 46); wait(3500);
+    hlShot('email'); wait(3500);
     tapShot('copy', 0, 0); hlOff();
     at(function (v) { st.liff.status = { text: 'アドレスをコピーしたよ📋', at: v }; });
     wait(2500);
@@ -877,6 +879,9 @@
     tapCell(BACK); tapCell('その他'); tapCell('ヘルプ', 400);
     bot('🤖 ミライBotでできること\n(…)\n📅 カレンダー登録 ID → 登録\n📅 予定 → 今日の予定一覧\n📅 週間予定 → 今後1週間\n📅 次の予定 → 直近の1件\n🎬 カレンダー登録のやり方(動画)\n  https://koichi210.github.io/stable/doc/line-bot-mirai/demo.html?f=calendar\n(…)', 900);
     wait(6500);
+    cap('「カレンダー登録」の画面の、いちばん上の青いボタン「🎬 登録のやり方を動画で見る」からも開けます。');
+    tapCell('カレンダー登録', 900, 'calendar-empty');
+    hlShot('howto'); wait(5000); hlOff();
   };
 
   SCRIPTS.memo = function () {
