@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagicLauncher — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'MagicLauncher',
+  caption: 'よく開く Web ページ・フォルダ・ファイルを、光る魔法陣の上に並べてクリックで開く',
+  lead: 'よく開く Web ページ・フォルダ・ファイルを、ブラウザの中の<b>光る魔法陣</b>の上に円として並べ、クリックで Windows の既定のアプリで開く個人用ランチャーです。' +
+        '中心の結晶から<b>タグ＝分岐点</b>へ回路のような線が伸び、その先に<b>登録した項目＝小さな魔法陣</b>がぶら下がります。' +
+        'ブラウザだけではローカルのフォルダを開けないので、<code>127.0.0.1</code> だけで待ち受ける小さな Node サーバ（npm パッケージなし）が「設定ファイルの読み書き」と「開く」を受け持ちます。',
+  say: ['よく開くフォルダや URL をワンクリックで開きたい', '登録したものを OneDrive で複数の PC と共有したい', 'タグで分けて、仕事ごとに魔法陣を分けたい', 'キーを打つだけで探して開きたい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0],
+      desc: '円をクリックして開く人。右クリックで登録・編集、ドラッグで並べ替え、キーを打つと検索。' },
+    { id: 'screen', type: 'screen', label: '魔法陣の画面', sub: 'public/', at: [-4.6, -2.6],
+      desc: 'ブラウザで開く画面（<code>launcher.js</code>＝画面・操作・検索、<code>magic.js</code>＝魔法陣の描画部品、three.js r128 は <code>vendor/</code> に同梱）。右上の 🍃 Light で three.js を読まない文字の一覧に切り替えられる（localStorage に覚える）。' },
+    { id: 'app', type: 'main', label: 'MagicLauncher', sub: 'server.js', at: [-0.4, 0],
+      desc: 'Node.js のサーバ。待ち受けは <code>127.0.0.1:8790</code> だけ。<code>/api/state</code>・<code>/api/version</code>・<code>/api/item</code>・<code>/api/open</code> など。Host が違う・よその Origin・独自ヘッダ <code>X-Launcher: 1</code> が無い呼び出しは断る。' },
+    { id: 'json', type: 'file', label: '登録データ', sub: 'launcher.json', at: [0.8, 4.4],
+      desc: '登録した項目・タグ・魔法陣の並びを持つ JSON 1つ。OneDrive などに置けば複数の PC で共有できる。パスは <code>%USERPROFILE%</code> などの環境変数を展開してから使う。書くたびに直前の内容を <code>.bak</code> に1世代残す。' },
+    { id: 'local', type: 'store', label: 'PC ごとの設定', sub: '%LOCALAPPDATA%\\MagicLauncher', at: [-4.2, 3.4],
+      desc: '<code>settings.json</code>（設定ファイルの場所）・<code>server.log</code>（1MB を超えたら作り直す）・<code>opener.exe</code> を PC ごとに置く。' },
+    { id: 'opener', type: 'code', label: '開く係', sub: 'opener.exe', at: [4.4, -1.6],
+      desc: '<code>opener.cs</code> をサーバ起動時に .NET Framework 付属の <code>csc.exe</code> でビルドしたもの（opener.cs の方が新しいときだけ作り直す）。見えない手前の窓になってから開くので、開いた窓が手前に出る。' },
+    { id: 'win', type: 'os', label: 'Windows', sub: '既定のアプリ', at: [8.4, -0.4],
+      desc: 'フォルダはエクスプローラー、ファイルは関連付けのアプリ、URL・<code>vscode://</code> などは既定の扱いで開く。' },
+  ],
+  links: [['user', 'screen'], ['screen', 'app'], ['app', 'json'], ['app', 'local'], ['app', 'opener'], ['opener', 'win']],
+  steps: [
+    { by: 'user', title: 'start.bat で起動', flow: [['user', 'app'], ['app', 'local']],
+      text: '待ち受けていなければ <code>autostart.ps1</code> が node を窓なしで起動し、既定のブラウザで <code>http://127.0.0.1:8790/</code> を開く。二重には起動しない。止めるときは <code>stop.bat</code>（8790 で待ち受けている PID だけ止める）。',
+      note: 'PC の起動時に立ち上げるには autostart.ps1 のショートカットを shell:startup に置く' },
+    { by: 'screen', title: '登録データを読む', flow: [['screen', 'app'], ['app', 'json'], ['json', 'app'], ['app', 'screen']],
+      text: '画面が <code>/api/state</code> を呼ぶ。サーバは設定ファイルを毎回読み直し、パスごとに「フォルダ・ファイル・見つからない」を調べて返す。',
+      note: 'ネットワークパスで固まらないよう 1.5 秒で打ち切り、結果は 30 秒覚えておく' },
+    { by: 'screen', title: '魔法陣を組み立てる', flow: [['app', 'screen'], ['screen', 'user']],
+      text: '項目の<b>先頭のタグ</b>が円の色と置き場所を決める。中心の結晶 → 幹 → 分岐点（タグ）→ 枝（八方向の折れ線）→ 円（項目）とつなぎ、枝に光の粒を流す。タグに魔法陣の名前を付けると魔法陣が分かれて横に並ぶ。',
+      note: '図柄は名前から決まる種で乱数を作り、同心円・弧・目盛り・幾何学記号を組み合わせたオリジナル' },
+    { by: 'user', title: '円をクリックして開く', flow: [['user', 'screen'], ['screen', 'app']],
+      text: '画面は <code>/api/open</code> に<b>登録済みの id だけ</b>を送る。サーバは <code>%VAR%</code> を展開して存在を確かめ（無い＝404・応答なし＝504）、任意のパスを開く口は作っていない。' },
+    { by: 'opener', title: '開く係が手前に出してから開く', flow: [['app', 'opener'], ['opener', 'win']],
+      text: 'サーバは窓を持たない裏方なので、直接開くと開いた窓がブラウザの後ろに隠れる。開く係がいったん見えない手前の窓になってから開き、<code>ok</code> を返したところでサーバが応答する。',
+      note: 'ビルドできない PC では rundll32 に切り替える（開けるが窓は後ろ。理由は server.log に残る）' },
+    { by: 'user', title: '登録・編集・並べ替え', flow: [['user', 'screen'], ['screen', 'app'], ['app', 'json']],
+      text: '右クリックで登録・編集、ドラッグで円どうし・タグどうし・魔法陣どうしを入れ替える。サーバは書き込みのたびに<b>ディスクの内容を読み直してから差分だけ当てて</b>保存する（画面が持つ古い一覧で上書きしない）。',
+      note: '壊れた JSON を読んだときは画面に赤い帯を出し、書き込みは断る（空の内容で上書きしない）' },
+    { by: 'screen', title: 'ほかの PC の変更に追いつく', flow: [['screen', 'app'], ['app', 'json']],
+      text: '画面は 10 秒ごと（とタブに戻ったとき）に <code>/api/version</code>（更新時刻とサイズ）を見て、変わっていたら読み直す。OneDrive で同期された変更もここで反映される。' },
+    { by: 'screen', title: '待機中は魔法陣が動く', flow: [['screen', 'user']],
+      text: 'マウスがページの外へ出て 1 秒たつと、全体がゆっくり反時計回りに回りながら離れてまたくっつく（または、ふわふわ漂う）。マウスを戻すと約 1 秒で元の表示に戻る。' },
+  ],
+  pages: [
+    { href: 'https://github.com/koichi210/Essentials/tree/main/MagicLauncher', icon: '📖', title: 'ソースと README', desc: '設定ファイルの書式・読み書きのルール・API の一覧・安全のための作り・画面の操作と、動かし方' },
+  ],
+  note: 'ソースは <code>Essentials/MagicLauncher</code>。待ち受けは <code>127.0.0.1</code> だけで、ほかの PC からはつながりません。' +
+        '<code>.exe</code> や <code>.bat</code> を登録するとクリックで実行されるので、設定ファイルを共有フォルダに置くときは、書き込める人に注意してください。',
+});
+</script>
+</body>
+</html>
