@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FiddleAroundString — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'FiddleAroundString',
+  caption: '文字の加工と、ファイルや Web ページからの行の抜き出しを、4つのタブで',
+  lead: '文字をいじる小さなツール4本（ToyingFile・ToyingData・TrimFileData・TrimHtmlData）を、<b>1つのウィンドウのタブ</b>にまとめた Windows 用ツールです（C# / WPF）。' +
+        'フォルダ内のファイルから文字を消す<b>ファイル加工</b>、全角→半角や重複行の削除をする<b>データ加工</b>、手元のファイルから検索ワードを含む行を抜き出す<b>ファイル抽出</b>、Web ページの HTML から抜き出す<b>HTML抽出</b>を切り替えて使います。',
+  say: ['たくさんのファイルから同じ文字をまとめて消したい', '全角の英数字を半角にそろえたい', '一覧の中から、検索ワードを含む行だけを抜き出したい', 'Web ページの決まった場所の値を取り出したい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: 'タブを選んで、対象と条件を入れて「実行」を押す人。' },
+    { id: 'app', type: 'main', label: 'FiddleAroundString', sub: 'MainWindow', at: [-4.2, 0],
+      desc: 'C# / WPF のウィンドウ。4つのタブに、元の4本の画面をそれぞれ UserControl にして1つずつ載せている。' },
+    { id: 'tfile', type: 'code', label: 'ファイル加工', sub: '旧 ToyingFile', at: [0.6, -3.6],
+      desc: 'ディレクトリとファイル名のパターン（例: <code>*.txt</code>）で対象を決め、指定した文字（またはその文字を含む行）を消して上書きする。サブディレクトリも対象にできる。' },
+    { id: 'tdata', type: 'code', label: 'データ加工', sub: '旧 ToyingData', at: [0.6, -1.2],
+      desc: '貼り付けた文字の重複行を消す、または数字・英大文字・英小文字・スペースのうち選んだものを全角→半角に変える。' },
+    { id: 'tref', type: 'code', label: 'ファイル抽出', sub: '旧 TrimFileData', at: [0.6, 1.2],
+      desc: 'リファレンスファイルの中から、検索ワードを含む行を抜き出す。共通ワード・最初のヒットだけ・大文字小文字・全角半角の区別を選べる。' },
+    { id: 'thtml', type: 'code', label: 'HTML抽出', sub: '旧 TrimHtmlData', at: [0.6, 3.6],
+      desc: 'URL の HTML を取ってきて、検索文字を含む行と、そこから指定した行数を抜き出す。複数の URL を順に取れて、取得中もウィンドウは固まらない。' },
+    { id: 'files', type: 'file', label: '対象のファイル', at: [5.2, -3.6], desc: 'ファイル加工が読み書きするファイル。上書きされる。' },
+    { id: 'ref', type: 'file', label: 'リファレンスファイル', at: [5.2, 1.2], desc: 'ファイル抽出が読むだけのファイル。' },
+    { id: 'web', type: 'service', label: 'Web ページ', at: [5.2, 3.6], desc: 'HTML抽出が取りに行くページ。' },
+    { id: 'json', type: 'store', label: '設定 JSON', sub: 'タブごと', at: [-4.2, 4.2],
+      desc: 'ファイル抽出と HTML抽出の入力値を、<code>%LOCALAPPDATA%\\FiddleAroundString\\</code> の下にタブごとのフォルダを分けて保存する。初めて起動したときに1回だけ、元の TrimFileData／TrimHtmlData の既定の保存先にある設定をコピーして取り込む。' },
+  ],
+  links: [['user', 'app'], ['app', 'tfile'], ['app', 'tdata'], ['app', 'tref'], ['app', 'thtml'],
+          ['tfile', 'files', true], ['tref', 'ref'], ['thtml', 'web'], ['app', 'json']],
+  steps: [
+    { by: 'user', title: 'タブを選ぶ', flow: [['user', 'app']],
+      text: '「ファイル加工」「データ加工」「ファイル抽出」「HTML抽出」のどれかを選ぶ。タブにマウスを乗せると元のツール名（旧ToyingFile など）が出る。' },
+    { by: 'tfile', title: 'ファイル加工: 文字や行を消す', flow: [['app', 'tfile'], ['tfile', 'files']],
+      text: '消したい文字を入れ、ディレクトリとファイル名のパターンを指定して実行する。「行を削除」にすると、その文字を含む行ごと消す。',
+      note: 'ファイルは上書きされる。大事なファイルは先にコピーしておく' },
+    { by: 'tdata', title: 'データ加工: 重複を消す・半角にする', flow: [['app', 'tdata']],
+      text: '変更前の欄に貼り付けて、「重複を削除」か「全角を半角に変換」を選んで実行すると、変更後の欄に結果が出る。半角にする対象は、数字・英大文字・英小文字・スペースから選ぶ。' },
+    { by: 'tref', title: 'ファイル抽出: 検索ワードを含む行を抜き出す', flow: [['app', 'tref'], ['ref', 'tref']],
+      text: '検索ワードを1行に1つずつ入れ、リファレンスファイルを指定して実行する。ヒットした行が検索結果に並ぶ。' },
+    { by: 'thtml', title: 'HTML抽出: Web ページから抜き出す', flow: [['app', 'thtml'], ['web', 'thtml']],
+      text: '取得元に URL を入れ、検索文字（先頭・終端）と取得行数を決めて実行する。ヒットした行から指定した行数ぶんが取得値に並ぶ。',
+      note: '取得行数は0以上の数字で入れる' },
+    { by: 'app', title: '設定を保存・復元する', flow: [['app', 'json'], ['json', 'app']],
+      text: 'ファイル抽出と HTML抽出は、入力した値に名前を付けて保存しておき、あとで選んで戻せる。タイトルバーの右クリックで保存先も変えられる。' },
+  ],
+  pages: [
+    { href: 'https://github.com/koichi210/Essentials/tree/main/FiddleAroundString/FiddleAroundString/bin/Release', icon: '📦', title: 'ビルド済み exe（Release フォルダ）', desc: 'ビルド済みの exe を置いている GitHub のフォルダ（いつも最新）。exe の横の dll なども一緒に置いて使う' },
+  ],
+  note: 'ソースは <code>Essentials/FiddleAroundString</code>。もとの4本（ToyingFile・ToyingData・TrimFileData・TrimHtmlData）は、別のリポジトリ（CS_Wpf）に単体のツールとして残っています。',
+});
+</script>
+</body>
+</html>
