@@ -67,6 +67,13 @@ body.mg-top { overflow: hidden; }
 .mg-hub-label { text-align: center; pointer-events: none; }
 .mg-hub-label b { display: block; font-size: 15px; letter-spacing: .2em; color: #f2dcff; text-shadow: 0 0 10px #c47bff; }
 .mg-hub-label span { font-size: 11px; color: var(--muted); }
+/* 右の魔法陣の中心（FeasibilityStudy）は、名前もクリックで一覧ページへ */
+.mg-hub-label.link { pointer-events: auto; text-decoration: none; display: block; padding: 3px 10px; border-radius: 8px; transition: background .15s, box-shadow .15s; }
+.mg-hub-label.link b { color: #fff0c8; text-shadow: 0 0 10px var(--c); letter-spacing: .12em; }
+.mg-hub-label.link.on, .mg-hub-label.link:focus-visible {
+  outline: none; background: color-mix(in srgb, var(--c) 22%, rgba(10, 6, 22, 0.85));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c) 55%, transparent);
+}
 
 #mg-info {
   position: fixed; left: 24px; bottom: 20px; z-index: 20; width: 340px; padding: 14px 16px; border-radius: 12px;
@@ -93,6 +100,8 @@ body.mg-top { overflow: hidden; }
 #mg-list li .e { font-size: 18px; width: 24px; text-align: center; }
 #mg-list li b { display: block; font-size: 13px; }
 #mg-list li small { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; }
+#mg-list li.sub a { margin-left: 18px; padding-top: 5px; padding-bottom: 5px; border-left: 1px solid color-mix(in srgb, var(--c) 40%, transparent); border-radius: 0 8px 8px 0; }
+#mg-list li.sub .e { font-size: 15px; }
 .mg-list-head { display: flex; justify-content: space-between; align-items: center; }
 .mg-x { background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
 body.no-webgl #mg-list { left: 16px; right: 16px; width: auto; margin: 0 auto; max-width: 640px; top: 120px; }
