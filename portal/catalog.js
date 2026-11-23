@@ -117,7 +117,7 @@
       summary: '兵数を持った駒で戦う「将棋版」の戦国バトル（開発初期）。' },
     { id: 'shubi', name: '戦国守備戦', emoji: '🗾', genre: 'board', href: FS + '戦国守備戦/game-guide.html',
       tech: '戦略ゲーム / TypeScript + Phaser 3 + Vite',
-      summary: '県ごとの軍で日本を取り合い、出撃するとじゃんけん合戦になる戦略ゲーム。' },
+      summary: '県ごとの軍で日本を取り合い、出撃するとじゃんけん合戦で決着する戦略ゲーム。' },
     { id: 'kingdom-game', name: '陣形と城壁（仮）', emoji: '🏯', genre: 'board', href: FS + 'kingdom-game/game-guide.html',
       tech: '陣形バトル / 素の HTML/CSS/JavaScript',
       summary: '兵種の三すくみ×地形で戦う陣形バトルに、攻城戦と国盗りが付く。' },
