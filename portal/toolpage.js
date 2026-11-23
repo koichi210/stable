@@ -224,7 +224,7 @@
       lab.style.setProperty('--c', n.color);
       lab.innerHTML = '<i></i>' + esc(n.label) + (n.sub ? ' <small>' + esc(n.sub) + '</small>' : '');
       var li = labels.add(lab, new T.Vector3(n.at[0], built.height + 0.38, n.at[1]));
-      var obj = { cfg: n, group: built.group, mats: built.mats, anim: built.anim, sel: sel, sel2: sel2, label: lab, labItem: li, height: built.height, k: 1, hot: 0 };
+      var obj = { cfg: n, group: built.group, mats: built.mats, anim: built.anim, sel: sel, selR: sel.scale.x, sel2: sel2, label: lab, labItem: li, height: built.height, k: 1, hot: 0 };
       built.group.traverse(function (o) { o.userData.node = obj; });
       lab.addEventListener('click', function (e) { e.stopPropagation(); select(obj, true); });
       nodes.push(obj); nodeById[n.id].obj = obj;
@@ -383,7 +383,7 @@
         var pulse = 0.5 + 0.5 * Math.sin(time * 4);
         o.sel.material.opacity = o.hot * (0.55 + 0.4 * pulse);
         o.sel2.material.opacity = o.hot * 0.5;
-        o.sel.scale.setScalar(1 + 0.08 * pulse * o.hot);
+        o.sel.scale.setScalar(o.selR * (1 + 0.08 * pulse * o.hot)); // 輪の大きさは scale に入っている(M.ring)ので掛け算
         o.sel2.rotation.z += dt;
         if (o.anim) o.anim(dt, time, o);
         o.label.classList.toggle('dim', o.k < 0.5);
@@ -489,7 +489,7 @@
     var height = 1.2, foot = 0.9, anim = null;
 
     if (n.type === 'main') {
-      var sig = M.sigil('tp-main-' + n.id, { radius: 1.7, color: col, detail: true });
+      var sig = M.sigil('tp-main-' + n.id, { radius: 1.7, color: col, detail: true, keep: true }); // keep: クリックの当たり判定で頂点を読む
       sig.rotation.x = -Math.PI / 2; sig.position.y = 0.05; g.add(sig);
       sig.userData.mats.forEach(function (m) { mats.push(m); });
       var cr = M.crystal(col, 0.62); cr.position.y = 1.55; g.add(cr);
@@ -549,7 +549,7 @@
       }
       height = 1.35; foot = 0.85;
     } else if (n.type === 'sigil') {
-      var ss = M.sigil('tp-sub-' + n.id, { radius: 0.85, color: col }); ss.rotation.x = -Math.PI / 2; ss.position.y = 0.05; g.add(ss);
+      var ss = M.sigil('tp-sub-' + n.id, { radius: 0.85, color: col, keep: true }); ss.rotation.x = -Math.PI / 2; ss.position.y = 0.05; g.add(ss);
       ss.userData.mats.forEach(function (m) { mats.push(m); });
       var orb = new T.Mesh(new T.IcosahedronGeometry(0.22, 1), std(col, 0.9)); orb.position.y = 0.85; g.add(orb);
       glowS(1.6, 0.45).position.y = 0.85;

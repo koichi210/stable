@@ -55,6 +55,9 @@
   CIRCLES.forEach(function (c) { c.groups = c.groups.filter(function (g) { return g.items.length; }); });
 
   var nodes = [], hubs = [], hitList = [], traces = [];
+  // occluder() / hitCircle() が共有する材質。buildCircle より前に作っておくこと（後ろだと undefined のまま使われて白い円になる）
+  var occMat = new T.MeshBasicMaterial({ color: '#07040f', transparent: true, opacity: 1, depthWrite: false });
+  var hitMat = new T.MeshBasicMaterial({ visible: false });
   var labels = new M.Labels(root);
   CIRCLES.forEach(buildCircle);
 
@@ -95,7 +98,7 @@
     if (c.center) {
       hubLabel.href = c.center.href;
       var hubHalo = M.glow(c.hubColor, c.hubR * 4.2, 0.0); hubHalo.position.z = -0.05; cg.add(hubHalo);
-      var hubHit = new T.Mesh(new T.CircleGeometry(c.hubR * 1.15, 32), new T.MeshBasicMaterial({ visible: false }));
+      var hubHit = hitCircle(c.hubR * 1.15);
       hubHit.position.z = 0.05; cg.add(hubHit);
       var hn = { it: c.center, g: { name: fsGroup.name, color: c.hubColor, filter: fsGroup.id }, circle: c, pos: [0, 0],
         label: hubLabel, halo: hubHalo, hover: 0, isHub: true };
@@ -152,7 +155,7 @@
         var hot = flow.add(path, '#ffffff', { count: 4, speed: 5.5, size: 0.5, on: false });
 
         // 当たり判定（見えない円）
-        var hit = new T.Mesh(new T.CircleGeometry(R * 1.15, 24), new T.MeshBasicMaterial({ visible: false }));
+        var hit = hitCircle(R * 1.15);
         hit.position.set(P[0], P[1], 0.05); cg.add(hit);
 
         var el = document.createElement('a');
@@ -174,9 +177,16 @@
   function v(p) { return new T.Vector3(p[0], p[1], 0); }
   function anchor(parent, p) { var o = new T.Object3D(); o.position.set(p[0], p[1], 0.1); parent.add(o); return o; }
   function order(obj, n) { obj.traverse(function (o) { o.renderOrder = n; }); }
+  // 下を隠す円と当たり判定の円は、大きさ 1 の形と材質(上の occMat / hitMat)を共有して scale で合わせる
   function occluder(r) {
-    var m = new T.Mesh(new T.CircleGeometry(r, 48), new T.MeshBasicMaterial({ color: '#07040f', transparent: true, opacity: 1, depthWrite: false }));
+    var m = new T.Mesh(M.unitCircle(48), occMat);
+    m.scale.set(r, r, 1);
     m.renderOrder = 2;
+    return m;
+  }
+  function hitCircle(r) {
+    var m = new T.Mesh(M.unitCircle(24), hitMat);
+    m.scale.set(r, r, 1);
     return m;
   }
   function addTrace(parent, pts, col, op, w, g, iid) {
