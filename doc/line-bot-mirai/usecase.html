@@ -84,17 +84,17 @@
   // 3Dに浮かべる画面。src: 画像(data URI)、crop: 元画像の [幅, 高さ](上から切り取る)、cw: キャンバスの幅(px)、
   // draw: 画像の代わりに描くトーク画面。at: 置く場所 [x, z](画像の下端の高さは y)、node: 破線でつなぐ箱、width: 3Dでの幅
   var SHOTS = [
-    { id: 'img-menu', stake: 'use', src: A.menus.main.img, crop: [A.menus.main.w, A.menus.main.h], cw: 750, node: 'user', at: [-17, -4], y: 7.5, width: 7, caption: '📱 メニュー(使う人)' },
-    { id: 'img-todo', stake: 'use', src: A.shots['todo-add'], crop: [780, CROP['todo-add']], cw: 520, node: 'memo', at: [-8.5, -4], y: 7.5, width: 4.6, caption: '📝 メモ追加' },
-    { id: 'img-remind', stake: 'use', src: A.shots['reminder-add'], crop: [780, CROP['reminder-add']], cw: 520, node: 'remind', at: [0, -4], y: 7.5, width: 4.6, caption: '⏰ リマインド追加' },
-    { id: 'img-cal', stake: 'use', src: A.shots['calendar'], crop: [780, CROP['calendar']], cw: 520, node: 'cal', at: [8.5, -4], y: 7.5, width: 4.6, caption: '📅 カレンダー登録' },
-    { id: 'img-admin', stake: 'admin', src: A.menus['main-admin'].img, crop: [A.menus['main-admin'].w, A.menus['main-admin'].h], cw: 750, node: 'admin', at: [-16, 4.5], y: 7.5, width: 7, caption: '🔧 管理者のメニュー' },
-    { id: 'img-access', stake: 'admin', src: A.shots['access-add'], crop: [780, CROP['access-add']], cw: 520, node: 'allow', at: [-2, -4], y: 7.5, width: 4.6, caption: '✅ 権限許可' },
-    { id: 'img-announce', stake: 'admin', src: A.shots['announce-add'], crop: [780, CROP['announce-add']], cw: 520, node: 'resv', at: [8, -4], y: 7.5, width: 4.6, caption: '📢 アナウンス追加' },
+    { id: 'img-menu', stake: 'use', src: A.menus.main.img, crop: [A.menus.main.w, A.menus.main.h], cw: 1000, node: 'user', at: [-19.5, -4], y: 7.5, width: 9.5, caption: '📱 メニュー(使う人)' },
+    { id: 'img-todo', stake: 'use', src: A.shots['todo-add'], crop: [780, CROP['todo-add']], cw: 780, node: 'memo', at: [-10, -4], y: 7.5, width: 6.8, caption: '📝 メモ追加' },
+    { id: 'img-remind', stake: 'use', src: A.shots['reminder-add'], crop: [780, CROP['reminder-add']], cw: 780, node: 'remind', at: [-2.5, -4], y: 7.5, width: 6.8, caption: '⏰ リマインド追加' },
+    { id: 'img-cal', stake: 'use', src: A.shots['calendar'], crop: [780, CROP['calendar']], cw: 780, node: 'cal', at: [5, -4], y: 7.5, width: 6.8, caption: '📅 カレンダー登録' },
+    { id: 'img-admin', stake: 'admin', src: A.menus['main-admin'].img, crop: [A.menus['main-admin'].w, A.menus['main-admin'].h], cw: 1000, node: 'admin', at: [-17, 4.5], y: 7.5, width: 9.5, caption: '🔧 管理者のメニュー' },
+    { id: 'img-access', stake: 'admin', src: A.shots['access-add'], crop: [780, CROP['access-add']], cw: 780, node: 'allow', at: [-5, -4], y: 7.5, width: 6.8, caption: '✅ 権限許可' },
+    { id: 'img-announce', stake: 'admin', src: A.shots['announce-add'], crop: [780, CROP['announce-add']], cw: 780, node: 'resv', at: [3, -4], y: 7.5, width: 6.8, caption: '📢 アナウンス追加' },
     { id: 'img-group', stake: 'member', draw: [
         { who: 'sys', text: '11月20日(金) 19:00' }, { who: 'bot', text: ANNOUNCE },
         { who: 'me', text: '@ミライBot メモ登録 名札を持っていく' }, { who: 'bot', text: 'メモを追加したよ📝\n1. 名札を持っていく' },
-      ], title: 'サークルA(グループ)', cw: 520, node: 'group', at: [14, -2], y: 7.5, width: 6, caption: '💬 グループに届いた画面' },
+      ], title: 'サークルA(グループ)', cw: 520, node: 'group', at: [14, -2], y: 7.5, width: 9, caption: '💬 グループに届いた画面' },
   ];
   // 画像と、その画像から下の箱へ引く破線(id は 'link-' + 画像のid)
   Object.keys(STAKE).forEach(function (k) {
