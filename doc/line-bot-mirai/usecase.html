@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>line-bot-mirai ユースケース</title>
+<!--
+  ミライBotのユースケース(役割別の使い方を、デモ動画のように流すページ)。作りは line-bot-s8-cub/usecase.html と同じ。
+  ・左の3Dは「ミライBotの中(Upstash Redisに保存しているもの)」と「外(人・LINEグループ・cron・外部API)」の箱と矢印。
+  ・右のパネルのトーク画面はHTMLのモック。LIFFの画面とリッチメニューは、機能デモ(demo.html)と同じ本物の画面のスクショ
+    (lib/demo-assets.js。作り直しは Bot側 scripts/demo/ の手順)を、上の部分だけ切り取って使っている。
+  ・返事の文面は Bot のソース(api/index.js)と機能デモに合わせている。名前・ID・予定・グループ名はすべてダミー。
+-->
+<link rel="stylesheet" href="lib/guide.css">
+<link rel="stylesheet" href="lib/mirai-tutorial.css">
+<style>
+  /* デモ再生の字幕とコントロール(3Dの上に重ねる) */
+  .demo-ov { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; }
+  .demo-cap { margin: 0 auto 12px; width: fit-content; max-width: 84%; background: #000000b8; color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 17px; line-height: 1.6; text-align: center; }
+  .demo-cap:empty { display: none; }
+  .demo-bar { pointer-events: auto; display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #000000a0; }
+  .demo-bar button { border: 1px solid #ffffff55; background: #ffffff1c; color: #fff; border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+  .demo-bar button.on { background: #06c755; border-color: #06c755; }
+  .demo-prog { flex: 1; height: 6px; background: #ffffff30; border-radius: 3px; overflow: hidden; }
+  .demo-prog i { display: block; height: 100%; width: 0; background: #06c755; }
+  /* 見る人(ステークホルダー)の切り替え。3Dの左上に重ねる */
+  .demo-tog { position: absolute; left: 12px; top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: #000000a0; padding: 6px 8px; border-radius: 10px; color: #fff; font-size: 13px; max-width: calc(100% - 24px); }
+  .demo-tog button { border: 1px solid #ffffff55; background: #ffffff14; color: #fff; border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .demo-tog button.on { background: #f59e0b; border-color: #f59e0b; color: #1b1830; font-weight: bold; }
+  /* 本物の画面のスクショ(上の部分だけ切り取る) */
+  .mi-shot { max-width: 270px; margin: 0 auto 12px; border: 1px solid #d5d5d5; border-radius: 12px; overflow: hidden; background: #fff; }
+  .mi-shot.wide { max-width: 100%; }
+  .mi-shot img { display: block; width: 100%; }
+  .mi-shot-cap { text-align: center; font-size: 11.5px; opacity: .75; margin: -6px 0 12px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="lib/guide.js"></script>
+<script src="lib/mirai-ui.js"></script>
+<script src="lib/demo-assets.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors, U = MiraiUI.ui, at = U.at, A = window.MiraiDemoAssets;
+  var FONT = '"Yu Gothic UI","Hiragino Sans","Meiryo",sans-serif';
+  var WIDE = { pos: [0, 34, 27], target: [0, 0, -4] };
+  var PACKETS = ['pk0', 'pk1', 'pk2'];
+  var UID = 'U0123456789abcdef0123456789abcdef';   // ダミー
+
+  // ---- 本物の画面のスクショ ----
+  // LIFFの画面は 780px 幅(スマホ390px×2倍)。ボタンの下までで切り取る(下は余白なので)
+  var CROP = { 'address': 676, 'calendar': 1248, 'todo-add': 558, 'reminder-add': 1152, 'announce-add': 1264, 'access-add': 600 };
+  function shot(key, note) {
+    return '<div class="mi-shot" style="aspect-ratio:780/' + CROP[key] + '"><img alt="" src="' + A.shots[key] + '"></div>' +
+      (note ? '<div class="mi-shot-cap">' + note + '</div>' : '');
+  }
+  function menuShot(key, note) {
+    var m = A.menus[key];
+    return '<div class="mi-shot wide" style="aspect-ratio:' + m.w + '/' + m.h + '"><img alt="" src="' + m.img + '"></div>' +
+      (note ? '<div class="mi-shot-cap">' + note + '</div>' : '');
+  }
+
+  // ---- 文面(Botのソース・機能デモと同じ) ----
+  var WEATHER = '📍神奈川県相模原市中央区 の今日の天気だよ\n天気: 晴れ\n気温: 最高18℃ / 最低8℃\n現在の気温: 14.2℃(湿度52%)\n降水確率: 10%';
+  var TODAY = '📅 今日の予定だよ\n09:30-10:30 打ち合わせ\n12:00-13:00 ランチ\n19:00-20:00 ジム';
+  var ANNOUNCE = '次回の開催案内です!\n集合は19時、〇〇公民館です。';
+
+  // 見る人ごとの「フロント」(人が触る・意識する場所)。ここだけ明るくして、裏側(保存先・cron・外部APIなど)は少し暗くする
+  var STAKE = {
+    use: {
+      nodes: ['user', 'fixed', 'addr', 'cal', 'memo', 'remind', 'gcal'], links: ['u-fx', 'u-addr', 'u-cal', 'u-gc', 'u-memo', 'u-rm', 'rm-u'], tag: '👆 触る',
+      tags: { remind: '⏰ 時刻に届く', gcal: '💻 共有だけ(パソコン)' },
+    },
+    admin: {
+      nodes: ['admin', 'allow', 'groups', 'resv', 'group'], links: ['ad-al', 'gp-gr', 'ad-rs', 'gr-rs'], tag: '👆 触る',
+      tags: { group: '👥 グループ内で登録' },
+    },
+    member: {
+      nodes: ['group', 'resv', 'cron'], links: ['cr-rs', 'rs-gp'], tag: '👀 ここに届く',
+      tags: { resv: '📢 予約した時刻に', cron: '⏰ 毎分チェック' },
+    },
+  };
+  // 3Dに浮かべる画面。src: 画像(data URI)、crop: 元画像の [幅, 高さ](上から切り取る)、cw: キャンバスの幅(px)、
+  // draw: 画像の代わりに描くトーク画面。at: 置く場所 [x, z](画像の下端の高さは y)、node: 破線でつなぐ箱、width: 3Dでの幅
+  var SHOTS = [
+    { id: 'img-menu', stake: 'use', src: A.menus.main.img, crop: [A.menus.main.w, A.menus.main.h], cw: 750, node: 'user', at: [-17, -4], y: 7.5, width: 7, caption: '📱 メニュー(使う人)' },
+    { id: 'img-todo', stake: 'use', src: A.shots['todo-add'], crop: [780, CROP['todo-add']], cw: 520, node: 'memo', at: [-8.5, -4], y: 7.5, width: 4.6, caption: '📝 メモ追加' },
+    { id: 'img-remind', stake: 'use', src: A.shots['reminder-add'], crop: [780, CROP['reminder-add']], cw: 520, node: 'remind', at: [0, -4], y: 7.5, width: 4.6, caption: '⏰ リマインド追加' },
+    { id: 'img-cal', stake: 'use', src: A.shots['calendar'], crop: [780, CROP['calendar']], cw: 520, node: 'cal', at: [8.5, -4], y: 7.5, width: 4.6, caption: '📅 カレンダー登録' },
+    { id: 'img-admin', stake: 'admin', src: A.menus['main-admin'].img, crop: [A.menus['main-admin'].w, A.menus['main-admin'].h], cw: 750, node: 'admin', at: [-16, 4.5], y: 7.5, width: 7, caption: '🔧 管理者のメニュー' },
+    { id: 'img-access', stake: 'admin', src: A.shots['access-add'], crop: [780, CROP['access-add']], cw: 520, node: 'allow', at: [-2, -4], y: 7.5, width: 4.6, caption: '✅ 権限許可' },
+    { id: 'img-announce', stake: 'admin', src: A.shots['announce-add'], crop: [780, CROP['announce-add']], cw: 520, node: 'resv', at: [8, -4], y: 7.5, width: 4.6, caption: '📢 アナウンス追加' },
+    { id: 'img-group', stake: 'member', draw: [
+        { who: 'sys', text: '11月20日(金) 19:00' }, { who: 'bot', text: ANNOUNCE },
+        { who: 'me', text: '@ミライBot メモ登録 名札を持っていく' }, { who: 'bot', text: 'メモを追加したよ📝\n1. 名札を持っていく' },
+      ], title: 'サークルA(グループ)', cw: 520, node: 'group', at: [14, -2], y: 7.5, width: 6, caption: '💬 グループに届いた画面' },
+  ];
+  // 画像と、その画像から下の箱へ引く破線(id は 'link-' + 画像のid)
+  Object.keys(STAKE).forEach(function (k) {
+    STAKE[k].shots = SHOTS.filter(function (s) { return s.stake === k; }).reduce(function (r, s) { return r.concat([s.id, 'link-' + s.id]); }, []);
+  });
+  function tagId(kind, node) { return 'tag-' + kind + '-' + node; }
+  function tagIds(kind) { return STAKE[kind].nodes.map(function (n) { return tagId(kind, n); }); }
+
+  // 箱と矢印を明るく見せる id。流れるパケットは、どのステップでも明るく
+  function ids(nodes, links) {
+    var r = ['plate'];
+    nodes.forEach(function (n) { r.push(n); });
+    links.forEach(function (l) { r.push('a-' + l, 'f-' + l); });
+    return r;
+  }
+  function F(nodes, links) { return ids(nodes, links).concat(PACKETS); }
+
+  // ---- 3Dに浮かべるトーク画面(キャンバスに描く) ----
+  function wrap(ctx, text, maxW) {
+    var out = [];
+    text.split('\n').forEach(function (para) {
+      var line = '';
+      Array.prototype.forEach.call(para, function (ch) {
+        if (line && ctx.measureText(line + ch).width > maxW) { out.push(line); line = ''; }
+        line += ch;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  // msgs を描く。ctx が null なら高さだけ測る
+  function paintChat(ctx, w, title, msgs, measure) {
+    var g = measure, top = 54, y = top + 14, fs = 21, lh = 30, pad = 12, maxW = w * 0.66;
+    g.font = fs + 'px ' + FONT;
+    var rows = msgs.map(function (m) {
+      g.font = (m.who === 'sys' ? 17 : fs) + 'px ' + FONT;
+      var lines = wrap(g, m.text, m.who === 'sys' ? w - 60 : maxW);
+      var bw = Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; }));
+      return { m: m, lines: lines, bw: bw };
+    });
+    rows.forEach(function (r) {
+      var bh = r.lines.length * lh + pad * 2 - 6;
+      if (ctx) {
+        var m = r.m;
+        if (m.who === 'sys') {
+          ctx.font = '17px ' + FONT; ctx.fillStyle = '#0000002e';
+          var sw = r.bw + 30; round(ctx, (w - sw) / 2, y, sw, 30, 15); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(m.text, w / 2, y + 21);
+        } else {
+          var bot = m.who === 'bot', bx = bot ? 70 : w - 18 - r.bw - pad * 2, by = bot ? y + 22 : y;
+          if (bot) {
+            ctx.fillStyle = '#7c5cff'; ctx.beginPath(); ctx.arc(38, y + 22, 20, 0, 7); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 18px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('ミ', 38, y + 29);
+            ctx.fillStyle = '#fff'; ctx.font = '15px ' + FONT; ctx.textAlign = 'left'; ctx.fillText('ミライBot', bx + 4, y + 14);
+          }
+          ctx.fillStyle = bot ? '#fff' : '#8de055'; round(ctx, bx, by, r.bw + pad * 2, bh, 16); ctx.fill();
+          ctx.fillStyle = '#222'; ctx.font = fs + 'px ' + FONT; ctx.textAlign = 'left';
+          r.lines.forEach(function (l, j) { ctx.fillText(l, bx + pad, by + pad + 18 + j * lh); });
+        }
+      }
+      y += (r.m.who === 'sys' ? 30 : r.m.who === 'bot' ? bh + 22 : bh) + 16;
+    });
+    if (ctx) {
+      ctx.fillStyle = '#6d87a8'; ctx.fillRect(0, 0, w, top);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 21px ' + FONT; ctx.textAlign = 'center'; ctx.fillText(title, w / 2, 35);
+    }
+    return y + 8;
+  }
+  function round(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  // ---- デモ再生の仕組み(line-bot-s8-cub/usecase.html と同じ) ----
+  var guide = null, timers = [], playing = false, t0 = 0, lastIndex = -1, STEPS = null;
+  var capEl, playBtn, progEl;
+
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  // data-at(ms) を持つ要素を、ステップに入ってから ms 後にふわっと出す(トークの吹き出しなど)
+  function reveal(g) {
+    clearTimers();
+    Array.prototype.forEach.call(g.bodyEl.querySelectorAll('[data-at]'), function (el) {
+      el.classList.add('tu-hid');
+      timers.push(setTimeout(function () {
+        el.classList.remove('tu-hid');
+        // 現れた吹き出しがパネルの下に隠れていたら、見える所までスクロールする
+        var p = g.bodyEl, r = el.getBoundingClientRect(), pr = p.getBoundingClientRect();
+        if (r.bottom > pr.bottom) p.scrollTo({ top: p.scrollTop + Math.min(r.bottom - pr.bottom + 12, r.top - pr.top), behavior: 'smooth' });
+      }, Number(el.getAttribute('data-at'))));
+    });
+  }
+  function enter(caption) { return function (g) { reveal(g); capEl.textContent = caption; }; }
+
+  // 矢印 link の上を、start秒から dur秒かけてパケット(球)が流れる。back なら矢印と逆向き(返事)。
+  // 同じ球を1つのステップで何度も流すので、毎フレームまず全部を画面外へ置き(parkFirst)、流れている区間だけ置き直す
+  function fly(g, name, link, t, start, dur, back) {
+    var k = g.linear(t, start, dur);
+    if (k <= 0 || k >= 1) return;
+    g.get(name).position.copy(g.get('a-' + link).userData.curve.getPoint(back ? 1 - k : k));
+  }
+  function parkFirst(steps) {
+    steps.forEach(function (s) {
+      var up = s.update;
+      if (!up) return;
+      s.update = function (g, t) { PACKETS.forEach(function (id) { g.get(id).position.y = -50; }); up(g, t); };
+    });
+    return steps;
+  }
+  function glow(g, id, t, from) { if (t >= from) g.pulse(g.get(id), t, 0.07); }
+
+  function restartStep(i) { guide.stepIndex = -1; guide.go(i); lastIndex = i; t0 = Date.now(); }
+  function lastDemoIndex() { var i = STEPS.length - 1; while (i > 0 && STEPS[i].stake) i--; return i; }
+  function stakeIndex(kind) { for (var i = 0; i < STEPS.length; i++) if (STEPS[i].stake === kind) return i; return -1; }
+  function setPlaying(on, keepStep) {
+    playing = on;
+    playBtn.textContent = on ? '⏸ 一時停止' : '▶ 自動で再生';
+    playBtn.classList.toggle('on', on);
+    if (on && !keepStep) {
+      var cur = STEPS[guide.stepIndex];
+      if (!cur || cur.stake || guide.stepIndex >= lastDemoIndex()) restartStep(0); else restartStep(guide.stepIndex < 0 ? 0 : guide.stepIndex);
+    }
+  }
+
+  function buildOverlay(g) {
+    var ov = document.createElement('div');
+    ov.className = 'demo-ov';
+    ov.innerHTML = '<div class="demo-cap"></div><div class="demo-bar"><button data-k="play">▶ 自動で再生</button><button data-k="restart">⏮ 最初から</button><div class="demo-prog"><i></i></div></div>';
+    g.stage.appendChild(ov);
+    capEl = ov.querySelector('.demo-cap'); playBtn = ov.querySelector('[data-k=play]'); progEl = ov.querySelector('.demo-prog i');
+    // 見る人の切り替え(デモ / 使う人 / 管理者 / グループのみんな)。選んでいるものをもう一度押すと、デモに戻る
+    var tog = document.createElement('div');
+    tog.className = 'demo-tog';
+    tog.innerHTML = '見る人: <button data-k="demo">デモ</button><button data-k="use">使う人</button><button data-k="admin">管理者</button><button data-k="member">グループのみんな</button>';
+    g.stage.appendChild(tog);
+    function syncToggle() {
+      var cur = g.stepIndex >= 0 && STEPS[g.stepIndex] ? STEPS[g.stepIndex].stake : null;
+      Array.prototype.forEach.call(tog.querySelectorAll('button'), function (b) {
+        var k = b.getAttribute('data-k');
+        b.classList.toggle('on', k === 'demo' ? !cur : k === cur);
+      });
+    }
+    tog.onclick = function (e) {
+      var k = e.target.getAttribute && e.target.getAttribute('data-k');
+      if (!k) return;
+      var cur = STEPS[g.stepIndex] && STEPS[g.stepIndex].stake;
+      setPlaying(false, true);
+      if (k === 'demo' || k === cur) { g.stepIndex = -1; g.go(0); } else g.go(stakeIndex(k));
+      syncToggle();
+    };
+    setInterval(syncToggle, 200);
+    playBtn.onclick = function () { setPlaying(!playing); };
+    ov.querySelector('[data-k=restart]').onclick = function () { restartStep(0); setPlaying(true); };
+    // 自動再生: いまの章が dur 秒たったら次の章へ。手でステップを変えたら、その章から数え直す
+    setInterval(function () {
+      var i = g.stepIndex;
+      if (i < 0) return;
+      if (i !== lastIndex) { lastIndex = i; t0 = Date.now(); }
+      var dur = STEPS[i].dur * 1000, el = Date.now() - t0;
+      progEl.style.width = playing ? Math.min(100, el / dur * 100) + '%' : '0';
+      if (STEPS[i].stake) { if (playing) setPlaying(false, true); return; }
+      if (playing && el >= dur) {
+        if (i < lastDemoIndex()) g.go(i + 1); else setPlaying(false);
+      }
+    }, 150);
+  }
+
+  // 見る人のステップ(人が触る・意識するところだけ明るくする)
+  function stakeStep(kind, title, camera, caption, html) {
+    var s = STAKE[kind];
+    return {
+      title: title, stake: kind, dur: 9999,
+      focus: F(s.nodes, s.links).concat(s.shots),
+      show: tagIds(kind).concat(s.shots),
+      camera: camera,
+      enter: function (g) {
+        reveal(g); capEl.textContent = caption;
+        // フロント以外は「少し暗く」(共通の初期値より明るめ(0.3)にして、位置関係は見えるまま)
+        Object.keys(g.dim).forEach(function (id) { if (g.dim[id].target < 1) g.dim[id].target = 0.3; });
+      },
+      update: function (g, t) { s.nodes.forEach(function (n) { glow(g, n, t, 0.2); }); },
+      html: html,
+    };
+  }
+
+  GameGuide.start({
+    title: 'ミライBot ユースケース',
+    subtitle: '「▶ 自動で再生」を押すと、友だち追加から、管理者のアナウンスまで、デモ動画のように流れます',
+    camera: WIDE,
+    build: function (g) {
+      guide = g;
+      // 画面は「ミライBotの中(Upstash Redisに保存しているもの)」と「外(人・LINEグループ・cron・外部API)」に分けて並べる。
+      // 座標は [x, y, z]。奥が -z、手前が +z。箱の高さは 0.8 で、中心 y = 0.4。
+      var N = {};
+      function node(id, x, z, label, color, w, d) {
+        w = w || 4.4; d = d || 2;
+        N[id] = { x: x, z: z, w: w, d: d };
+        g.box({ id: id, size: [w, 0.8, d], pos: [x, 0.4, z], color: color, radius: 0.2, edges: false, label: label, labelSize: 0.5, labelOffset: [0, 1.5, 0], labelBg: '#1b1830ee', labelBorder: color });
+      }
+      // 箱の縁から縁へ矢印を引く(箱の中に潜り込まないように、向きに応じて縁の位置を求める)
+      function edge(n, tx, tz) {
+        var dx = tx - n.x, dz = tz - n.z;
+        var tX = dx ? (n.w / 2) / Math.abs(dx) : 1e9, tZ = dz ? (n.d / 2) / Math.abs(dz) : 1e9;
+        var t = Math.min(tX, tZ) + 0.03;
+        return [n.x + dx * t, 0.4, n.z + dz * t];
+      }
+      // dz: 行きと帰りの矢印が上から見て重ならないよう、奥行き方向へずらす量
+      function link(id, from, to, label, color, lift, dz) {
+        var a = N[from], b = N[to], p = edge(a, b.x, b.z), q = edge(b, a.x, a.z);
+        if (dz) { p[2] += dz; q[2] += dz; }
+        var L = g.arrow(p, q, { id: 'a-' + id, color: color, label: label, labelSize: 0.34, labelBg: '#1b1830dd', lift: lift == null ? 1.0 : lift });
+        g.flow(L.userData.curve, { id: 'f-' + id, color: color, count: 4 });
+      }
+
+      g.plate({ id: 'plate', size: [26, 19], pos: [0, 0.03, -4], color: '#241f38', opacity: 0.95, radius: 0.5, label: '🤖 ミライBotの中(Upstash Redisに保存しているもの)', labelSize: 0.55, labelOffset: [0, 0.5, 9.7] });
+      // 中(3段: 天気・予定・許可 / メモ・リマインド / その場で答えるもの・グループ・アナウンス)
+      node('addr', -8, -10.5, '🌤️ 地域設定\n(天気の住所)', C.good);
+      node('cal', 0, -10.5, '📅 カレンダーID\n(1つのIDは1人だけ)', C.data);
+      node('allow', 8, -10.5, '✅ リマインダー\n許可リスト', C.server);
+      node('memo', -8, -4, '📝 メモ\n(自分用・グループ用)', C.gold);
+      node('remind', 0, -4, '⏰ リマインド\n(毎日・毎週・毎月・1回)', '#ff8fb1');
+      node('fixed', -8, 2.5, '🗑️ ゴミ・🎮 ゲーム・🆔 マイID\n(その場で答える)', C.neutral, 5);
+      node('groups', 0, 2.5, '👥 送信先グループ', C.third);
+      node('resv', 8, 2.5, '📢 アナウンス予約\n(宛先・日時・内容)', '#ffb35c');
+      // 外
+      node('user', -17.5, -4, '🙋 使う人\n(LINEの1:1トーク)', C.me, 4.4, 2.4);
+      node('admin', -17.5, 4.5, '🧑‍💼 管理者', '#9ad0ff', 4.4, 2.2);
+      node('group', 17.5, 2.5, '💬 LINEグループ\n(アナウンスの宛先)', '#06c755', 4.6, 2.4);
+      node('cron', 4, 11, '⏰ cron-job.org\n(毎分)', C.enemy, 4.4, 1.8);
+      node('weather', -8, -18, '🌐 天気・地図のAPI\n(Open-Meteo・Nominatim)', '#7ec8e3', 5.2, 2);
+      node('gcal', 2, -18, '🗓️ Googleカレンダー', '#4f8cff', 4.6, 2);
+
+      // 矢印(id, from, to, ラベル, 色, 弧の高さ)
+      link('u-fx', 'user', 'fixed', 'ボタンを押す', C.me, 1.6);
+      link('u-addr', 'user', 'addr', '地域設定・天気', C.me, 1.6);
+      link('addr-wx', 'addr', 'weather', '住所で天気を調べる', C.good, 0.8);
+      link('u-gc', 'user', 'gcal', 'ミライBotに共有\n(パソコンで1回だけ)', C.me, 3.4);
+      link('u-cal', 'user', 'cal', 'カレンダー登録・予定', C.me, 2.6);
+      link('cal-gc', 'cal', 'gcal', '予定を読む', C.data, 0.8);
+      link('u-memo', 'user', 'memo', 'メモ追加・一覧', C.me, 0.8);
+      link('u-rm', 'user', 'remind', 'リマインド追加', C.me, 2.4, -0.6);
+      link('rm-u', 'remind', 'user', '時刻になったら届く', '#ff8fb1', 1.2, 0.7);
+      link('u-ad', 'user', 'admin', '「マイID」で分かった\nIDを伝える', C.me, 1.2);
+      link('ad-al', 'admin', 'allow', '権限許可', '#9ad0ff', 6);
+      link('al-rm', 'allow', 'remind', '使えるか確認', C.server, 0.8);
+      link('gp-gr', 'group', 'groups', '「このグループに登録」\n(管理者がグループ内で)', '#06c755', 2.4);
+      link('ad-rs', 'admin', 'resv', 'アナウンス追加', '#9ad0ff', 4.4);
+      link('gr-rs', 'groups', 'resv', '宛先を選ぶ', C.third, 0.8);
+      link('cr-rm', 'cron', 'remind', '毎分確認', C.enemy, 1.6);
+      link('cr-rs', 'cron', 'resv', '毎分確認', C.enemy, 0.8);
+      link('rs-gp', 'resv', 'group', '時刻になったら\n自動で送信', '#ffb35c', 1.4);
+
+      PACKETS.forEach(function (id) {
+        g.sphere({ id: id, radius: 0.42, pos: [0, -50, 0], color: '#ffffff', emissive: '#7ef0ff', emissiveIntensity: 0.9 });
+      });
+      // フロントの目印(その見る人のステップでだけ表示する)
+      Object.keys(STAKE).forEach(function (kind) {
+        STAKE[kind].nodes.forEach(function (n) {
+          var p = N[n];
+          g.label((STAKE[kind].tags && STAKE[kind].tags[n]) || STAKE[kind].tag, [p.x, 3.6, p.z], { id: tagId(kind, n), size: 0.55, color: '#1b1830', bg: '#f59e0b' });
+        });
+      });
+      // 人が見る画面(カメラの方を向く)。見る人のステップでだけ表示する。画像の下に、何の画面かを示す帯を付ける。
+      // ※共通部品はステップを切り替えるたびに「build直後の状態」へ戻すので、大きさ・位置・テクスチャ・透明度は
+      //   build時に確定させる。画像の読み込みが終わったら、同じキャンバスに絵を描き足すだけにする(スプライトは触らない)
+      var meas = document.createElement('canvas').getContext('2d');
+      SHOTS.forEach(function (sh) {
+        var bar = Math.round(sh.cw * 0.11);                 // キャプションの帯の高さ(px)
+        var ih = sh.draw ? paintChat(null, sh.cw, sh.title, sh.draw, meas) : Math.round(sh.cw * sh.crop[1] / sh.crop[0]);
+        var c = document.createElement('canvas');
+        c.width = sh.cw; c.height = ih + bar;
+        var ctx = c.getContext('2d');
+        function paint(img) {
+          ctx.clearRect(0, 0, c.width, c.height);
+          if (sh.draw) { ctx.fillStyle = '#8ba6c7'; ctx.fillRect(0, 0, c.width, ih); paintChat(ctx, sh.cw, sh.title, sh.draw, meas); }
+          // 元画像の実際の大きさに合わせて切り取る(素材の画像は、メニューの定義サイズより小さく縮めてあることがある)
+          else if (img) ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalWidth * sh.crop[1] / sh.crop[0], 0, 0, sh.cw, ih);
+          else { ctx.fillStyle = '#f5f7f5'; ctx.fillRect(0, 0, c.width, ih); }
+          ctx.fillStyle = '#f59e0b'; ctx.fillRect(0, ih, c.width, bar);
+          ctx.fillStyle = '#1b1830'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.font = 'bold ' + Math.round(bar * 0.55) + 'px ' + FONT;
+          ctx.fillText(sh.caption, c.width / 2, ih + bar / 2);
+          ctx.textBaseline = 'alphabetic';
+        }
+        paint(null);
+        var tex = new THREE.CanvasTexture(c);
+        var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+        var h = sh.width * c.height / c.width;
+        sprite.scale.set(sh.width, h, 1);
+        sprite.position.set(sh.at[0], sh.y + h / 2, sh.at[1]);
+        sprite.renderOrder = 20;
+        g.add(sh.id, sprite);
+        // 画像と、その下の箱をつなぐ破線(オレンジ)。画像の中心まで伸ばして、画像の裏に隠す
+        var n = N[sh.node];
+        g.line([[n.x, 0.9, n.z], [sprite.position.x, sprite.position.y, sprite.position.z]], { id: 'link-' + sh.id, color: '#f59e0b', dashed: true, opacity: 1 });
+        if (sh.src) {
+          var img = new Image();
+          img.onload = function () { paint(img); tex.needsUpdate = true; };
+          img.src = sh.src;
+        }
+      });
+      buildOverlay(g);
+    },
+    steps: STEPS = parkFirst([
+      {
+        title: '0. デモの見かた',
+        dur: 10,
+        camera: WIDE,
+        enter: enter('「▶ 自動で再生」を押すと、友だち追加から、管理者のアナウンスまで、順番に流れます。'),
+        html:
+          '<p>ミライBotの使い方を、<b>デモ動画のように</b>流します。左の図で<b>データが動き</b>、右に<b>トーク画面と、本物のLINEの入力画面</b>が現れます。</p>' +
+          '<table><tr><th>章</th><th>内容</th></tr>' +
+          '<tr><td>1〜3</td><td><b>だれでも</b>: メニューの使い方・天気・ゴミの日とゲーム</td></tr>' +
+          '<tr><td>4〜5</td><td><b>だれでも</b>: 予定(Googleカレンダー)・メモ</td></tr>' +
+          '<tr><td>6〜7</td><td><b>許可された人</b>: リマインダー(許可をもらう → 登録 → 届く)</td></tr>' +
+          '<tr><td>8〜9</td><td><b>管理者</b>: 送信先グループの登録 → アナウンスの予約 → グループに届く</td></tr>' +
+          '<tr><td>10</td><td>まとめ(チェックリスト・困ったとき)</td></tr></table>' +
+          '<ul><li>下の「▶ 自動で再生」で連続再生。「⏸」で止めて、番号ボタンで好きな章へ。</li>' +
+          '<li>白い玉が、メッセージやデータの動きです。ドラッグで3Dを回せます。</li>' +
+          '<li>左上の「見る人」を押すと、その人が<b>触るところだけ</b>を明るくした図になります。</li></ul>'
+      },
+      {
+        title: '1. 【はじめに】メニューのボタンを押すだけ',
+        dur: 14,
+        focus: F(['user', 'fixed'], ['u-fx']),
+        camera: { pos: [-13, 17, 12], target: [-13, 0, -1] },
+        enter: enter('ミライBotを友だち追加すると、トークの下にメニューが出ます。使い方は、ボタンを押すだけです。'),
+        update: function (g, t) { fly(g, 'pk0', 'u-fx', t, 4.6, 1.8); fly(g, 'pk1', 'u-fx', t, 6.8, 1.8, true); glow(g, 'fixed', t, 6.4); },
+        html:
+          '<p>友だち追加すると、トーク画面の下に<b>リッチメニュー</b>が出ます。</p>' +
+          at(600, menuShot('main', '実際のメニュー(使う人)')) +
+          U.chat([
+            { who: 'me', text: 'マイID', at: 4400 },
+            { who: 'bot', text: 'あなたのuserIdだよ\n' + UID, at: 7600 },
+          ], 'ミライBotとのトーク') +
+          at(9500, '<div class="gg-note">💡 ボタンを押す代わりに「天気」「予定」「メモ一覧」のように<b>文字を送っても</b>同じように使えます。使えることばの一覧は「その他 → ヘルプ」。</div>')
+      },
+      {
+        title: '2. 天気: 地域を登録して、今日の天気',
+        dur: 18,
+        focus: F(['user', 'addr', 'weather'], ['u-addr', 'addr-wx']),
+        camera: { pos: [-12, 18, 6], target: [-12, 0, -10] },
+        enter: enter('「その他 → 地域設定」で住所を登録すると、次から「天気」はその場所で返ってきます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-addr', t, 3.4, 2.2); glow(g, 'addr', t, 5.6);
+          fly(g, 'pk1', 'u-addr', t, 9.0, 1.8); fly(g, 'pk1', 'addr-wx', t, 10.8, 1.6); fly(g, 'pk1', 'addr-wx', t, 12.4, 1.6, true); fly(g, 'pk2', 'u-addr', t, 14.0, 1.8, true);
+          glow(g, 'weather', t, 12.2);
+        },
+        html:
+          '<p>その他 →「<b>地域設定</b>」で住所を保存します(1回だけ)。</p>' +
+          at(700, shot('address', '実際の画面: 地域設定')) +
+          U.chat([
+            { who: 'bot', text: '地域を保存したよ🌤️\n神奈川県相模原市中央区', at: 5200 },
+            { who: 'me', text: '天気', at: 8600 },
+            { who: 'bot', text: WEATHER, at: 15000 },
+          ], 'ミライBotとのトーク') +
+          at(16200, '<div class="gg-note">「週間天気」なら7日分。「天気 〇〇市」のように地名を付けると、その場所の天気も調べられます。</div>')
+      },
+      {
+        title: '3. ゴミの日・ゲーム',
+        dur: 14,
+        focus: F(['user', 'fixed'], ['u-fx']),
+        camera: { pos: [-13, 16, 14], target: [-13, 0, 0] },
+        enter: enter('「ゴミ」「ゲーム」は、保存も外のサービスもいらず、その場で答えが返ってきます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-fx', t, 1.0, 1.6); fly(g, 'pk0', 'u-fx', t, 2.6, 1.6, true);
+          fly(g, 'pk1', 'u-fx', t, 6.2, 1.6); fly(g, 'pk1', 'u-fx', t, 7.8, 1.6, true);
+          glow(g, 'fixed', t, 2.4);
+        },
+        html:
+          U.chat([
+            { who: 'me', text: 'ゴミ', at: 600 },
+            { who: 'bot', text: '今日(水)はペットボトルゴミの日だよ🗑️', at: 4000 },
+            { who: 'me', text: 'おみくじ', at: 5800 },
+            { who: 'bot', text: '🎋 おみくじ結果: 大吉\nやったね!今日は思い切って動いちゃおう🎉', at: 9200 },
+          ], 'ミライBotとのトーク') +
+          at(10200, '<ul><li>「ゴミの日一覧」で、曜日ごとの収集スケジュール。ゴミの日でない日は、次の収集日を教えてくれます。</li>' +
+            '<li>「ミニゲーム」はカードの1本勝負。「アルカナ」は、カードゲーム ArcanaExplosion の対戦ページを案内します。</li></ul>')
+      },
+      {
+        title: '4. 予定: Googleカレンダーを登録して見る',
+        dur: 22,
+        focus: F(['user', 'cal', 'gcal'], ['u-gc', 'u-cal', 'cal-gc']),
+        camera: { pos: [-9, 25, 9], target: [-8, 0, -10] },
+        enter: enter('自分のGoogleカレンダーをミライBotに共有して、カレンダーIDを登録すると、「予定」で今日の予定が見られます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-gc', t, 1.4, 2.6); glow(g, 'gcal', t, 4.0);
+          fly(g, 'pk1', 'u-cal', t, 7.0, 2.2); glow(g, 'cal', t, 9.2);
+          fly(g, 'pk2', 'u-cal', t, 13.2, 1.8); fly(g, 'pk2', 'cal-gc', t, 15.0, 1.4); fly(g, 'pk2', 'cal-gc', t, 16.4, 1.4, true); fly(g, 'pk0', 'u-cal', t, 17.8, 1.8, true);
+        },
+        html:
+          '<p><b>最初に1回だけ</b>、2つの準備をします。</p>' +
+          '<ol><li><b>パソコン</b>のGoogleカレンダーの設定で、ミライBotのアドレスへ「予定の表示(すべての予定の詳細)」で共有する</li>' +
+          '<li>その他 →「<b>カレンダー登録</b>」で、カレンダーIDを保存する</li></ol>' +
+          at(6400, shot('calendar', '実際の画面: カレンダー登録(上の枠が共有先のアドレス)')) +
+          U.chat([
+            { who: 'bot', text: 'カレンダーを保存したよ📅\nsample.user@example.com', at: 9600 },
+            { who: 'me', text: '予定', at: 12800 },
+            { who: 'bot', text: TODAY, at: 19400 },
+          ], 'ミライBotとのトーク') +
+          at(20200, '<div class="gg-note">1つのカレンダーを登録できるのは<b>1人だけ</b>です。共有のやり方は、<a href="demo.html?f=calendar">カレンダー登録のやり方(動画)</a>で1画面ずつ見られます。</div>')
+      },
+      {
+        title: '5. メモ: 自分用と、グループのみんな用',
+        dur: 16,
+        focus: F(['user', 'memo'], ['u-memo']),
+        camera: { pos: [-12, 16, 9], target: [-12, 0, -4] },
+        enter: enter('「メモ → メモ追加」で書きためて、「メモ一覧」で見られます。グループでも使えます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-memo', t, 3.4, 1.8); glow(g, 'memo', t, 5.2);
+          fly(g, 'pk1', 'u-memo', t, 7.6, 1.4); fly(g, 'pk1', 'u-memo', t, 9.0, 1.4, true);
+        },
+        html:
+          '<p>メモ →「<b>メモ追加</b>」で入力フォームが開きます。</p>' +
+          at(600, shot('todo-add', '実際の画面: メモ追加')) +
+          U.chat([
+            { who: 'bot', text: 'メモを追加したよ📝\n牛乳と卵を買う', at: 5400 },
+            { who: 'me', text: 'メモ一覧', at: 7200 },
+            { who: 'bot', text: '今のメモ一覧だよ📝\n1. 牛乳と卵を買う\n2. 年賀状の宛名を書く\n3. 図書館の本を返す', at: 10200 },
+          ], 'ミライBotとのトーク') +
+          at(12000, '<div class="gg-note">👥 グループトークでは「<b>@ミライBot メモ登録 〇〇</b>」のように呼びかけると、そのグループの<b>みんなで共有するメモ</b>になります(だれでも見られて、だれでも消せます)。</div>')
+      },
+      {
+        title: '6. リマインダー: 管理者に許可してもらう',
+        dur: 16,
+        focus: F(['user', 'admin', 'allow'], ['u-ad', 'ad-al']),
+        camera: { pos: [-6, 24, 14], target: [-6, 0, -3] },
+        enter: enter('リマインダーは、管理者が許可した人だけが使えます。「マイID」で分かったIDを、管理者に伝えます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-ad', t, 3.6, 2.2); glow(g, 'admin', t, 5.8);
+          fly(g, 'pk1', 'ad-al', t, 8.4, 3.0); glow(g, 'allow', t, 11.4);
+        },
+        html:
+          '<p>リマインダーの通知は、LINEの<b>月200通の無料枠</b>を使います。使いすぎないように、<b>許可制</b>にしています。</p>' +
+          U.chat([
+            { who: 'me', text: 'マイID', at: 600 },
+            { who: 'bot', text: 'あなたのuserIdだよ\n' + UID, at: 2000 },
+          ], '使う人のトーク') +
+          at(7400, shot('access-add', '管理者の画面: 管理者用 → リマインダー → 権限許可')) +
+          at(11600, U.chat([{ who: 'bot', text: 'リマインダーの利用を許可したよ⏰\nミライの友だちC' }], '管理者のトーク')) +
+          at(13200, '<div class="gg-note">許可されていない人が使おうとすると「ごめんね、リマインダー機能は管理者の許可が必要だよ」と返ります。</div>')
+      },
+      {
+        title: '7. リマインダー: 登録して、時刻に届く',
+        dur: 22,
+        focus: F(['user', 'remind', 'allow', 'cron'], ['u-rm', 'al-rm', 'cr-rm', 'rm-u']),
+        camera: { pos: [-5, 29, 22], target: [-5, 0, 1] },
+        enter: enter('通知する文言・くり返し・時刻を入れて登録すると、時刻になったときトークに届きます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'u-rm', t, 3.6, 2.4);
+          fly(g, 'pk1', 'al-rm', t, 6.0, 1.4); glow(g, 'remind', t, 7.4);
+          if (t > 9 && t < 17) g.pulse(g.get('cron'), t, 0.09);
+          fly(g, 'pk2', 'cr-rm', t, t < 13 ? 9.6 : 13.0, 2.0);   // cronが毎分(ここでは数秒おき)呼び出す様子
+          if (t > 16.6) { fly(g, 'pk0', 'rm-u', t, 16.8, 2.6); glow(g, 'user', t, 19.4); }
+        },
+        html:
+          '<p>リマインダー →「<b>リマインド追加</b>」。くり返しは、毎日・毎週・毎月・1回だけ、から選べます。</p>' +
+          at(600, shot('reminder-add', '実際の画面: リマインド追加')) +
+          at(7600, U.chat([{ who: 'bot', text: '登録したよ⏰\n毎週火・金 08:00 ゴミ出し' }], 'ミライBotとのトーク')) +
+          at(9400, '<div class="gg-note">⏰ cron-job.org が<b>毎分</b>ミライBotを呼び出し、「いま届ける時刻のリマインド」があるか確かめます。</div>') +
+          at(19000, U.chat([{ who: 'sys', text: '11月27日(金) 08:00' }, { who: 'bot', text: '⏰ ゴミ出し' }], 'ミライBotとのトーク(届いた画面)')) +
+          at(20000, '<p class="gg-files">1回だけのものは、届いたあと自動で消えます。トークで「リマインド登録 洗濯物 10分後」のように送って、すぐ登録することもできます。</p>')
+      },
+      {
+        title: '8. 【管理者】送信先のグループを登録する',
+        dur: 14,
+        focus: F(['admin', 'group', 'groups'], ['gp-gr']),
+        camera: { pos: [10, 18, 14], target: [9, 0, 1] },
+        enter: enter('ミライBotをグループに招待して、管理者がグループの中で「@ミライBot このグループに登録」と送ります。'),
+        update: function (g, t) { fly(g, 'pk0', 'gp-gr', t, 2.0, 3.0); glow(g, 'groups', t, 5.0); },
+        html:
+          '<p>アナウンスは、<b>登録したグループ</b>へ届きます。グループごとに<b>1回だけ</b>行います。</p>' +
+          U.chat([
+            { who: 'me', text: '@ミライBot このグループに登録', at: 800 },
+            { who: 'bot', text: 'このグループを送信先に登録したよ📢\nグループ名: サークルA', at: 5200 },
+          ], 'サークルA(グループ)') +
+          at(7000, '<div class="gg-note">✅ グループ名は、LINEから自動で取ってきます。登録できるのは<b>管理者だけ</b>です。登録済みのグループは「管理者用 → アナウンス → グループ一覧」で見られます。</div>') +
+          at(9600, '<p class="gg-files">グループでは、ミライBotは<b>@で呼びかけられたときだけ</b>反応し、通すのは「このグループに登録」と「メモ」だけです(天気やヘルプには反応しません)。</p>')
+      },
+      {
+        title: '9. 【管理者】アナウンスを予約して、グループに届く',
+        dur: 24,
+        focus: F(['admin', 'groups', 'resv', 'cron', 'group'], ['ad-rs', 'gr-rs', 'cr-rs', 'rs-gp']),
+        camera: { pos: [0, 31, 26], target: [0, 0, 1] },
+        enter: enter('宛先グループ・日付・時刻・内容を入れて登録すると、その時刻にグループへ自動で届きます。'),
+        update: function (g, t) {
+          fly(g, 'pk0', 'ad-rs', t, 3.4, 3.0);
+          fly(g, 'pk1', 'gr-rs', t, 6.4, 1.4); glow(g, 'resv', t, 7.8);
+          if (t > 10 && t < 18) g.pulse(g.get('cron'), t, 0.09);
+          fly(g, 'pk2', 'cr-rs', t, t < 14 ? 10.6 : 14.2, 1.6);
+          if (t > 18) { fly(g, 'pk0', 'rs-gp', t, 18.2, 2.6); glow(g, 'group', t, 20.8); }
+        },
+        html:
+          '<p>管理者用 → アナウンス →「<b>アナウンス追加</b>」。内容は複数行でも書けます。</p>' +
+          at(600, shot('announce-add', '実際の画面: アナウンス追加')) +
+          at(8000, U.chat([{ who: 'bot', text: 'アナウンスを登録したよ📢\n宛先: サークルA\n2026-11-20 19:00\n' + ANNOUNCE }], '管理者のトーク')) +
+          at(10400, '<div class="gg-note">⏰ cron-job.org が<b>毎分</b>呼び出し、「いま送る時刻のアナウンス」があるか確かめます。今から<b>2分未満</b>の日時は登録できません(確認のタイミングを逃して、送られないまま残らないように)。</div>') +
+          at(20600, U.chat([{ who: 'sys', text: '11月20日(金) 19:00' }, { who: 'bot', text: ANNOUNCE }], 'サークルA(届いた画面)')) +
+          at(21600, '<p class="gg-files">送れた分は自動で消えます(1回きり)。失敗した分は、次の1分でもう一度送ります。予約の確認・取り消しは「アナウンス一覧」「アナウンス削除」から。</p>')
+      },
+      {
+        title: '10. まとめ',
+        dur: 12,
+        camera: WIDE,
+        enter: enter('これで、ミライBotのおもな使い方はおしまいです。'),
+        html:
+          '<p><b>使う人</b></p>' +
+          at(400, '<ul><li>☑ メニューのボタンを押す(文字を送ってもOK)</li><li>☑ 天気の地域を登録(その他 → 地域設定)</li><li>☑ 予定を見たいなら、Googleカレンダーを共有してIDを登録</li><li>☑ リマインダーを使いたいなら、マイIDを管理者に伝える</li></ul>') +
+          '<p><b>管理者</b></p>' +
+          at(2200, '<ul><li>☑ 頼まれた人を「権限許可」</li><li>☑ グループの中で「@ミライBot このグループに登録」</li><li>☑ 「アナウンス追加」で宛先・日時・内容を予約</li></ul>') +
+          at(4400, '<table><tr><th>こんなとき</th><th>確認すること</th></tr>' +
+            '<tr><td>天気の場所がちがう</td><td>その他 → 地域設定の住所</td></tr>' +
+            '<tr><td>「カレンダーが見られなかったよ」</td><td>共有先のアドレス・権限が「予定の表示(すべての予定の詳細)」か・カレンダーID</td></tr>' +
+            '<tr><td>「管理者の許可が必要だよ」</td><td>マイIDを管理者に伝えて、権限許可してもらう</td></tr>' +
+            '<tr><td>アナウンスが届かない</td><td>そのグループの中で「このグループに登録」したか・日時が<b>2分以上先</b>か</td></tr>' +
+            '<tr><td>グループで話しかけても返事がない</td><td>グループで通すのは「このグループに登録」と「メモ」だけ(@で呼びかける)</td></tr></table>') +
+          at(7000, '<p>画面の動きは<a href="demo.html">機能デモ(実画面)</a>、しくみは<a href="architecture-3d.html">アーキテクチャ3D図解</a>で見られます。</p><p class="gg-files">人名・ID・予定・グループ名は、すべてダミーです。</p>')
+      },
+      stakeStep('use', '👤 見る人: 使う人', { pos: [-6, 36, 28], target: [-6, 5, -5] },
+        '使う人が触るところだけ明るくしています。ほかは、ミライBotが裏で自動でやることです。',
+        '<p>🔆 <b>明るい場所</b>が、使う人が<b>自分で触る・見る</b>ところです。暗い場所は<b>裏側</b>なので、意識しなくて大丈夫です。</p>' +
+        '<table><tr><th>触るところ</th><th>やること</th></tr>' +
+        '<tr><td>📱 メニュー</td><td>天気・ゴミ・ゲーム・予定・メモ・リマインダー・その他</td></tr>' +
+        '<tr><td>🌤️ 地域設定</td><td>その他 → 地域設定(初回だけ)</td></tr>' +
+        '<tr><td>📅 カレンダー登録</td><td>パソコンでGoogleカレンダーを共有 → その他 → カレンダー登録(初回だけ)</td></tr>' +
+        '<tr><td>📝 メモ</td><td>メモ追加・メモ一覧・メモ削除</td></tr>' +
+        '<tr><td>⏰ リマインド</td><td>リマインド追加(許可が要る)。時刻になったら、このトークに届く</td></tr></table>' +
+        '<div class="gg-note"><b>意識しなくていいこと</b>(暗い場所): 天気・地図のAPI、許可リスト、cron-job.org の呼び出し。どれも自動です。</div>' +
+        '<p class="gg-files">上の「見る人」を押すと切り替わります。もう一度押すとデモに戻ります。</p>'),
+      stakeStep('admin', '👤 見る人: 管理者', { pos: [-2, 36, 30], target: [-2, 5, -2] },
+        '管理者が触るところだけ明るくしています。管理者のメニューには「管理者用」のボタンがつきます。',
+        '<p>🔆 <b>明るい場所</b>が、管理者が<b>自分で触る・見る</b>ところです。</p>' +
+        '<table><tr><th>触るところ</th><th>やること</th></tr>' +
+        '<tr><td>🔧 管理者用メニュー</td><td>アナウンス・リマインダー(権限)</td></tr>' +
+        '<tr><td>✅ 権限許可</td><td>管理者用 → リマインダー → 権限許可 / 権限削除 / 許可リスト</td></tr>' +
+        '<tr><td>💬 グループ</td><td>グループの中で「@ミライBot このグループに登録」(グループごとに1回)</td></tr>' +
+        '<tr><td>📢 アナウンス</td><td>管理者用 → アナウンス → アナウンス追加 / 一覧 / 削除</td></tr></table>' +
+        '<div class="gg-note"><b>意識しなくていいこと</b>(暗い場所): 毎分の確認(cron-job.org)と、時刻になったときの送信。どれも自動です。</div>' +
+        '<p class="gg-files">管理者も、ふつうの機能(天気・予定・メモなど)は使う人と同じように使えます。</p>'),
+      stakeStep('member', '👤 見る人: グループのみんな', { pos: [8, 28, 34], target: [8, 3, 3] },
+        'グループのみんなが意識するのは、グループに届くお知らせだけです。',
+        '<p>🔆 <b>明るい場所</b>が、グループのみんなが<b>意識する</b>ところです。ミライBotと友だちになっていなくても届きます。</p>' +
+        '<table><tr><th>意識するところ</th><th>内容</th></tr>' +
+        '<tr><td>💬 LINEグループ</td><td>管理者が予約したアナウンスが届く</td></tr>' +
+        '<tr><td>📢 アナウンス予約</td><td>管理者が決めた<b>日時</b>に、自動でグループへ届く(届く時刻は、ここで決まっている)</td></tr>' +
+        '<tr><td>⏰ cron-job.org</td><td>毎分ミライBotを呼び出して、予約の時刻になったかを確かめる(目覚まし役)</td></tr></table>' +
+        U.chat([{ who: 'sys', text: '11月20日(金) 19:00' }, { who: 'bot', text: ANNOUNCE }], 'サークルA(グループ)') +
+        '<div class="gg-note"><b>グループのみんながやること</b>: 届いたお知らせを見るだけ。「@ミライBot メモ登録 〇〇」で、グループ共有のメモも使えます。</div>'),
+    ]),
+  });
+})();
+</script>
+</body>
+</html>
