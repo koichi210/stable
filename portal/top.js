@@ -54,7 +54,7 @@
   ];
   CIRCLES.forEach(function (c) { c.groups = c.groups.filter(function (g) { return g.items.length; }); });
 
-  var nodes = [], hubs = [], hitList = [], traces = [];
+  var nodes = [], hubs = [], hitList = [], traces = [], junctions = [];
   // occluder() / hitCircle() が共有する材質。buildCircle より前に作っておくこと（後ろだと undefined のまま使われて白い円になる）
   var occMat = new T.MeshBasicMaterial({ color: '#07040f', transparent: true, opacity: 1, depthWrite: false });
   var hitMat = new T.MeshBasicMaterial({ visible: false });
@@ -93,6 +93,7 @@
     hubLabel.style.setProperty('--c', c.hubColor);
     hubLabel.innerHTML = '<b>' + M.esc(c.title) + '</b><span>' + M.esc(c.sub) + '</span>';
     labels.add(hubLabel, anchor(cg, [0, -c.hubR - 0.75]));
+    c.hubLabel = hubLabel;
 
     // 中心に説明ページがある魔法陣（FeasibilityStudy）は、中心もクリックで開ける
     if (c.center) {
@@ -101,7 +102,7 @@
       var hubHit = hitCircle(c.hubR * 1.15);
       hubHit.position.z = 0.05; cg.add(hubHit);
       var hn = { it: c.center, g: { name: fsGroup.name, color: c.hubColor, filter: fsGroup.id }, circle: c, pos: [0, 0],
-        label: hubLabel, halo: hubHalo, hover: 0, isHub: true };
+        label: hubLabel, halo: hubHalo, hover: 0, isHub: true, hay: hay(c.center, fsGroup.name) };
       hubHit.userData.node = hn;
       bindLabel(hubLabel, hn);
       c.hubNode = hn; hubs.push(hn); hitList.push(hubHit);
@@ -130,6 +131,7 @@
         junction.add(M.ring(0.36, 0.06, col, 0.95), M.ring(0.2, 0.04, col, 0.7), M.disc(0.09, '#ffffff', 0.9));
         junction.position.set(J[0], J[1], 0.02); order(junction, 3);
         cg.add(junction);
+        junctions.push({ group: g.id, k: 1, mats: junction.children.map(function (m) { return { m: m.material, base: m.material.opacity }; }) });
         var jOcc = occluder(0.4); jOcc.position.set(J[0], J[1], 0.01); cg.add(jOcc);
       }
 
@@ -166,7 +168,7 @@
         labels.add(el, anchor(cg, [P[0], P[1] - R - 0.55]));
 
         var node = { it: it, g: g, circle: c, sigil: s, halo: halo, pos: P, R: R, branch: branch, stream: stream, hot: hot,
-          label: el, hover: 0, appear: 0, delay: c.delay + 0.35 + dist * 0.06 + i * 0.04 };
+          label: el, hover: 0, appear: 0, delay: c.delay + 0.35 + dist * 0.06 + i * 0.04, hay: hay(it, g.name) };
         hit.userData.node = node;
         bindLabel(el, node);
         nodes.push(node); hitList.push(hit);
@@ -174,6 +176,9 @@
     });
   }
 
+  // 検索の対象にする文字（名前・ID・技術・説明・グループ名）。全角半角・大文字小文字は区別しない
+  function norm(s) { return String(s == null ? '' : s).normalize('NFKC').toLowerCase(); }
+  function hay(it, groupName) { return norm([it.name, it.id, it.tech, it.summary, groupName].join('\n')); }
   function v(p) { return new T.Vector3(p[0], p[1], 0); }
   function anchor(parent, p) { var o = new T.Object3D(); o.position.set(p[0], p[1], 0.1); parent.add(o); return o; }
   function order(obj, n) { obj.traverse(function (o) { o.renderOrder = n; }); }
@@ -236,6 +241,34 @@
     info.querySelector('.go').addEventListener('click', function (e) { e.preventDefault(); open(n); });
     info.classList.add('show');
   }
+
+  // ---------------------------------------------------------------- 検索（入力した文字を含む円だけ明るく）
+  // match: null＝検索していない ／ { 項目id: true } ＝当たった項目。空白で区切ると全部を含むもの（AND）
+  var match = null, groupHit = {}, circleHit = [];
+  var qBox = document.getElementById('mg-search'), qInput = document.getElementById('mg-q');
+  var qCount = document.getElementById('mg-count');
+  function applySearch() {
+    var ws = norm(qInput.value).split(/\s+/).filter(Boolean);
+    qBox.classList.toggle('active', qInput.value !== '');
+    if (!ws.length) { match = null; qCount.textContent = ''; qBox.classList.remove('none'); return; }
+    match = {}; groupHit = {}; circleHit = CIRCLES.map(function () { return false; });
+    var all = nodes.concat(hubs), n = 0;
+    all.forEach(function (x) {
+      if (!ws.every(function (w) { return x.hay.indexOf(w) >= 0; })) return;
+      match[x.it.id] = true; n++;
+      if (!x.isHub) groupHit[x.g.id] = true;
+      circleHit[CIRCLES.indexOf(x.circle)] = true;
+    });
+    qCount.textContent = n + ' / ' + all.length + ' 件';
+    qBox.classList.toggle('none', n === 0);
+  }
+  function clearSearch() { qInput.value = ''; applySearch(); }
+  qInput.addEventListener('input', applySearch);
+  qInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.stopPropagation(); if (qInput.value) clearSearch(); else qInput.blur(); }
+  });
+  document.getElementById('mg-clear').addEventListener('click', function () { clearSearch(); qInput.focus(); });
+  applySearch(); // 戻るボタンで戻ってきたとき、ブラウザが入力欄の文字を残していることがある
 
   // ---------------------------------------------------------------- 並べ方とカメラ
   // 2つの外枠がちょうど収まる箱（中心は原点）。横並び(row)・縦並び(col)のうち、画面に大きく映る方を選ぶ
@@ -343,36 +376,50 @@
       M.tickSpin(c.hub, dt); M.tickSpin(c.core, dt);
       var appearHub = M.ease((time - 0.05 - c.delay) / 0.8);
       var fsDim = !groupFilter || !c.center || groupFilter === fsGroup.id ? 1 : 0.35;
+      // 検索中は、その魔法陣に当たりが1つも無ければ中心も暗くする
+      c.qDim = M.damp(c.qDim == null ? 1 : c.qDim, !match || circleHit[i] ? 1 : 0.2, 8, dt);
+      fsDim *= c.qDim;
+      c.hubLabel.style.opacity = String(0.25 + 0.75 * c.qDim);
       c.hub.scale.setScalar((0.4 + 0.6 * appearHub) * (1 + 0.06 * (c.hubNode ? c.hubNode.hover : 0)));
       M.setOpacity(c.hub, appearHub * fsDim); c.hubGlyph.material.opacity = 0.55 * appearHub * fsDim;
     });
     hubs.forEach(function (h) {
       h.hover = M.damp(h.hover, hover === h ? 1 : 0, 10, dt);
-      h.halo.material.opacity = 0.32 * h.hover;
+      var lit = match && match[h.it.id];
+      h.halo.material.opacity = Math.max(0.32 * h.hover, lit ? 0.22 : 0);
       M.tickSpin(h.circle.hub, dt * h.hover * 2);
     });
 
     nodes.forEach(function (n) {
       n.appear = M.ease((time - n.delay) / 0.7);
       var on = hover === n, inGroup = !groupFilter || groupFilter === n.g.filter;
+      var hit = !match || !!match[n.it.id], lit = match && hit; // lit: 検索に当たった円（いつもより明るく）
       n.hover = M.damp(n.hover, on ? 1 : 0, 10, dt);
-      var dim = inGroup ? 1 : 0.22;
+      var dim = !hit ? 0.1 : inGroup ? 1 : 0.22;
       n.dim = M.damp(n.dim == null ? 1 : n.dim, dim, 8, dt);
       n.sigil.scale.setScalar((0.3 + 0.7 * n.appear) * (1 + 0.14 * n.hover));
       M.tickSpin(n.sigil, dt * (1 + n.hover * 2.5));
       M.setOpacity(n.sigil, n.appear * n.dim * (0.85 + 0.15 * n.hover + 0.08 * Math.sin(time * 1.4 + n.delay * 9)));
-      n.halo.material.opacity = (0.08 + 0.4 * n.hover) * n.appear * n.dim;
-      n.stream.on = n.appear > 0.5 && inGroup; n.hot.on = on;
-      n.label.style.opacity = String(Math.min(1, n.appear * 1.2) * (0.35 + 0.65 * n.dim));
+      n.lit = M.damp(n.lit || 0, lit ? 1 : 0, 8, dt);
+      n.halo.material.opacity = (0.08 + 0.4 * Math.max(n.hover, 0.6 * n.lit)) * n.appear * n.dim;
+      n.stream.on = n.appear > 0.5 && inGroup && hit; n.hot.on = on || !!lit;
+      n.label.style.opacity = String(Math.min(1, n.appear * 1.2) * (0.25 + 0.75 * n.dim));
     });
     traces.forEach(function (tr) {
       // 中心（FeasibilityStudy）に乗ったときは、その魔法陣の線を全部光らせる
       var hot = hover && (hover.isHub ? tr.filter === hover.g.filter
         : (tr.item === hover.it.id || (!tr.item && tr.group === hover.g.id)));
       var inGroup = !groupFilter || groupFilter === tr.filter;
-      var target = (hot ? 1 : (hover ? 0.3 : 0.5)) * (inGroup ? 1 : 0.25);
+      // 検索中は、当たった円へつながる線だけ光らせる（幹の線はグループ内に1つでも当たりがあれば）
+      var qHit = !match || (tr.item ? match[tr.item] : groupHit[tr.group]);
+      if (match && qHit) hot = true;
+      var target = (hot ? 1 : (hover ? 0.3 : 0.5)) * (inGroup ? 1 : 0.25) * (qHit ? 1 : 0.15);
       tr.k = M.damp(tr.k == null ? 0 : tr.k, target, 8, dt);
       tr.mesh.material.opacity = tr.k * traceIn;
+    });
+    junctions.forEach(function (j) { // 検索中、当たりの無いグループの分岐点は暗くする
+      var k = M.damp(j.k, !match || groupHit[j.group] ? 1 : 0.15, 8, dt);
+      if (k !== j.k) { j.k = k; j.mats.forEach(function (x) { x.m.opacity = x.base * k; }); }
     });
     CIRCLES.forEach(function (c) { c.flow.update(dt); });
 
