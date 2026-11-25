@@ -29,6 +29,7 @@ ToolPage.start({
         'ブラウザだけではローカルのフォルダを開けないので、<code>127.0.0.1</code> だけで待ち受ける小さな Node サーバ（npm パッケージなし）が「設定ファイルの読み書き」と「開く」を受け持ちます。',
   say: ['よく開くフォルダや URL をワンクリックで開きたい', '登録したものを OneDrive で複数の PC と共有したい', 'タグで分けて、仕事ごとに魔法陣を分けたい', 'キーを打つだけで探して開きたい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/main.png', title: '魔法陣の画面', cap: '実際の画面（登録した項目はダミー）' },
   nodes: [
     { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0],
       desc: '円をクリックして開く人。右クリックで登録・編集、ドラッグで並べ替え、キーを打つと検索。' },
@@ -70,6 +71,9 @@ ToolPage.start({
       text: 'マウスがページの外へ出て 1 秒たつと、全体がゆっくり反時計回りに回りながら離れてまたくっつく（または、ふわふわ漂う）。マウスを戻すと約 1 秒で元の表示に戻る。' },
   ],
   pages: [
+    { href: 'usage.html', icon: '🎬', title: '使い方', desc: '起動 → クリックで開く → 右クリックで登録・編集 → ドラッグで入れ替え → 絞り込み・検索 → 設定・魔法陣を分ける・待機中の動き・Light 版・壊れた設定ファイルの赤い帯を、実際の画面で（全15ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: 'ブラウザ → /api/* → launcher.json / .bak / settings.json → opener.exe → Windows と、ほかの PC の変更を版数で追いかける流れを、光の粒で追う（全10ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: '起動スクリプト・<code>launcher.js</code> / <code>magic.js</code>・<code>server.js</code> の <code>handle</code> / <code>mutate</code> / <code>api</code>・<code>opener.cs</code>・テストの関係と、Host / Origin / <code>X-Launcher</code> の検査を、実際の関数名で（全10ステップ）' },
     { href: 'https://github.com/koichi210/Essentials/tree/main/MagicLauncher', icon: '📖', title: 'ソースと README', desc: '設定ファイルの書式・読み書きのルール・API の一覧・安全のための作り・画面の操作と、動かし方' },
   ],
   note: 'ソースは <code>Essentials/MagicLauncher</code>。待ち受けは <code>127.0.0.1</code> だけで、ほかの PC からはつながりません。' +

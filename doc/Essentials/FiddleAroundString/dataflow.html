@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FiddleAroundString データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var T = THREE, C = GameGuide.colors;
+  var SX = 8;                               // 工程どうしの間隔(x)。文字のかたまりがこの間を流れていく
+  var HOP = 1.3;                            // 1つの工程から次の工程へ移る秒数
+  var GREY = '#6b6788';
+
+  // ---- タブごとのレーン(z)と工程(x = SX * 番号) ----
+  var LANES = {
+    A: { z: -10.5, color: C.me,     name: 'ファイル加工',
+         st: ['画面の入力\n(消す文字・フォルダ)', 'GetTargetFiles\n(ファイルを集める)', 'LoadFile\n(Shift_JISで読む)', 'DeleteStringFromContent\n(行に分けて消す)', 'SaveFile\n(変わった物だけ上書き)'] },
+    B: { z: -3.5,  color: C.good,   name: 'データ加工',
+         st: ['変更前データ', 'ChangeStrLinear2Array\n(行に分ける・空行は捨てる)', 'TrimDuplication /\nApplyWide2Narrow', '変更後データ\n+ クリップボード'] },
+    C: { z: 3.5,   color: C.gold,   name: 'ファイル抽出',
+         st: ['リファレンスファイル\n+ 検索ワード', 'SplitLines /\nExtractSearchWord', '共通ワードで絞る\n(最初に1回だけ)', 'GetHitLines\n(ワードごとに探す)', '◆見出し + 行\n→ 検索結果'] },
+    D: { z: 10.5,  color: C.server, name: 'HTML抽出',
+         st: ['取得元の URL', 'Task.Run で\nDownloadHtmlSource', 'GetSearchString\n(ヒット行 + 取得行数)', '◆URL + 行\n→ 取得値'] },
+  };
+  function stPos(lane, k, slot) {
+    return [SX * k, 0.55, LANES[lane].z - 1.5 + (slot || 0) * 0.75];
+  }
+  function laneCam(lane, k0, k1) {
+    var cx = SX * (k0 + k1) / 2, z = LANES[lane].z;
+    return { pos: [cx, 10 + (k1 - k0) * 2.4, z + 7 + (k1 - k0) * 2.6], target: [cx, 0.3, z - 0.5] };
+  }
+
+  // ---- 流れていく文字のかたまり(ダミー)。ステップごとに用意する ----
+  // t=文字、lane=レーン、from→to=通る工程、stop=止まる工程(to より手前なら「脱落」)、why=脱落の理由、
+  // chg=この工程に着いたら文字を after に変える、delay=出発を遅らせる秒数、slot=工程の中の並び(0〜4)
+  var TOKENS = {
+    1: [
+      { t: '議事録_0401.txt', lane: 'A', from: 0, to: 1, slot: 0 },
+      { t: '議事録_0408.txt', lane: 'A', from: 0, to: 1, slot: 1 },
+      { t: '2024\\買い物メモ.txt', lane: 'A', from: 0, to: 1, slot: 2 },
+      { t: 'readme.md', lane: 'A', from: 0, to: 1, slot: 3, stop: 0, why: '*.txt ではない\n→ 対象外' },
+    ],
+    2: [
+      { t: '【下書き】4月の定例', lane: 'A', from: 2, to: 3, slot: 0, chg: 3, after: '4月の定例' },
+      { t: '出席: Aさん、Bさん', lane: 'A', from: 2, to: 3, slot: 1 },
+      { t: '議題1: 新しい棚の配置(仮)', lane: 'A', from: 2, to: 3, slot: 2, chg: 3, after: '議題1: 新しい棚の配置' },
+      { t: '議題2: 備品の注文', lane: 'A', from: 2, to: 3, slot: 3 },
+    ],
+    3: [
+      { t: '議事録_0401.txt\n(消した所あり)', lane: 'A', from: 3, to: 4, slot: 0 },
+      { t: '買い物メモ.txt\n(消した所あり)', lane: 'A', from: 3, to: 4, slot: 2 },
+      { t: '(例)消す文字が\n無いファイル', lane: 'A', from: 3, to: 4, slot: 4, stop: 3, why: '中身が同じ\n→ 書き戻さない' },
+    ],
+    4: [
+      { t: 'りんご', lane: 'B', from: 0, to: 3, slot: 0 },
+      { t: 'みかん', lane: 'B', from: 0, to: 3, slot: 1 },
+      { t: 'りんご', lane: 'B', from: 0, to: 3, slot: 2, stop: 2, why: '2回目\n→ 消す' },
+      { t: '(空行)', lane: 'B', from: 0, to: 3, slot: 3, stop: 1, why: '空行\n→ 捨てる' },
+      { t: 'ぶどう', lane: 'B', from: 0, to: 3, slot: 4 },
+    ],
+    5: [
+      { t: 'りんご 3', lane: 'C', from: 0, to: 1, slot: 0, chg: 1, after: 'りんご' },
+      { t: 'みかん', lane: 'C', from: 0, to: 1, slot: 1 },
+      { t: 'メロン', lane: 'C', from: 0, to: 1, slot: 2 },
+    ],
+    6: [
+      { t: 'A001,りんご,…,在庫あり', lane: 'C', from: 1, to: 4, slot: 0 },
+      { t: 'A002,りんご(ふじ),…,在庫なし', lane: 'C', from: 1, to: 4, slot: 1, stop: 2, why: '共通ワードなし' },
+      { t: 'B001,バナナ,…,在庫あり', lane: 'C', from: 1, to: 4, slot: 2, stop: 3, why: 'どのワードにも\n当たらない' },
+      { t: 'C001,みかん,…,在庫あり', lane: 'C', from: 1, to: 4, slot: 3 },
+      { t: 'C002,みかん(小),…,在庫なし', lane: 'C', from: 1, to: 4, slot: 4, stop: 2, why: '共通ワードなし' },
+    ],
+    7: [
+      { t: 'shop_a.html', lane: 'D', from: 0, to: 1, slot: 0 },
+      { t: 'shop_b.html', lane: 'D', from: 0, to: 1, slot: 2, delay: 1.6 },
+      { t: 'shop_c.html', lane: 'D', from: 0, to: 1, slot: 4, delay: 3.2 },
+    ],
+    8: [
+      { t: '<h1>ダミー商店A</h1>', lane: 'D', from: 1, to: 3, slot: 0, stop: 2, why: 'class="price" を\n含まない' },
+      { t: '<td class="name">りんご</td>', lane: 'D', from: 1, to: 3, slot: 1, stop: 2 },
+      { t: '<td class="price">', lane: 'D', from: 1, to: 3, slot: 2 },
+      { t: '120円', lane: 'D', from: 1, to: 3, slot: 3 },
+      { t: '</td>', lane: 'D', from: 1, to: 3, slot: 4, stop: 2, why: '取得行数(2)の外' },
+    ],
+  };
+  function tokId(s, i) { return 'tk' + s + '-' + i; }
+  function whyId(s, i) { return 'why' + s + '-' + i; }
+  function tokIds(s) {
+    var ids = [];
+    (TOKENS[s] || []).forEach(function (tk, i) { ids.push(tokId(s, i)); if (tk.why) ids.push(whyId(s, i)); });
+    return ids;
+  }
+
+  // ステップ s のかたまりを t 秒目の位置にする(t から計算するので、途中のステップへ飛んでも壊れない)
+  function tick(g, s, t) {
+    (TOKENS[s] || []).forEach(function (tk, i) {
+      var sp = g.objects[tokId(s, i)];
+      var stop = tk.stop == null ? tk.to : tk.stop;
+      var u = Math.max(0, t - (tk.delay || 0)) / HOP;     // 何工程ぶん進んだか(小数)
+      var k = Math.min(tk.from + u, stop);
+      var k0 = Math.floor(k), f = g.phase(k - k0, 0, 1);
+      var a = stPos(tk.lane, k0, tk.slot), b = stPos(tk.lane, Math.min(k0 + 1, stop), tk.slot);
+      g.lerpPos(sp, a, b, f);
+      sp.position.y += Math.sin(Math.PI * f) * 0.5;
+      var arrived = k >= stop;
+      var dropped = arrived && stop < tk.to;
+      sp.material.color.set(dropped ? GREY : '#ffffff');
+      var w = g.objects[whyId(s, i)];
+      if (w) w.visible = dropped;
+      if (tk.chg != null && k >= tk.chg && !sp.userData.changed) {
+        sp.userData.changed = true;
+        g.setLabel(sp, tk.after, sp.userData.opt);
+      }
+    });
+  }
+
+  function step(s, title, html, camera, extraShow) {
+    return {
+      title: title, html: html, camera: camera, show: tokIds(s).concat(extraShow || []),
+      enter: function (g) { (TOKENS[s] || []).forEach(function (tk, i) { g.objects[tokId(s, i)].userData.changed = false; }); },
+      update: function (g, t) { tick(g, s, t); },
+    };
+  }
+
+  var OVERVIEW = { pos: [13, 30, 31], target: [13, 0, 1] };
+
+  GameGuide.start({
+    title: 'FiddleAroundString データの流れ',
+    back: 'index.html',
+    subtitle: '4つのタブそれぞれで、文字がどの処理を通って結果になるか。文字のかたまりと光の粒が流れていく',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;
+      g.controls.maxDistance = 120;
+
+      Object.keys(LANES).forEach(function (key) {
+        var L = LANES[key];
+        g.label(L.name, [-5.6, 0.6, L.z], { id: 'lane-' + key, size: 0.5, color: L.color, bg: '#000000aa', border: L.color });
+        L.st.forEach(function (name, k) {
+          g.plate({ id: 'st-' + key + k, size: [6.6, 4.4], pos: [SX * k, 0.03, L.z], color: '#211e33', emissive: L.color, emissiveIntensity: 0.08,
+            label: name, labelSize: 0.3, labelOffset: [0, 0.35, -2.5], labelColor: '#ffffff' });
+          if (k < L.st.length - 1) {
+            g.arrow([SX * k + 3.4, 0.3, L.z], [SX * (k + 1) - 3.4, 0.3, L.z], { id: 'ar-' + key + k, color: C.gold, lift: 0.3, head: 0.3 });
+            g.flow([SX * k + 3.4, 0.3, L.z], [SX * (k + 1) - 3.4, 0.3, L.z], { id: 'fl-' + key + k, color: L.color, lift: 0.3, count: 3, size: 0.09 });
+          }
+        });
+      });
+
+      // ファイル加工: 読む・書く相手のファイル / HTML抽出: 取りに行く Web ページ
+      g.box({ id: 'disk', size: [3.2, 1.4, 2], pos: [SX * 3, 0.7, LANES.A.z - 5], color: '#2d2944', emissive: C.me, emissiveIntensity: 0.25, radius: 0.1, edgeColor: C.me,
+        label: '対象のファイル\n(Shift_JIS)', labelSize: 0.28, labelOffset: [0, 1.4, 0], labelBg: '#000000aa' });
+      g.flow([SX * 2, 0.6, LANES.A.z - 4], [SX * 2, 0.6, LANES.A.z - 2.2], { id: 'fl-read', color: C.data, lift: 0.8, count: 4 });
+      g.flow([SX * 4, 0.6, LANES.A.z - 2.2], [SX * 4, 0.6, LANES.A.z - 4], { id: 'fl-write', color: C.enemy, lift: 0.8, count: 4 });
+      g.line([[SX * 2, 0.6, LANES.A.z - 4], [SX * 3 - 1.6, 0.6, LANES.A.z - 5]], { id: 'ln-read', color: C.data, dashed: true });
+      g.line([[SX * 4, 0.6, LANES.A.z - 4], [SX * 3 + 1.6, 0.6, LANES.A.z - 5]], { id: 'ln-write', color: C.enemy, dashed: true });
+
+      g.cylinder({ id: 'web', radius: 1.2, height: 1.2, pos: [SX * 1, 0.6, LANES.D.z + 5], color: '#2d2944', emissive: C.server, emissiveIntensity: 0.3,
+        label: 'Web ページ\n(UTF-8 で読む)', labelSize: 0.28 });
+      g.flow([SX * 1, 0.7, LANES.D.z + 3.8], [SX * 1, 0.7, LANES.D.z + 2.2], { id: 'fl-web', color: C.server, lift: 0.8, count: 4 });
+      g.label('タイトル: HTML取得中 (1/3) → (2/3) → (3/3)\n実行ボタン: 取得中...', [SX * 0.5, 2.6, LANES.D.z - 2.6], { id: 'busy-note', size: 0.28, color: C.server, bg: '#000000cc' });
+      g.label('クリップボードへ', [SX * 3, 2.0, LANES.B.z], { id: 'clip-B', size: 0.26, color: C.good, bg: '#000000cc' });
+
+      // 設定(ファイル抽出・HTML抽出のタブだけ)
+      g.box({ id: 'json', size: [5.4, 1.4, 2.4], pos: [-13, 0.7, 7], color: '#2d2944', emissive: C.third, emissiveIntensity: 0.3, radius: 0.1, edgeColor: C.third,
+        label: '設定 JSON\n<保存先>\\TrimFileData\\*.json\n<保存先>\\TrimHtmlData\\*.json', labelSize: 0.26, labelOffset: [0, 1.7, 0], labelBg: '#000000cc' });
+      g.box({ id: 'legacy', size: [5, 1.2, 2.2], pos: [-13, 0.6, 16], color: '#2d2944', emissive: C.neutral, emissiveIntensity: 0.2, radius: 0.1, edgeColor: C.neutral,
+        label: '元のツールの設定\n%LOCALAPPDATA%\\TrimFileData\\ など', labelSize: 0.26, labelOffset: [0, 1.5, 0], labelBg: '#000000cc' });
+      g.flow([-13, 0.8, 14.8], [-13, 0.8, 8.3], { id: 'fl-legacy', color: C.neutral, lift: 1.2, count: 5 });
+      g.flow([-10.3, 0.8, 7], [-3.3, 0.6, LANES.C.z], { id: 'fl-jsonC', color: C.third, lift: 1.2, count: 5 });
+      g.flow([-10.3, 0.8, 7], [-3.3, 0.6, LANES.D.z], { id: 'fl-jsonD', color: C.third, lift: 1.2, count: 5 });
+      g.label('初回だけコピー', [-15.6, 1.4, 11.8], { id: 'legacy-note', size: 0.26, color: '#c9c4e6', bg: '#000000cc' });
+
+      // 流れていく文字のかたまり
+      Object.keys(TOKENS).forEach(function (s) {
+        TOKENS[s].forEach(function (tk, i) {
+          var opt = { size: 0.24, color: '#ffffff', bg: '#1d2a4add', border: LANES[tk.lane].color };
+          var sp = g.label(tk.t, stPos(tk.lane, tk.from, tk.slot), { id: tokId(s, i), size: opt.size, color: opt.color, bg: opt.bg, border: opt.border });
+          sp.userData.opt = opt;
+          if (tk.why) {
+            var w = stPos(tk.lane, tk.stop, tk.slot);
+            g.label(tk.why, [w[0] + 2.4, 1.5, w[2]], { id: whyId(s, i), size: 0.22, color: C.enemy, bg: '#000000cc' });
+          }
+        });
+      });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p>FiddleAroundString の4つのタブは、それぞれ別の処理です。手前から奥へ、レーン1本が1つのタブです。</p>' +
+          '<table><tr><th>レーン</th><th>入る物 → 出る物</th></tr>' +
+          '<tr><td>ファイル加工</td><td>フォルダの中のファイル → 同じファイルに上書き</td></tr>' +
+          '<tr><td>データ加工</td><td>貼り付けた文字 → 変更後データ・クリップボード</td></tr>' +
+          '<tr><td>ファイル抽出</td><td>リファレンスファイル・検索ワード → 検索結果・クリップボード</td></tr>' +
+          '<tr><td>HTML抽出</td><td>URL → Web ページの HTML → 取得値・クリップボード</td></tr></table>' +
+          '<p>どの処理も、<b>画面(View)が入力を読み取って、文字だけをロジック(Logic)に渡し、返ってきた文字を画面に出す</b>形です。ロジックは画面のことを知りません。</p>' +
+          '<p>ドラッグで回転、ホイールで拡大できます。各ステップでカメラがそのレーンへ寄ります。流れる文字はダミーです。</p>' +
+          '<p class="gg-files">📄 <code>ToyingFileView</code> / <code>ToyingDataView</code> / <code>TrimFileDataView</code> / <code>TrimHtmlDataView</code> と、それぞれの <code>〜Logic.cs</code></p>',
+      },
+      step(1, '1. ファイル加工: ファイルを集める',
+        '<p><b>実行</b>を押すと、まず <code>ValidateDirectory</code> がディレクトリを確かめます(空欄・見つからない → メッセージを出して終わり)。</p>' +
+        '<p>次に <code>GetTargetFiles</code> が <code>Directory.GetFiles</code> で対象のファイルを集めます。</p>' +
+        '<ul><li>パターンが空欄なら <code>*</code>(全部)</li>' +
+        '<li>「サブディレクトリも対象」が ON なら <code>SearchOption.AllDirectories</code> → <code>2024\\買い物メモ.txt</code> も入る</li>' +
+        '<li><code>*.txt</code> に合わない <code>readme.md</code> は入らない</li></ul>' +
+        '<p>読めないサブフォルダなどで集める途中に失敗したら、「対象ファイルを列挙できませんでした」と出して終わります。</p>' +
+        '<p class="gg-files">📄 <code>ToyingFileView.xaml.cs</code> の <code>Execute</code>、<code>ToyingFileLogic.cs</code> の <code>ValidateDirectory</code> / <code>GetTargetFiles</code></p>',
+        laneCam('A', 0, 1)),
+      step(2, '2. ファイル加工: 読んで、行に分けて消す',
+        '<p>1ファイルずつ、<code>StcFileInputOutput.LoadFile</code> で <b>Shift_JIS</b> として中身を読みます。</p>' +
+        '<p><code>DeleteStringFromContent</code> が中身を<b>行に分けます</b>。<code>Regex.Split(fileData, "(\\r\\n|\\n|\\r)")</code> で、区切りの改行コードも一緒に取っておくので、CRLF / LF / CR が混ざっていても<b>元の改行コードのまま</b>つなぎ直せます。</p>' +
+        '<ul><li>空の行は調べない</li>' +
+        '<li>消す文字(<code>【下書き】</code> / <code>(仮)</code>)を含む行だけを書き換える</li>' +
+        '<li>大文字小文字を区別するなら <code>String.Replace</code>、しないなら <code>Regex.Replace</code>(<code>RegexOptions.IgnoreCase</code>。最初に1回だけ作る)</li>' +
+        '<li>「行を削除」なら、その行を空文字にする(行は詰めない)</li></ul>' +
+        '<p class="gg-files">📄 <code>ToyingFileLogic.cs</code> の <code>DeleteStringFromContent</code>、<code>ToyingFileView.xaml.cs</code> の <code>DeleteStringFromFiles</code></p>',
+        laneCam('A', 2, 3), ['disk', 'fl-read', 'ln-read']),
+      step(3, '3. ファイル加工: 変わったファイルだけ上書き',
+        '<p>消した結果が<b>元の中身と同じなら書き戻しません</b>(<code>resultData == fileData</code> なら <code>continue</code>)。</p>' +
+        '<p>変わったファイルだけ、<code>SaveFile</code> で <b>Shift_JIS</b> で<b>同じファイルに上書き</b>します。バックアップは作りません。</p>' +
+        '<div class="gg-note">以前は対象の全ファイルを Shift_JIS で書き直していたため、一致しなかった UTF-8 のテキストや画像まで化けて壊れていました。それを防ぐための「変わった物だけ」です。ただし、消した所があるファイルは Shift_JIS で書き戻すので、対象は Shift_JIS のテキストにしておくのが安全です。</div>' +
+        '<p class="gg-files">📄 <code>ToyingFileView.xaml.cs</code> の <code>DeleteStringFromFiles</code>、<code>_Common/StandardTemplateClass.cs</code> の <code>StcFileInputOutput.SaveFile</code></p>',
+        laneCam('A', 3, 4), ['disk', 'fl-write', 'ln-write']),
+      step(4, '4. データ加工: 行に分けて、変えて、戻す',
+        '<ol><li><code>ChangeStrLinear2Array</code> が「変更前データ」を CRLF で行に分ける(<code>RemoveEmptyEntries</code> なので<b>空行は捨てる</b>)</li>' +
+        '<li>「重複を削除」なら <code>TrimDuplication</code>: <code>HashSet</code> で、最初に出てきた行だけを順番どおりに残す</li>' +
+        '<li>「全角を半角に変換」なら <code>TryGetRegexPattern</code> がチェックから <code>[０-９Ａ-Ｚ　]</code> のような文字クラスを組み立て、<code>ApplyWide2Narrow</code> が当てはまる文字だけを <code>Strings.StrConv(…, VbStrConv.Narrow)</code> で半角にする</li>' +
+        '<li><code>ChangeStrArray2Linear</code> で CRLF でつなぎ直して「変更後データ」へ。空でなければ <code>ClipboardWriter</code> でクリップボードへ</li></ol>' +
+        '<p>ファイルは読み書きしません。画面の中だけで完結します。</p>' +
+        '<p class="gg-files">📄 <code>ToyingDataView.xaml.cs</code> の <code>Execute</code> / <code>ChangeWide2Narrow</code>、<code>ToyingDataLogic.cs</code></p>',
+        laneCam('B', 0, 3), ['clip-B']),
+      step(5, '5. ファイル抽出: 行に分けて、検索ワードを取り出す',
+        '<p><code>ExecuteSearch</code> はまず結果欄を空にして、リファレンスファイルを <code>LoadFile</code>(Shift_JIS)で読みます。空文字が返ってきたら「開けません」で終わり。</p>' +
+        '<p>検索ワード欄とリファレンスの中身を、どちらも <code>SplitLines</code> で行に分けます(CRLF / LF / CR を問わず、空行は捨てる)。</p>' +
+        '<p>検索ワード欄の1行ごとに、<code>ExtractSearchWord</code> が<b>先頭から、最後の半角スペースの手前まで</b>を取り出します。</p>' +
+        '<ul><li><code>りんご 3</code> → <code>りんご</code></li><li><code>みかん</code> → <code>みかん</code>(スペースが無ければ行全体)</li></ul>' +
+        '<p>「全角半角を区別しない」が ON なら、先に <code>ToNarrow</code> で半角にそろえてから取り出します(全角スペースも区切りになる)。</p>' +
+        '<p class="gg-files">📄 <code>TrimFileDataView.xaml.cs</code> の <code>ExecuteSearch</code>、<code>TrimFileDataLogic.cs</code> の <code>SplitLines</code> / <code>ExtractSearchWord</code> / <code>GetSearchData</code></p>',
+        laneCam('C', 0, 1)),
+      step(6, '6. ファイル抽出: 共通ワードで絞って、ワードごとに探す',
+        '<p><code>GetHitLines</code> は、まず<b>共通ワード</b>(<code>在庫あり</code>)を含む行だけに絞ります。どの検索ワードでも結果は同じなので、<b>ワードのループに入る前に1回だけ</b>やります。</p>' +
+        '<p>残った行を、検索ワードごとに <code>IndexOf</code>(大文字小文字の区別は <code>StringComparison</code>)で調べ、ヒットした行を足します。「最初にヒット」が ON なら1行見つけたところで次のワードへ。</p>' +
+        '<p>「全角半角を区別しない」なら、比べるのは半角にそろえた行、<b>結果に出すのは元の行</b>です。</p>' +
+        '<p><code>GetSearchData</code> がワードごとに <code>◆</code> + 検索ワード欄の行を見出しにし、ヒットした行から重複を除いて(<code>TrimDuplication</code>)、空行で区切ります。全部を <code>StringBuilder</code> にためて最後に1回だけ文字列にします。結果は検索結果欄とクリップボードへ。</p>' +
+        '<p class="gg-files">📄 <code>TrimFileDataLogic.cs</code> の <code>GetHitLines</code> / <code>GetSearchData</code> / <code>ToNarrow</code></p>',
+        laneCam('C', 1, 4)),
+      step(7, '7. HTML抽出: URL を順に取りに行く',
+        '<p><code>ExecuteTrimAsync</code> は、まず <code>TryGetTrimLine</code> で取得行数を読みます(読めなければメッセージを出して終わり)。取得中に画面の値が変わってもよいよう、検索文字・チェックは<b>最初にまとめて読み取って</b>おきます。</p>' +
+        '<p>URL を <code>SplitLines</code> で分け、<b>1つずつ順番に</b>:</p>' +
+        '<ol><li>タイトル(<code>ShowStatus</code> → <code>MainWindow.ShowFetchStatus</code>)とプログレスバーを進める</li>' +
+        '<li><code>await Task.Run(() =&gt; FetchHtmlSource(url))</code>。取得だけを裏のスレッドで行うので、<b>画面は固まらない</b></li>' +
+        '<li><code>DownloadHtmlSource</code> は <code>WebClient</code> で <b>UTF-8</b> として読む(TLS 1.2 を足してから)</li>' +
+        '<li>失敗したら、画面のスレッドに戻ってから「ソース取得に失敗しました。」を出し、次の URL へ</li></ol>' +
+        '<p>実行ボタンは <code>SetFetching(true)</code> で「取得中...」になり、押せなくなります。</p>' +
+        '<p class="gg-files">📄 <code>TrimHtmlDataView.xaml.cs</code> の <code>ExecuteTrimAsync</code> / <code>SetFetching</code> / <code>DownloadHtmlSource</code></p>',
+        laneCam('D', 0, 1), ['web', 'fl-web', 'busy-note']),
+      step(8, '8. HTML抽出: ヒットした行から取得行数ぶん抜き出す',
+        '<p>取ってきた HTML は <code>ChangeNewLineCodeLf2Crlf</code> で改行を CRLF にそろえてから、<code>GetSearchString</code> に渡します。</p>' +
+        '<ul><li><code>SplitLines</code> で行に分け(空行は捨てる)、<code>IndexOf(searchWord, comparison)</code> でヒットする行を探す</li>' +
+        '<li>ヒットしたら、その行から<b>取得行数ぶん</b>を足す(この例は2 → <code>&lt;td class="price"&gt;</code> と <code>120円</code>)。最後の行を越えるときは、ある分だけ</li>' +
+        '<li>「最初にヒット」なら、そこで打ち切る。そうでなければ空行を入れて次のヒットを探す</li></ul>' +
+        '<p>URL ごとに <code>◆</code> + URL の見出しを付けて <code>StringBuilder</code> にため、<b>全部の URL が終わってから</b>1回だけ取得値欄に入れ、クリップボードへコピーします。</p>' +
+        '<div class="gg-note">デバッグモードのときは、ここで取ってきた HTML(<code>_1_source</code>)と抜き出した結果(<code>_2_search</code>)を <code>StcDebug.WriteDataInNewFile</code> で連番のファイルに書き出します。</div>' +
+        '<p class="gg-files">📄 <code>TrimHtmlDataLogic.cs</code> の <code>GetSearchString</code>、<code>TrimHtmlDataView.xaml.cs</code> の <code>ExecuteTrimAsync</code></p>',
+        laneCam('D', 1, 3)),
+      {
+        title: '9. 設定の流れ',
+        camera: { pos: [-7, 17, 27], target: [-7, 0.5, 9] },
+        show: ['json', 'legacy', 'fl-legacy', 'fl-jsonC', 'fl-jsonD', 'legacy-note'],
+        focus: ['json', 'legacy', 'fl-legacy', 'fl-jsonC', 'fl-jsonD', 'legacy-note', 'st-C0', 'st-D0', 'lane-C', 'lane-D'],
+        html:
+          '<p>入力値を保存するのは<b>ファイル抽出</b>と <b>HTML抽出</b> だけです。</p>' +
+          '<ol><li>起動時: <code>MainWindow</code> が保存先(<code>UserDataLocation.GetUserDataFolder</code>。既定 <code>%LOCALAPPDATA%\\FiddleAroundString</code>)を決める</li>' +
+          '<li>初回だけ: <code>LegacySettingImporter.ImportIfFirstRun</code> が、元のツールの既定の保存先の <code>*.json</code> を、タブのフォルダがまだ無いときに<b>コピー</b>する</li>' +
+          '<li><code>ApplyDataFolderToViews</code> が各タブに <code>&lt;保存先&gt;\\TrimFileData</code> / <code>\\TrimHtmlData</code> を渡し、タブは <code>SetDataFolder</code> でフォルダを作って既定の JSON を <code>WpfSaveRestore.LoadOrDefault</code> で読み込む</li>' +
+          '<li>「設定保存」: <code>WpfProfile.SaveProfileWithDialog</code> → <code>WpfSaveRestore.Save</code> → <code>JsonFileStorage.Save</code>(一時ファイルに書いてから置き換える <code>AtomicFile</code>)</li></ol>' +
+          '<p>JSON のキー(<code>Common|textBox_SearchWord</code> など)は元のツールと同じなので、元のツールで保存した設定をそのまま読めます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code> の <code>ImportLegacySettings</code> / <code>ApplyDataFolderToViews</code>、<code>LegacySettingImporter.cs</code>、<code>_Common/Wpf/WpfSaveRestore.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

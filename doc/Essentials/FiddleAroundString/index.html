@@ -28,6 +28,7 @@ ToolPage.start({
         'フォルダ内のファイルから文字を消す<b>ファイル加工</b>、全角→半角や重複行の削除をする<b>データ加工</b>、手元のファイルから検索ワードを含む行を抜き出す<b>ファイル抽出</b>、Web ページの HTML から抜き出す<b>HTML抽出</b>を切り替えて使います。',
   say: ['たくさんのファイルから同じ文字をまとめて消したい', '全角の英数字を半角にそろえたい', '一覧の中から、検索ワードを含む行だけを抜き出したい', 'Web ページの決まった場所の値を取り出したい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/file.png', title: 'ファイル加工タブ', cap: '実際の画面（ダミーのフォルダ）' },
   nodes: [
     { id: 'user', type: 'person', label: '使う人', at: [-8.6, 0], desc: 'タブを選んで、対象と条件を入れて「実行」を押す人。' },
     { id: 'app', type: 'main', label: 'FiddleAroundString', sub: 'MainWindow', at: [-4.2, 0],
@@ -65,9 +66,12 @@ ToolPage.start({
       text: 'ファイル抽出と HTML抽出は、入力した値に名前を付けて保存しておき、あとで選んで戻せる。タイトルバーの右クリックで保存先も変えられる。' },
   ],
   pages: [
+    { href: 'usage.html', icon: '🖱️', title: '使い方', desc: 'タブを選ぶ → ファイル加工 → データ加工 → ファイル抽出 → HTML抽出 → 設定の保存と読み込み（全13ステップ）' },
+    { href: 'dataflow.html', icon: '🌊', title: 'データの流れ', desc: '4つのタブそれぞれで、ファイルや行が「集める → 行に分ける → 消す・変える・探す → 書き戻す・並べる」を流れていく様子を、文字のかたまりと光の粒で（全10ステップ）' },
+    { href: 'architecture.html', icon: '🏗️', title: '内部設計', desc: '画面・ロジック・共通部品・外部の4層と、<code>MainWindow</code> / 4つの <code>〜View</code> と <code>〜Logic</code> の役割、HTML抽出のスレッド（全9ステップ）' },
     { href: 'https://github.com/koichi210/Essentials/tree/main/FiddleAroundString/FiddleAroundString/bin/Release', icon: '📦', title: 'ビルド済み exe（Release フォルダ）', desc: 'ビルド済みの exe を置いている GitHub のフォルダ（いつも最新）。exe の横の dll なども一緒に置いて使う' },
   ],
-  note: 'ソースは <code>Essentials/FiddleAroundString</code>。もとの4本（ToyingFile・ToyingData・TrimFileData・TrimHtmlData）は、別のリポジトリ（CS_Wpf）に単体のツールとして残っています。',
+  note: 'ソースは <code>Essentials/FiddleAroundString</code>。もとの4本（ToyingFile・ToyingData・TrimFileData・TrimHtmlData）は、別のリポジトリ（CS_Wpf）に単体のツールとして残っています。画面写真は、このガイド用に作った<b>ダミーのフォルダ・ファイル</b>と、手元で配った<b>ダミーのページ</b>だけを使っています。',
 });
 </script>
 </body>

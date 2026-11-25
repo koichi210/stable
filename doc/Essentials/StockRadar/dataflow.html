@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockRadar データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: 画面(水色)・server.js(橙)・判定のルール analyze.js(紫)・外のサービス(青)・PC に書くファイル(緑)・LINE(赤)
+  var COL = { ui: C.data, srv: C.server, rule: C.third, ext: C.me, file: C.good, line: C.enemy };
+
+  // ノードの座標 [x, z](奥が -z)。y は箱の中心 0.6
+  var N = {
+    // 見張りの列(いちばん奥)
+    watchapi: [-10, -15], wjson: [-3, -15], mon: [4, -15], line: [11, -15], lineapp: [19, -15],
+    // 買い候補を探す列
+    sess: [-3, -9], scanapi: [-10, -3], screen: [-3, -3], analyze: [4, -3], rank: [11, -3], yahoo: [19, -6],
+    ui: [-17, 2], hist: [4, 3], extras: [11, 3], yjp: [19, 3], chartapi: [-10, 4],
+    // スナップショットの列
+    ls: [-17, 9], snapapi: [-10, 10], snapdir: [-3, 10], cmp: [4, 10],
+    // 平均割れの列(手前)
+    avgapi: [-10, 16], monthly: [-3, 16], mcache: [4, 16], below: [11, 16]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  // 矢印の一覧 [始点, 終点, 色, ラベル, 弧の高さ]。id は 'a-' + 始点 + '-' + 終点、粒は 'fl-' + 始点 + '-' + 終点
+  var EDGES = [
+    // 買い候補を探す
+    ['ui', 'scanapi', COL.ui, 'GET', 0.9],
+    ['scanapi', 'screen', COL.srv, '', 0.9],
+    ['sess', 'screen', COL.srv, 'cookie+crumb', 0.6],
+    ['screen', 'yahoo', COL.ext, 'スクリーナー', 1.4],
+    ['screen', 'analyze', COL.srv, 'PER・PBR で\n先に絞る', 0.9],
+    ['hist', 'analyze', COL.srv, '日足', 0.9],
+    ['hist', 'yahoo', COL.ext, 'chart API', 1.2],
+    ['analyze', 'rank', COL.rule, '点・値段', 0.9],
+    ['rank', 'extras', COL.srv, '20銘柄', 0.9],
+    ['extras', 'yahoo', COL.ext, '配当履歴', 1.0],
+    ['extras', 'yjp', COL.ext, '優待ページ', 0.9],
+    ['extras', 'ui', COL.ui, 'JSON', 3.2],
+    ['ui', 'ls', COL.ui, '入力・結果', 0.8],
+    // チャート
+    ['ui', 'chartapi', COL.ui, '近づいたカード', 0.9],
+    ['chartapi', 'hist', COL.srv, '', 1.6],
+    // スナップショット
+    ['ui', 'snapapi', COL.ui, '📸', 0.9],
+    ['snapapi', 'snapdir', COL.file, '書く・読む', 0.9],
+    ['snapapi', 'cmp', COL.srv, '', 1.8],
+    ['cmp', 'hist', COL.srv, 'その後の日足', 1.0],
+    // 見張り
+    ['ui', 'watchapi', COL.ui, '登録・再開', 2.4],
+    ['watchapi', 'wjson', COL.file, '書く', 0.9],
+    ['mon', 'wjson', COL.file, '読む・書く', 0.9],
+    ['mon', 'yahoo', COL.ext, 'quoteNow', 1.2],
+    ['mon', 'line', COL.line, '当たった分', 0.9],
+    ['line', 'lineapp', COL.line, 'push', 0.9],
+    // 平均割れ
+    ['ui', 'avgapi', COL.ui, 'POST / 1秒ごとに\n進み具合', 2.4],
+    ['avgapi', 'monthly', COL.srv, '同時4本', 0.9],
+    ['monthly', 'mcache', COL.file, '1日覚える', 0.9],
+    ['monthly', 'yahoo', COL.ext, '月足20年', 3.0],
+    ['monthly', 'below', COL.rule, '', 2.0]
+  ];
+  // そのステップで明るくする id(箱 + 矢印 + 粒)
+  function F(nodes, edges, extra) {
+    var out = nodes.slice();
+    edges.forEach(function (e) { out.push('a-' + e[0] + '-' + e[1], 'fl-' + e[0] + '-' + e[1]); });
+    return out.concat(extra || [], ['pkt']);
+  }
+
+  GameGuide.start({
+    title: 'StockRadar データの流れ',
+    back: 'index.html',
+    subtitle: '画面 → /api/scan → Yahoo! Finance → analyze.js → 上位20 → 画面(+ チャート・スナップショット・見張り・平均割れ)',
+    camera: { pos: [1, 36, 31], target: [1, 0, 1] },
+
+    build: function (g) {
+      g.controls.maxDistance = 70;
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.6, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.36, labelOffset: [0, 1.6, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 画面 ----
+      node('ui', 'ブラウザの画面\npublic/app.js', COL.ui);
+      node('ls', 'localStorage\n入力・前回の結果・並び順', COL.ui);
+      // ---- 買い候補を探す ----
+      node('scanapi', 'GET /api/scan\nparseScan → cachedScan', COL.srv);
+      node('sess', 'yahooSession\ncookie と crumb(1時間)', COL.srv);
+      node('screen', 'screen / screenAll\nスクリーナー 250件ずつ', COL.srv);
+      node('hist', 'history\n日足・週足(10分覚える)', COL.srv);
+      node('analyze', 'analyze.js\nanalyzeShort / analyzeLong', COL.rule);
+      node('rank', 'byScore → クロス\n→ 上位20', COL.srv);
+      node('extras', 'attachExtras\n配当・優待(12時間覚える)', COL.srv);
+      node('yahoo', 'Yahoo! Finance\nスクリーナー・日足・週足\n配当・月足(約20分遅れ)', COL.ext);
+      node('yjp', 'Yahoo!ファイナンス(日本)\n優待ページ(HTML)', COL.ext);
+      // ---- チャート ----
+      node('chartapi', 'GET /api/chart\nchartSeries', COL.srv);
+      // ---- スナップショット ----
+      node('snapapi', '/api/snapshots\n保存・一覧・削除', COL.srv);
+      node('snapdir', 'snapshots/\n<保存した時刻>.json', COL.file);
+      node('cmp', '/compare\ncompareSince', COL.rule);
+      // ---- 見張り ----
+      node('watchapi', '/api/watches\n登録・削除・再開・確認', COL.srv);
+      node('wjson', 'watches.json', COL.file);
+      node('mon', 'checkWatches\n平日 9:00〜15:50 に5分おき', COL.srv);
+      node('line', 'line.js pushText\n(line.dpapi を戻して送る)', COL.line);
+      node('lineapp', 'LINE\n(自分の Bot から自分あて)', COL.line);
+      // ---- 平均割れ ----
+      node('avgapi', '/api/avgscan\nrunAvgScan(調査の仕事)', COL.srv);
+      node('monthly', 'monthlyHistory\n月足を取る', COL.srv);
+      node('mcache', 'cache/monthly/\n<コード>.json', COL.file);
+      node('below', 'belowAverage\n平均より◯%安い', COL.rule);
+
+      // ---- 矢印と、常時流れる粒 ----
+      EDGES.forEach(function (e) {
+        g.arrow(P(e[0]), P(e[1]), { id: 'a-' + e[0] + '-' + e[1], color: e[2], lift: e[4], label: e[3] || undefined, labelSize: 0.26 });
+        g.flow(P(e[0]), P(e[1]), { id: 'fl-' + e[0] + '-' + e[1], color: e[2], count: 5, lift: e[4], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('ui'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順の補助ラベル ----
+      g.label('127.0.0.1:8766 だけで待ち受け\n(他のPCからは直接つながらない)', [-10, 4.2, -7], { id: 'lo-l', size: 0.3, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+      g.label('書き換える API は\nこの画面の Origin だけ受け付ける', [-10, 4.2, 13], { id: 'or-l', size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('書くのは %LOCALAPPDATA%\\StockRadar の下だけ', [1, 3.4, 13], { id: 'fs-l', size: 0.3, bg: '#000000cc', color: '#5ee6a8', border: '#5ee6a8' });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像',
+        camera: { pos: [1, 36, 31], target: [1, 0, 1] },
+        update: function (g, t) { travel(g, t, pts(['ui', 'scanapi', 'screen', 'analyze', 'rank', 'extras', 'ui']), 1.0, null); },
+        html:
+          '<p>StockRadar は、<b>ボタンを押したときだけ</b> Yahoo! Finance の公開データを取りに行き、決まったルールで点を付けて画面へ返す仕組みです。常に株価を見張っているのは「値段の見張り」だけです。</p>' +
+          '<ul><li><b>水色(画面)</b>: ブラウザの <code>public/app.js</code>。入力と前回の結果は <code>localStorage</code></li>' +
+          '<li><b>橙(server.js)</b>: Node.js のサーバー。Yahoo から集めて、覚えておいて(キャッシュ)、組み立てる</li>' +
+          '<li><b>紫(analyze.js)</b>: 判定のルール。点・買い・利確・損切りを決める</li>' +
+          '<li><b>青(外のサービス)</b>: Yahoo! Finance と Yahoo!ファイナンス(日本)の優待ページ</li>' +
+          '<li><b>緑(PC のファイル)</b>: スナップショット・見張り・月足のキャッシュ</li>' +
+          '<li><b>赤(LINE)</b>: 見張っていた値段になったときの知らせ</li></ul>' +
+          '<p>金色の玉が、「買い候補を探す」1回の旅です(各ステップで寄って見ます)。</p>' +
+          '<div class="gg-note">データは約20分遅れです。決算の中身やニュースは読んでいません。「次へ」で順番に。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code>、<code>analyze.js</code>、<code>line.js</code>、<code>public/app.js</code></p>'
+      },
+      {
+        title: '1. 画面 → GET /api/scan',
+        camera: { pos: [-13, 14, 14], target: [-13, 0, 3] },
+        focus: F(['ui', 'ls', 'scanapi'], [['ui', 'scanapi'], ['ui', 'ls']]),
+        update: function (g, t) { travel(g, t, pts(['ui', 'scanapi']), 1.8, ['mode・max・min・per・pbr\ncross・gc・dc']); },
+        html:
+          '<p>「買い候補を探す」で、<code>app.js</code> の <code>run()</code> が入力を <code>localStorage</code> に覚えてから、条件を URL に付けて <code>/api/scan</code> を呼びます。</p>' +
+          '<table><tr><th>引数</th><th>中身</th></tr>' +
+          '<tr><td><code>mode</code></td><td><code>short</code>(短期)/ <code>long</code>(長期)</td></tr>' +
+          '<tr><td><code>max</code> / <code>min</code></td><td>100株の予算(円)。画面の万円 × 10000</td></tr>' +
+          '<tr><td><code>per</code> / <code>pbr</code></td><td>PER ◯倍以下 / PBR ◯倍未満</td></tr>' +
+          '<tr><td><code>cross</code> <code>gc</code> <code>dc</code></td><td>クロスの線と条件(<code>gc=10</code>・<code>gc=soon</code>・<code>dc=not10</code>、<code>gcSoon=1</code> で「もうすぐ」も)</td></tr></table>' +
+          '<ul><li>サーバーの <code>parseScan</code> が範囲を確かめる(予算の上限は1万円〜1億円、下限は上限より小さい)。おかしければ 400 で理由を返す</li>' +
+          '<li><code>cachedScan</code>: 条件をそのまま鍵にして、<b>3分間</b>は前回の結果を返す</li></ul>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>run</code> / <code>scanQuery</code>、<code>server.js</code> の <code>parseScan</code> / <code>parseCross</code> / <code>cachedScan</code></p>'
+      },
+      {
+        title: '2. スクリーナーで銘柄を集める',
+        camera: { pos: [6, 22, 14], target: [6, 0, -5] },
+        focus: F(['scanapi', 'sess', 'screen', 'yahoo', 'analyze'], [['scanapi', 'screen'], ['sess', 'screen'], ['screen', 'yahoo'], ['screen', 'analyze']]),
+        update: function (g, t) { travel(g, t, pts(['scanapi', 'screen', 'yahoo', 'screen', 'analyze']), 1.4, ['予算 ÷ 100 = 株価の幅', 'POST screener(250件)', '銘柄の一覧', 'PER・PBR で絞る']); },
+        html:
+          '<p><code>scan()</code> は、まず Yahoo のスクリーナーで<b>対象の銘柄</b>を集めます(同時に日経平均 <code>^N225</code> の日足も取り、地合いを出す)。</p>' +
+          '<ul><li>条件: 東証(<code>region=jp</code>・<code>exchange=JPX</code>)の株、株価が「予算 ÷ 100株」の幅、<b>時価総額500億円以上</b></li>' +
+          '<li>時価総額の大きい順に<b>250件ずつ</b>ページをめくり、最大1000件</li>' +
+          '<li>スクリーナーには cookie と crumb が要るので、<code>yahooSession</code> が取って<b>1時間</b>使い回す。401 が返ったら取り直して1回だけやり直す</li>' +
+          '<li><code>matchValuation</code>: PER・PBR は<b>スクリーナーの値だけで絞れる</b>ので、日足を取る前に絞る(取りに行く数を減らす)</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>scan</code> / <code>screen</code> / <code>screenAll</code> / <code>screenPage</code> / <code>yahooSession</code>、<code>analyze.js</code> の <code>matchValuation</code> / <code>analyzeMarket</code></p>'
+      },
+      {
+        title: '3. 日足を取って判定する',
+        camera: { pos: [8, 20, 14], target: [8, 0, -1] },
+        focus: F(['screen', 'hist', 'analyze', 'yahoo'], [['hist', 'analyze'], ['hist', 'yahoo'], ['screen', 'analyze']]),
+        update: function (g, t) { travel(g, t, pts(['screen', 'hist', 'yahoo', 'hist', 'analyze']), 1.4, ['候補100銘柄', 'chart API 6か月の日足', '10分覚える', 'analyzeShort']); },
+        html:
+          '<table><tr><th>期間</th><th>判定</th></tr>' +
+          '<tr><td>短期</td><td><code>shortCandidates</code> で、1日の売買代金3億円以上・50日線の95%以上(決算直後は別)の銘柄を、売買代金の大きい順に<b>100銘柄</b>だけ選ぶ → <b>日足(6か月)を同時6本ずつ</b>取る → <code>analyzeShort</code></td></tr>' +
+          '<tr><td>長期</td><td>日足は使わず、スクリーナーの値(PER・PBR・配当利回り・200日線など)だけで <code>analyzeLong</code></td></tr></table>' +
+          '<ul><li><code>history</code> は日足・週足を<b>10分</b>覚えておく(条件を変えて何度か調べても速い)</li>' +
+          '<li>デッドクロスで探すとき(「除く」以外)は、下げている銘柄が対象なので50日線では絞らない</li>' +
+          '<li>短期は日足からクロス(<code>crossInfo</code>)も一緒に調べる</li>' +
+          '<li>除外(決算発表の直前・売買代金が少ない・データ不足・赤字など)は理由ごとに数えて画面へ返す</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>shortCandidates</code> / <code>history</code> / <code>chart</code> / <code>mapLimit</code> / <code>countExcluded</code>、<code>analyze.js</code> の <code>parseChart</code> / <code>analyzeShort</code> / <code>analyzeLong</code></p>'
+      },
+      {
+        title: '4. 点の順 → クロス → 上位20',
+        camera: { pos: [9, 14, 7], target: [8, 0, -2] },
+        focus: F(['analyze', 'rank', 'hist'], [['analyze', 'rank']]),
+        update: function (g, t) { travel(g, t, pts(['analyze', 'rank']), 1.8, ['byScore(点 → 損益比)']); },
+        html:
+          '<ol><li>除外・取得失敗を外し、<code>byScore</code>(買いスコアの高い順、同じなら損益比の高い順)に並べる</li>' +
+          '<li>クロスの絞り込みがあれば <code>matchCross</code> で絞る。<b>長期</b>は日足を使っていないので、点の高い<b>150銘柄だけ</b>日足を取ってクロスを確かめる(<code>attachCross</code>)</li>' +
+          '<li>上から<b>20銘柄</b>(<code>TOP</code>)だけ残す。長期でクロスの指定が無いときは、表示用にこの20銘柄だけクロスを調べる</li>' +
+          '<li><code>addCrossPoints</code>: 10日以内(絞り込みで長く選べばその日数)の交差を、押しポイント / 気をつけるところへ足す</li></ol>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>scan</code> / <code>byScore</code> / <code>matchesCross</code> / <code>attachCross</code> / <code>addCrossPoints</code>、<code>analyze.js</code> の <code>matchCross</code> / <code>crossPoint</code></p>'
+      },
+      {
+        title: '5. 配当・優待を足す',
+        camera: { pos: [15, 14, 12], target: [15, 0, 1] },
+        focus: F(['rank', 'extras', 'yahoo', 'yjp'], [['rank', 'extras'], ['extras', 'yahoo'], ['extras', 'yjp']]),
+        update: function (g, t) { travel(g, t, pts(['rank', 'extras', 'yahoo', 'extras', 'yjp', 'extras']), 1.2, ['20銘柄だけ', '配当履歴(2年・月足)', 'parseDividends', '優待ページの HTML', 'parseIncentive']); },
+        html:
+          '<p><code>attachExtras</code> が、出す20銘柄の分だけ(同時4本)、配当と優待を取って足します。</p>' +
+          '<table><tr><th>取るもの</th><th>どこから</th><th>読み方</th></tr>' +
+          '<tr><td>配当</td><td>Yahoo の chart API(<code>range=2y&amp;interval=1mo&amp;events=div</code>)</td><td><code>parseDividends</code>: 権利落ち日の月 = 権利確定月、直近1年の合計、次の確定月</td></tr>' +
+          '<tr><td>株主優待</td><td>Yahoo!ファイナンス(日本)の <code>/quote/XXXX.T/incentive</code></td><td><code>parseIncentive</code>: 権利付き最終日・単元株数・優待の種類・株数ごとの内容・継続保有の条件を HTML から取り出す</td></tr></table>' +
+          '<ul><li>配当・優待は<b>12時間</b>覚えておく。ただし両方取れたときだけ(失敗したものは次にまた取りに行く)</li>' +
+          '<li>短期は、持つ間(株価の日〜期限)に権利確定が来るかを <code>rightsDuring</code> で見る</li>' +
+          '<li>優待ページは HTML の作りが変わると読めず、画面に「取得できませんでした」と出る</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>attachExtras</code> / <code>extras</code> / <code>dividends</code> / <code>incentive</code>、<code>analyze.js</code> の <code>parseDividends</code> / <code>parseIncentive</code> / <code>rightsDuring</code></p>'
+      },
+      {
+        title: '6. 画面へ返す',
+        camera: { pos: [-3, 24, 27], target: [-3, 0, 3] },
+        focus: F(['extras', 'ui', 'ls', 'scanapi'], [['extras', 'ui'], ['ui', 'ls']]),
+        update: function (g, t) { travel(g, t, pts(['extras', 'ui', 'ls']), 2.0, ['JSON(items 最大20)', 'stockRadar.last']); },
+        html:
+          '<p>サーバーは1つの JSON にまとめて返します。</p>' +
+          '<table><tr><th>項目</th><th>中身</th></tr>' +
+          '<tr><td><code>at</code> / <code>dataTime</code></td><td>調べた時刻 / 株価が何時点か</td></tr>' +
+          '<tr><td><code>market</code></td><td>地合い(良い・普通・弱い)と日経平均・25日線・75日線</td></tr>' +
+          '<tr><td><code>universe</code> <code>filtered</code> <code>analyzed</code></td><td>対象 → PER・PBR で絞った数 → 判定した数</td></tr>' +
+          '<tr><td><code>excluded</code> <code>failed</code></td><td>除外の理由ごとの数 / 取得に失敗した数</td></tr>' +
+          '<tr><td><code>items</code></td><td>銘柄ごとの点・形・買いの範囲・利確・損切り・期限・押しポイント・配当・優待</td></tr></table>' +
+          '<p><code>app.js</code> は結果を <code>localStorage</code>(<code>stockRadar.last</code>)に覚えてから、カードを並べます。並べ替えはブラウザの中だけで行います。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>scan</code>(戻り値)/ <code>sendJson</code>、<code>public/app.js</code> の <code>render</code> / <code>renderStatus</code> / <code>renderList</code> / <code>card</code></p>'
+      },
+      {
+        title: '7. チャート(GET /api/chart)',
+        camera: { pos: [1, 24, 20], target: [1, 0, 1] },
+        focus: F(['ui', 'chartapi', 'hist', 'yahoo'], [['ui', 'chartapi'], ['chartapi', 'hist'], ['hist', 'yahoo']]),
+        update: function (g, t) { travel(g, t, pts(['ui', 'chartapi', 'hist', 'chartapi', 'ui']), 1.4, ['code・interval', '日足1年 / 週足2年', 'chartSeries', '100本 / 78本']); },
+        html:
+          '<p>チャートは結果の JSON には入れず、カードが<b>画面に近づいたとき</b>(<code>IntersectionObserver</code>、手前400px)に1銘柄ずつ取りに行きます。</p>' +
+          '<table><tr><th>interval</th><th>取る範囲</th><th>返す本数と線</th></tr>' +
+          '<tr><td><code>1d</code>(日足)</td><td>1年</td><td>100本、5・25・75日線</td></tr>' +
+          '<tr><td><code>1wk</code>(週足)</td><td>2年</td><td>78本、13・26週線</td></tr></table>' +
+          '<ul><li><code>chartSeries</code>: 線を引く分だけ前から取り、表示する本数に切り出し、短い2本の線の交差の位置と、足ごとの前の終値(ローソク足の赤青用)を付ける</li>' +
+          '<li>日足・週足は <code>history</code> の10分のキャッシュを通る。画面の側も一度取った分は覚えておく(<code>chartCache</code>)</li>' +
+          '<li>描くのは画面(SVG)。なぞったときの値段の表示も画面だけで行う</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handle</code>(<code>/api/chart</code>)、<code>analyze.js</code> の <code>chartSeries</code>、<code>public/app.js</code> の <code>chartObserver</code> / <code>showChart</code> / <code>drawChart</code></p>'
+      },
+      {
+        title: '8. スナップショット(保存と比べる)',
+        camera: { pos: [-6, 20, 25], target: [-6, 0, 5] },
+        focus: F(['ui', 'snapapi', 'snapdir', 'cmp', 'hist'], [['ui', 'snapapi'], ['snapapi', 'snapdir'], ['snapapi', 'cmp'], ['cmp', 'hist']], ['fs-l']),
+        show: ['fs-l'],
+        update: function (g, t) { travel(g, t, pts(['ui', 'snapapi', 'snapdir', 'snapapi', 'cmp', 'hist', 'cmp', 'ui']), 1.1, ['POST(今の結果)', '<時刻>.json', '開く', '/compare', 'その後の日足', 'compareSince', '表で出す']); },
+        html:
+          '<table><tr><th>操作</th><th>API</th><th>サーバーがすること</th></tr>' +
+          '<tr><td>📸 この結果を保存</td><td><code>POST /api/snapshots</code></td><td><code>isScanResult</code> で形を確かめ(期間・時刻・100銘柄まで・コード4けた・値段が数)、<code>snapshots/&lt;ミリ秒&gt;.json</code> に新しく書く(上書きしない)</td></tr>' +
+          '<tr><td>一覧</td><td><code>GET /api/snapshots</code></td><td>ファイルを読んで要約(時刻・期間・予算・絞り込み・銘柄数・上位3銘柄)を新しい順に。壊れたファイルは飛ばす</td></tr>' +
+          '<tr><td>開いて今と比べる</td><td><code>GET …/&lt;id&gt;</code> と <code>…/&lt;id&gt;/compare</code></td><td>保存した銘柄ごとに日足(1年。300日より前なら5年)を取り、<code>compareSince</code> で今の値段・変化・その後の高値と安値・<b>利確と損切りのどちらに先に届いたか</b></td></tr>' +
+          '<tr><td>削除</td><td><code>DELETE …/&lt;id&gt;</code></td><td>そのファイルを消す</td></tr></table>' +
+          '<div class="gg-note">「最新の検索」での順位と🆕新しく入った銘柄は、サーバーではなく画面が <code>localStorage</code> の前回の結果と突き合わせて出します。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handleSnapshots</code> / <code>saveSnapshot</code> / <code>listSnapshots</code> / <code>compareSnapshot</code>、<code>analyze.js</code> の <code>compareSince</code>、<code>public/app.js</code> の <code>renderCompare</code></p>'
+      },
+      {
+        title: '9. 値段の見張り → LINE',
+        camera: { pos: [5, 26, 9], target: [5, 0, -10] },
+        focus: F(['ui', 'watchapi', 'wjson', 'mon', 'line', 'lineapp', 'yahoo'], [['ui', 'watchapi'], ['watchapi', 'wjson'], ['mon', 'wjson'], ['mon', 'yahoo'], ['mon', 'line'], ['line', 'lineapp']]),
+        update: function (g, t) { travel(g, t, pts(['wjson', 'mon', 'yahoo', 'mon', 'line', 'lineapp']), 1.3, ['watching の見張り', 'quoteNow(range=1d)', 'watchHit?', 'watchMessage(1通)', 'push']); },
+        html:
+          '<ol><li>登録: <code>POST /api/watches</code>(コード4けた・以上 / 以下・値段・メモ)。<code>quoteNow</code> で銘柄があるかを確かめ、今の値段と一緒に <code>watches.json</code> へ(100件まで)</li>' +
+          '<li><code>startMonitor</code>: 起動10秒後と、その後 <b>N分おき</b>(既定5分、<code>STOCK_RADAR_WATCH_MINUTES</code>)に <code>checkWatches</code></li>' +
+          '<li><code>isMarketHours</code>(平日 9:00〜15:50)の外なら何もしない。中なら見張り中の銘柄の今の値段を Yahoo の chart API の <code>meta</code> から取る(同時3本・キャッシュなし)</li>' +
+          '<li><code>isTodayPrice</code>(今日の 9:00 以降の値段)かつ <code>watchHit</code>(以上 / 以下。ちょうども含む)なら、当たった分を <code>watchMessage</code> で<b>1通にまとめて</b> <code>line.pushText</code></li>' +
+          '<li>送れたら <code>notified</code> にして止める。送れなければ理由を残して、次の回にまた送る</li></ol>' +
+          '<ul><li><code>pushText</code> は <code>line.dpapi</code> を <b>powershell(DPAPI)で戻して</b>、LINE Messaging API の push に送る。トークン・送り先はログにもエラーの文にも出さない(<code>redact</code>)</li>' +
+          '<li><code>STOCK_RADAR_LINE_DRY_RUN=1</code> なら送らず、送るはずだった文をログに出すだけ</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handleWatches</code> / <code>parseWatch</code> / <code>quoteNow</code> / <code>checkWatches</code> / <code>startMonitor</code> / <code>saveWatches</code>、<code>analyze.js</code> の <code>isMarketHours</code> / <code>isTodayPrice</code> / <code>watchHit</code> / <code>watchMessage</code>、<code>line.js</code> の <code>pushText</code> / <code>readSecret</code> / <code>redact</code></p>'
+      },
+      {
+        title: '10. 平均割れ(時間のかかる調査)',
+        camera: { pos: [1, 28, 32], target: [1, 0, 8] },
+        focus: F(['ui', 'avgapi', 'monthly', 'mcache', 'below', 'yahoo'], [['ui', 'avgapi'], ['avgapi', 'monthly'], ['monthly', 'mcache'], ['monthly', 'yahoo'], ['monthly', 'below']]),
+        update: function (g, t) { travel(g, t, pts(['ui', 'avgapi', 'monthly', 'mcache', 'monthly', 'yahoo', 'monthly', 'below']), 1.1, ['POST(年数・PER・PBR…)', '普通株だけ', '今日の分ある?', '無ければ', '月足20年', '平均と比べる', 'gap(◯%安い)']); },
+        html:
+          '<p>全部の銘柄を調べるので数分かかります。そこで <code>POST /api/avgscan</code> は<b>すぐに返し</b>、裏で <code>runAvgScan</code> が進めます。画面は <b>1秒ごと</b>に <code>GET /api/avgscan</code> で進み具合を聞きます(同時に1つだけ。「やめる」は <code>/cancel</code>)。</p>' +
+          '<ol><li><code>screenAll</code>: 東証の株を全部(最大6000件。予算・時価総額を付けたときはその条件で)</li>' +
+          '<li><code>isCommonStock</code> で4けたの普通株だけにし(REIT・インフラファンド・優先株などを外す)、PER・PBR で絞る</li>' +
+          '<li>上場が平均の範囲より後(<code>listedAfter</code>)の銘柄は、月足を取らずに「データ不足」へ</li>' +
+          '<li><code>monthlyHistory</code>: 月足20年分を<b>同時4本</b>。<code>cache/monthly/&lt;コード&gt;.json</code> に<b>1日</b>覚える。429(送りすぎ)や 5xx は少し待って2回まで取り直し、429 が合わせて10回になったら残りを取りに行かずに止める</li>' +
+          '<li><code>belowAverage</code>: 今月を除く直近 N×12 か月の月末終値の平均と、今の株価(スクリーナーの値)を比べる。2か月以上欠けていたらデータ不足</li></ol>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handleAvgScan</code> / <code>parseAvgScan</code> / <code>startAvgScan</code> / <code>runAvgScan</code> / <code>monthlyHistory</code>、<code>analyze.js</code> の <code>isCommonStock</code> / <code>avgWindow</code> / <code>monthlyCloses</code> / <code>longAverage</code> / <code>belowAverage</code></p>'
+      },
+      {
+        title: '11. 安全のための決まり',
+        camera: { pos: [-6, 26, 23], target: [-6, 0, 1] },
+        focus: ['scanapi', 'snapapi', 'watchapi', 'avgapi', 'chartapi', 'snapdir', 'wjson', 'mcache', 'lo-l', 'or-l', 'fs-l'],
+        show: ['lo-l', 'or-l', 'fs-l'],
+        update: function (g, t) { g.pulse('scanapi', t, 0.06); },
+        html:
+          '<table><tr><th>決まり</th><th>中身</th></tr>' +
+          '<tr><td>待ち受け</td><td><code>127.0.0.1</code> だけ(既定のポート <code>8766</code>、<code>PORT</code> で変更)。他のPCからは直接つながらない</td></tr>' +
+          '<tr><td>Host の確認</td><td><code>127.0.0.1:ポート</code> / <code>localhost:ポート</code> と、<code>config.json</code> の <code>allowedHosts</code>(スマホ用の Tailscale の名前)以外の Host は 403(DNS リバインディング対策)</td></tr>' +
+          '<tr><td>Origin の確認</td><td>スナップショット・見張り・LINE のテスト送信・平均割れの開始など、GET 以外は<b>この画面から来たもの</b>だけ受け付ける</td></tr>' +
+          '<tr><td>停止</td><td><code>POST /api/shutdown</code> は、Host も Origin も <code>127.0.0.1</code> / <code>localhost</code> のときだけ(スマホから止めると起動し直せないため)</td></tr>' +
+          '<tr><td>書くファイル</td><td><code>%LOCALAPPDATA%\\StockRadar\\</code>(<code>STOCK_RADAR_DATA</code>)の下だけ: スナップショット・<code>watches.json</code>(<code>.tmp</code> に書いてから置き換え)・月足のキャッシュ・<code>line.dpapi</code>・<code>server.log</code></td></tr>' +
+          '<tr><td>入力の確認</td><td>コードは4けたの英数字、本文は4MBまで、見張りのメモは制御文字を消して40字まで</td></tr></table>' +
+          '<div class="gg-note">スマホから開くときは、自分の Tailscale(VPN)の <code>tailscale serve</code> で <code>127.0.0.1:8766</code> へ中継します(<code>remote-setup.ps1</code>)。インターネットには公開しません。Tailscale の名前はリポジトリに書かず、PC の <code>config.json</code> にだけ置きます。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handle</code> / <code>ALLOWED_HOSTS</code> / <code>extraHosts</code> / <code>canShutdown</code> / <code>WRITE_APIS</code> / <code>readBody</code>、<code>remote-setup.ps1</code></p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

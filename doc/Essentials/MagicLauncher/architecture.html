@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagicLauncher 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    script: { y: 12, color: C.gold,    name: '起動スクリプト\n(start / stop / autostart / open)' },
+    ui:     { y: 8,  color: C.data,    name: '画面(public/)\n(ブラウザで動く)' },
+    server: { y: 4,  color: C.server,  name: 'サーバ(server.js)\n(Node 標準モジュールだけ)' },
+    out:    { y: 0,  color: C.good,    name: 'ファイルと開く係\n(PC の上のもの)' },
+    base:   { y: -4, color: C.neutral, name: '土台とテスト\n(同梱ライブラリ・Node・Windows)' }
+  };
+  // 箱の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    // 起動スクリプト
+    ['start', 'start.bat\n(待ち受けていなければ起動\n→ ブラウザで開く)', 'script', -9, 0],
+    ['auto', 'autostart.ps1\nTest-Listening / Find-Node\n(窓なしで裏起動)', 'script', -1.5, 0],
+    ['open', 'open.ps1\n(秘書さんなどから呼ぶ)', 'script', 6, 0],
+    ['stop', 'stop.bat\n(8790 の PID だけ止める)', 'script', 13, 0],
+    // 画面
+    ['html', 'index.html\nlauncher.css', 'ui', -10, 0],
+    ['launcher', 'launcher.js\nbuildView / applyFilter\nopenItem / mutate / boot', 'ui', -3, 0],
+    ['three3d', 'launcher.js の create3D\nbuildCircle / targetAt\nstartDrag / updateIdle', 'ui', 4, 0],
+    ['magic', 'magic.js(Magic)\nsigil / stage / Flow\nocti / ribbon', 'ui', 11, 0],
+    // サーバ
+    ['handle', 'handle()\nserveStatic / readBody\n(Host・Origin・X-Launcher)', 'server', -10, 0],
+    ['api', 'api{ }\n/api/state /item /open …', 'server', -3, 0],
+    ['config', 'loadConfig / mutate\nwriteConfig / ensureTags\nitemIds / configLocation', 'server', 4, 0],
+    ['openr', 'statKind / kindOf\nbuildOpener / openTarget', 'server', 11, 0],
+    // ファイルと開く係
+    ['json', 'launcher.json\n+ .bak(1世代)', 'out', -10, 0],
+    ['local', '%LOCALAPPDATA%\\MagicLauncher\nsettings.json / server.log', 'out', -3, 0],
+    ['openercs', 'opener.cs → opener.exe\nCreateHiddenForm\nBringToFront', 'out', 4, 0],
+    ['win', 'Windows\n既定のアプリ', 'out', 11, 0],
+    // 土台とテスト
+    ['vendor', 'three.js r128\n+ examples/js(vendor/)', 'base', -10, 0],
+    ['node', 'Node.js 18+\nhttp / fs / child_process\ncrypto', 'base', -3, 0],
+    ['csc', '.NET Framework の csc.exe\n(WinForms)', 'base', 4, 0],
+    ['test', 'test/server.test.js\nnode --test(15件)', 'base', 11, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色]  (使う側 → 使われる側)
+  var DEPS = [
+    ['start', 'auto', '#ffd166'],
+    ['open', 'auto', '#ffd166'],
+    ['auto', 'node', '#ffd166'],
+    ['html', 'launcher', '#7ef0ff'],
+    ['launcher', 'three3d', '#7ef0ff'],
+    ['three3d', 'magic', '#7ef0ff'],
+    ['magic', 'vendor', '#b8b2d6'],
+    ['launcher', 'handle', '#7ef0ff'],
+    ['handle', 'api', '#ff9f43'],
+    ['api', 'config', '#ff9f43'],
+    ['api', 'openr', '#ff9f43'],
+    ['config', 'json', '#5ee6a8'],
+    ['config', 'local', '#5ee6a8'],
+    ['openr', 'openercs', '#5ee6a8'],
+    ['openercs', 'win', '#5ee6a8'],
+    ['openr', 'csc', '#b8b2d6'],
+    ['test', 'handle', '#c77dff']
+  ];
+
+  GameGuide.start({
+    title: 'MagicLauncher 内部設計',
+    back: 'index.html',
+    subtitle: '起動スクリプト・画面・サーバ・開く係・テストの関係と、実際の関数名',
+    camera: { pos: [0, 19, 38], target: [0, 4.5, 0] },
+    floor: false,
+
+    build: function (g) {
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [32, 7], pos: [1.5, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-16.5, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- 箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [5.2, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.3, labelOffset: [0, 1.25, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+      // 画面 → サーバは HTTP
+      g.label('fetch(/api/*)\nX-Launcher: 1', [-9.5, 7.2, 1.6], { id: 'http-l', size: 0.28, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' });
+
+      // ---- 魔法陣の組み立て順(手順7) ----
+      var ST = [
+        ['b-frame', '外枠\n記号の輪＋二重円', -9, '#5fd0ff'],
+        ['b-hub', '中心\nsigil＋結晶', -3, '#7ef0ff'],
+        ['b-junc', '分岐点(タグ)\n扇の真ん中', 3, '#5ee6a8'],
+        ['b-item', '円(項目)\n輪を内→外へジグザグ', 9, '#ffd166'],
+        ['b-line', '枝と光の粒\nbranchRoute / Flow', 15, '#c77dff']
+      ];
+      ST.forEach(function (s) {
+        g.box({ id: s[0], size: [4.6, 1.0, 2.0], pos: [s[2], 17.5, 0], color: '#2d2944', emissive: s[3], emissiveIntensity: 0.4, radius: 0.12, edgeColor: s[3], label: s[1], labelSize: 0.32, labelOffset: [0, 1.4, 0], labelBg: '#000000cc' });
+      });
+      for (var i = 0; i < ST.length - 1; i++) {
+        g.arrow([ST[i][2] + 0.4, 18.0, 0], [ST[i + 1][2] - 0.4, 18.0, 0], { id: 'b-a' + i, color: C.gold, lift: 1.0, head: 0.22 });
+      }
+      g.sphere({ id: 'b-pkt', radius: 0.28, pos: [-9, 18.1, 0], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ: 5つの層',
+        camera: { pos: [0, 19, 38], target: [0, 4.5, 0] },
+        update: function (g, t) { g.pulse('api', t, 0.04); },
+        html:
+          '<p>MagicLauncher は <b>npm パッケージなし</b>・<b>ビルド工程なし</b>で動きます。サーバは Node.js の標準モジュールだけ、画面は ES Module にしない素の JavaScript、3D は同梱の three.js r128 です。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>起動スクリプト</td><td>サーバを裏で起動・停止し、ブラウザで開く</td></tr>' +
+          '<tr><td>画面(<code>public/</code>)</td><td><code>launcher.js</code>(画面・操作・検索・3D の組み立て)と <code>magic.js</code>(魔法陣の描画部品)</td></tr>' +
+          '<tr><td>サーバ(<code>server.js</code>)</td><td>public/ を配る・設定ファイルの読み書き・登録済み id を開く</td></tr>' +
+          '<tr><td>ファイルと開く係</td><td><code>launcher.json</code>・PC ごとの <code>settings.json</code>・<code>opener.exe</code></td></tr>' +
+          '<tr><td>土台とテスト</td><td>three.js、Node、csc.exe、<code>node --test</code></td></tr></table>' +
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「次へ」で順番に寄っていきます。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> / <code>public/launcher.js</code> / <code>public/magic.js</code> / <code>opener.cs</code> / <code>test/server.test.js</code></p>'
+      },
+      {
+        title: '1. 起動スクリプト',
+        camera: { pos: [2, 16, 22], target: [2, 11.5, 0] },
+        focus: ['L-script', 'Ln-script', 'dep-start-auto', 'dep-open-auto', 'dep-auto-node', 'node'].concat(ids('script')),
+        update: function (g, t) { g.pulse('auto', t, 0.05); },
+        html:
+          '<table><tr><th>ファイル</th><th>やること</th></tr>' +
+          '<tr><td><code>start.bat</code></td><td><code>netstat</code> で <code>127.0.0.1:8790</code> が LISTENING か見て、いなければ <code>autostart.ps1</code>。最後に既定のブラウザで <code>http://127.0.0.1:8790/</code></td></tr>' +
+          '<tr><td><code>autostart.ps1</code></td><td><code>Test-Listening</code>(300ms で TCP 接続を試す)で起動済みなら何もしない。<code>Find-Node</code> で node を探し、無ければダイアログで確認して <code>winget install OpenJS.NodeJS.LTS</code>(winget も無ければ nodejs.org を開く)。<code>server.log</code> が 1MB を超えていたら消してから、<code>cmd /c node server.js &gt;&gt; server.log</code> を窓なしで起動し、最大 10 秒つながるまで待つ</td></tr>' +
+          '<tr><td><code>open.ps1</code></td><td><code>autostart.ps1</code> を呼んでからブラウザで開く。起動できなければ理由を1行出して終了コード 1(呼んだ側がその文面で知らせられるように)</td></tr>' +
+          '<tr><td><code>stop.bat</code></td><td><code>netstat</code> で 8790 を LISTENING しているプロセスの PID を探し、それだけ <code>taskkill</code>(ほかの node は止めない)</td></tr></table>' +
+          '<ul><li>窓なしで呼ばれるので、PowerShell では <code>Read-Host</code> を使わず、確認は <code>MessageBox</code></li>' +
+          '<li><code>.ps1</code> は UTF-8 BOM 付き(無いと PowerShell 5.1 で日本語が化けて構文エラー)</li>' +
+          '<li>ポート番号 8790 はこの4つと <code>server.js</code> の 5 か所(<code>server.js</code> だけは環境変数 <code>PORT</code> でも変えられる)</li></ul>' +
+          '<p class="gg-files">📄 <code>start.bat</code> / <code>stop.bat</code> / <code>autostart.ps1</code> の <code>Test-Listening</code> / <code>Find-Node</code> / <code>Show-Message</code>、<code>open.ps1</code></p>'
+      },
+      {
+        title: '2. サーバの入口 handle() と安全の検査',
+        camera: { pos: [-5, 10, 24], target: [-5, 4, 0] },
+        focus: ['L-server', 'Ln-server', 'handle', 'api', 'http-l', 'dep-launcher-handle', 'dep-handle-api'],
+        show: ['http-l'],
+        update: function (g, t) { g.pulse('handle', t, 0.05); },
+        html:
+          '<p><code>createServer()</code> がすべての要求を <code>handle(req, res)</code> へ渡し、投げられた <code>HttpError</code>(<code>status</code> 付き)を JSON の <code>{ error }</code> にして返します。待ち受けは <code>server.listen(PORT, \'127.0.0.1\')</code>。</p>' +
+          '<ol><li><b>Host</b> が <code>ALLOWED_HOSTS</code>(<code>127.0.0.1:PORT</code> / <code>localhost:PORT</code>)でなければ 403</li>' +
+          '<li>GET/HEAD 以外は、<code>Origin</code> があれば <code>ALLOWED_ORIGINS</code> だけ、かつ <code>X-Launcher: 1</code> 必須(無ければ 403)</li>' +
+          '<li><code>/api/</code> で始まれば <code>api[\'メソッド パス\']</code> を探して呼ぶ(無ければ 404)。POST は <code>readBody</code>(1MB まで・JSON のみ)</li>' +
+          '<li>それ以外は <code>serveStatic</code>: <code>decodeURIComponent</code> → <code>\\0</code> 拒否 → <code>path.posix.normalize</code> して <code>public/</code> の中か確かめる。<code>X-Frame-Options: DENY</code>・<code>nosniff</code>・<code>no-referrer</code> を付けて配る</li></ol>' +
+          '<div class="gg-note">ポートが使用中なら「すでに MagicLauncher が動いているかも」と出して終わります(二重起動しない)。listen できたら、すぐ <code>buildOpener()</code> を始めます。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>createServer</code> / <code>handle</code> / <code>serveStatic</code> / <code>readBody</code> / <code>sendJson</code> / <code>start</code></p>'
+      },
+      {
+        title: '3. 設定ファイルの読み書き',
+        camera: { pos: [-2, 9, 20], target: [-2, 2.5, 0] },
+        focus: ['config', 'api', 'json', 'local', 'dep-api-config', 'dep-config-json', 'dep-config-local', 'L-out'],
+        update: function (g, t) { g.pulse('config', t, 0.05); },
+        html:
+          '<table><tr><th>関数</th><th>やること</th></tr>' +
+          '<tr><td><code>configLocation()</code></td><td><code>settings.json</code> の <code>configPath</code> を <code>%VAR%</code> 展開してフルパスに。空なら本体の隣の <code>launcher.json</code></td></tr>' +
+          '<tr><td><code>loadConfig()</code></td><td>毎回ディスクから読む。<code>version = mtime(ms)-size</code>。壊れていれば <code>error</code> を付け <code>data: null</code></td></tr>' +
+          '<tr><td><code>itemIds()</code> / <code>itemId()</code></td><td>id が無い・重複している項目には <code>i</code> + <code>sha1(位置 + JSON)</code> の先頭8桁</td></tr>' +
+          '<tr><td><code>ensureTags()</code></td><td>使われているタグを <code>tags</code> に足し、色の無いタグに <code>nextPaletteColor</code>(12 色のうち未使用の色)</td></tr>' +
+          '<tr><td><code>mutate(fn)</code></td><td>読み直す → 壊れていれば 409 → id を書き込む → <code>ensureTags</code> → <code>fn(data)</code> → <code>ensureTags</code> → <code>writeConfig</code></td></tr>' +
+          '<tr><td><code>writeConfig()</code></td><td>フォルダを作り、在れば <code>.bak</code> へコピーしてから、2 字下げの JSON で書く</td></tr></table>' +
+          '<p>書式で「必須」なのは項目の <code>path</code> だけ(<code>validItem</code>)。<code>tags</code> のキーの順が魔法陣でタグが並ぶ順で、<code>idle</code> の既定 <code>orbit</code> はファイルに書きません。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>configLocation</code> / <code>loadConfig</code> / <code>itemIds</code> / <code>itemId</code> / <code>newId</code> / <code>ensureTags</code> / <code>mutate</code> / <code>writeConfig</code> / <code>validItem</code></p>'
+      },
+      {
+        title: '4. API の一覧',
+        camera: { pos: [-3, 8, 17], target: [-3, 4, 0] },
+        focus: ['api', 'handle', 'config', 'openr'],
+        update: function (g, t) { g.pulse('api', t, 0.05); },
+        html:
+          '<p><code>api</code> は「<code>メソッド パス</code>」をキーにした関数の表です。応答はすべて JSON。</p>' +
+          '<table><tr><th>キー</th><th>受け取るもの → 動き</th></tr>' +
+          '<tr><td><code>GET /api/state</code></td><td>画面に要る全部(<code>buildState</code>)</td></tr>' +
+          '<tr><td><code>GET /api/version</code></td><td><code>{version, configPath}</code>(変更チェック用)</td></tr>' +
+          '<tr><td><code>POST /api/item</code></td><td><code>{item}</code>。id があれば更新(無ければ 404)、無ければ追加して <code>{id}</code></td></tr>' +
+          '<tr><td><code>POST /api/item/delete</code></td><td><code>{id}</code> を削除</td></tr>' +
+          '<tr><td><code>POST /api/tag</code></td><td><code>{name, color?, circle?}</code>。新しい魔法陣の名前なら並びの末尾へ</td></tr>' +
+          '<tr><td><code>POST /api/tag/rename</code></td><td><code>{from, to}</code>。並び・色はそのまま、項目のタグも書き換え</td></tr>' +
+          '<tr><td><code>POST /api/tags/swap</code></td><td><code>{a, b}</code>。別の魔法陣どうしなら <code>circle</code> も交換</td></tr>' +
+          '<tr><td><code>POST /api/items/swap</code></td><td><code>{a, b}</code>(id)。同じ先頭タグどうしのみ</td></tr>' +
+          '<tr><td><code>POST /api/circles</code></td><td><code>{order}</code>。先頭が変わるときは、空欄のタグを元の先頭に固定してから並べ替え</td></tr>' +
+          '<tr><td><code>POST /api/circle</code></td><td><code>{name, color}</code>(空で自動の色)</td></tr>' +
+          '<tr><td><code>POST /api/circle/rename</code></td><td><code>{from, to}</code>。並び・色・置いたタグごと</td></tr>' +
+          '<tr><td><code>POST /api/layout</code></td><td><code>{columns?(0〜12), idle?}</code></td></tr>' +
+          '<tr><td><code>POST /api/config</code></td><td><code>{path}</code>(空で既定へ)。<code>settings.json</code> に保存</td></tr>' +
+          '<tr><td><code>POST /api/open</code></td><td><code>{id}</code>。登録済みの id だけ開く → <code>{opened, dryRun}</code></td></tr></table>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>api</code></p>'
+      },
+      {
+        title: '5. 開く係(opener.exe)と種類の判定',
+        camera: { pos: [8, 8, 20], target: [7.5, 2, 0] },
+        focus: ['openr', 'openercs', 'win', 'csc', 'dep-api-openr', 'dep-openr-openercs', 'dep-openercs-win', 'dep-openr-csc', 'L-out'],
+        update: function (g, t) { g.pulse('openercs', t, 0.05); },
+        html:
+          '<table><tr><th>関数</th><th>やること</th></tr>' +
+          '<tr><td><code>kindOf()</code> / <code>statKind()</code></td><td>種類の判定。画面用は 1.5 秒で <code>unknown</code>・30 秒キャッシュ、開くときは 5 秒・キャッシュなし。<code>statOnce</code> が同じパスの <code>stat</code> を 1 回にまとめる</td></tr>' +
+          '<tr><td><code>buildOpener()</code></td><td><code>%WINDIR%\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe /target:winexe /optimize /codepage:65001</code> で <code>opener.exe</code> を作る(<code>opener.cs</code> の方が新しいときだけ)。Windows でない・<code>csc.exe</code> が無い・失敗 → <code>{ok:false, reason}</code></td></tr>' +
+          '<tr><td><code>openTarget()</code></td><td>作れていれば <code>openWithOpener</code>、だめなら <code>openWithRundll</code>(<code>rundll32 url.dll,FileProtocolHandler</code>)</td></tr>' +
+          '<tr><td><code>openWithOpener()</code></td><td>標準出力に <code>ok</code> の行が来たら成功。15 秒で 504、終了コードが 0 以外なら 500</td></tr></table>' +
+          '<p><code>opener.cs</code>(C# 5 まで。csc v4.0 のため文字列補間などは使わない):</p>' +
+          '<ul><li><code>CreateHiddenForm()</code>: 枠なし・タスクバーに出さない・画面の外(-32000)・1×1・不透明度 0.01 の窓</li>' +
+          '<li><code>BringToFront()</code>: <code>SetForegroundWindow</code> → 手前の窓のスレッドと <code>AttachThreadInput</code> して <code>BringWindowToTop</code> → <code>keybd_event</code> で Alt を押した状態で再試行</li>' +
+          '<li><code>Process.Start(new ProcessStartInfo(target){UseShellExecute=true})</code> → <code>ok &lt;対象&gt;</code> を UTF-8 で出し、手前の窓が自分以外に変わるまで(最長 3 秒)居残る</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>kindOf</code> / <code>statKind</code> / <code>statOnce</code> / <code>cscPath</code> / <code>buildOpener</code> / <code>openTarget</code> / <code>openWithOpener</code> / <code>openWithRundll</code>、<code>opener.cs</code></p>'
+      },
+      {
+        title: '6. 画面 launcher.js(状態・検索・ダイアログ)',
+        camera: { pos: [-5, 12, 20], target: [-5, 8, 0] },
+        focus: ['L-ui', 'Ln-ui', 'html', 'launcher', 'dep-html-launcher', 'dep-launcher-three3d', 'dep-launcher-handle'],
+        update: function (g, t) { g.pulse('launcher', t, 0.05); },
+        html:
+          '<p><code>launcher.js</code> は1本の即時関数で、状態をまとめた <code>S</code>(<code>state</code>・<code>view</code>・検索語・選んだタグ・<code>lite</code>・<code>modal</code> など)を持ちます。</p>' +
+          '<table><tr><th>まとまり</th><th>関数</th></tr>' +
+          '<tr><td>通信</td><td><code>api(path, body)</code>(いつも <code>X-Launcher: 1</code>)・<code>reload</code>・<code>checkVersion</code>(10 秒)・<code>mutate</code>(保存 → トースト → 読み直し)</td></tr>' +
+          '<tr><td>画面用データ</td><td><code>setState</code> → <code>buildView</code>(表示名・絵文字・検索用文字列、先頭タグでまとめる、魔法陣の並びと色)</td></tr>' +
+          '<tr><td>検索・絞り込み</td><td><code>words</code> / <code>score</code> / <code>applyFilter</code> / <code>toggleTag</code> / <code>clearFilter</code> / <code>renderDrop</code> / <code>renderLegend</code></td></tr>' +
+          '<tr><td>開く</td><td><code>openItem</code>(<code>/api/open</code> に id を送ってトースト)</td></tr>' +
+          '<tr><td>ダイアログ</td><td><code>openItemDialog</code> / <code>saveItem</code> / <code>deleteItem</code>、<code>openRename</code> / <code>saveRename</code>、<code>renderSettings</code> / <code>bindSettings</code>、<code>showModal</code> / <code>hideModal</code></td></tr>' +
+          '<tr><td>一覧・Light</td><td><code>listHtml</code> / <code>renderLists</code> / <code>startList</code>、<code>readLite</code> / <code>writeLite</code>(<code>localStorage</code> の <code>magic-launcher-lite</code>)</td></tr>' +
+          '<tr><td>起動</td><td><code>boot</code> → <code>bindUI</code> → <code>/api/state</code> → Light なら <code>startList</code>、そうでなければ <code>loadScripts(VENDOR)</code> → <code>create3D</code></td></tr></table>' +
+          '<div class="gg-note">右クリックのブラウザ既定のメニューはどこでも出しません(貼り付けは Ctrl+V)。確認用に <code>window.__magicLauncher</code>(<code>debug</code> / <code>where</code> / <code>mem</code>)を出しています。</div>' +
+          '<p class="gg-files">📄 <code>public/launcher.js</code>、<code>public/index.html</code>、<code>public/launcher.css</code></p>'
+      },
+      {
+        title: '7. create3D: 魔法陣の組み立てと操作',
+        camera: { pos: [3, 17, 27], target: [3, 13.5, 0] },
+        focus: ['three3d', 'b-frame', 'b-hub', 'b-junc', 'b-item', 'b-line', 'b-a0', 'b-a1', 'b-a2', 'b-a3', 'b-pkt'],
+        show: ['b-frame', 'b-hub', 'b-junc', 'b-item', 'b-line', 'b-a0', 'b-a1', 'b-a2', 'b-a3', 'b-pkt'],
+        update: function (g, t) {
+          var xs = [-9, -3, 3, 9, 15];
+          var k = (t / 1.2) % 4, i = Math.min(3, Math.floor(k)), u = k - i;
+          g.get('b-pkt').position.set(xs[i] + (xs[i + 1] - xs[i]) * u, 18.1 + Math.sin(u * Math.PI) * 1.2, 0);
+        },
+        html:
+          '<p><code>build(view)</code> は魔法陣ごとに <code>buildCircle(cv)</code> を呼び、<code>layoutGrid</code>(横に <code>columns</code> 個ずつ。縦長の窓では行と列を入れ替え)・<code>buildSecondary</code>(2つ目以降のタグの点線 <code>dashRibbon</code>)・<code>rebuildStars</code> の順に作ります。</p>' +
+          '<ol><li><b>外枠</b>: 記号の輪のテクスチャ(<code>glyphRingTexture</code>)と二重円。時計回りにゆっくり回る</li>' +
+          '<li><b>中心</b>: <code>Magic.sigil</code> の魔法陣・記号の輪・回る結晶 <code>Magic.crystal</code></li>' +
+          '<li><b>分岐点</b>: タグごとに扇を割り当て、真ん中から少しずらした所(<code>juncs</code>)</li>' +
+          '<li><b>円</b>: 同じタグの円を扇の中に、輪を内→外へジグザグに使って置く。分岐点に近すぎる円は外へ離す(<code>JUNC_CLEAR</code>)</li>' +
+          '<li><b>枝</b>: <code>branchRoute</code> / <code>bentRoute</code> で八方向の直線 2 本(曲がり角が中心の上やほかの円の上に来ない道)。<code>Magic.ribbon</code> で帯にし、<code>Magic.Flow</code> で光の粒を流す</li></ol>' +
+          '<table><tr><th>操作</th><th>関数</th></tr>' +
+          '<tr><td>当たり判定</td><td><code>targetAt</code>: 札(HTML)→ 3D の当たり円(項目 &gt; タグ &gt; 中心の優先順)→ 魔法陣の中の空き → 外</td></tr>' +
+          '<tr><td>クリック</td><td><code>click</code>: 左 = 開く / 絞り込み / 寄る、右 = 編集 / 名前の変更 / 登録</td></tr>' +
+          '<tr><td>ドラッグ</td><td><code>startDrag</code>(光の玉と穴 <code>makeHole</code>)→ <code>dropFor</code>(重ねられる相手)→ <code>finishDrag</code> / <code>cancelDrag</code></td></tr>' +
+          '<tr><td>待機中</td><td><code>idleWanted</code> → <code>startIdle</code> / <code>updateIdle</code>(orbit / float)/ <code>stopIdle</code></td></tr>' +
+          '<tr><td>札</td><td><code>updateLabels</code>: 毎フレーム画面座標へ投影し、重なった名前は下へずらす(待機中は計算しない)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>create3D</code> / <code>buildCircle</code> / <code>layoutGrid</code> / <code>buildSecondary</code> / <code>branchRoute</code> / <code>targetAt</code> / <code>frameBody</code></p>'
+      },
+      {
+        title: '8. magic.js(魔法陣の描画部品)',
+        camera: { pos: [9, 11, 20], target: [9, 6, 0] },
+        focus: ['magic', 'vendor', 'three3d', 'dep-three3d-magic', 'dep-magic-vendor', 'L-base'],
+        update: function (g, t) { g.pulse('magic', t, 0.05); },
+        html:
+          '<p><code>magic.js</code> は <b>stable ポータルの <code>portal/magic.js</code> と同じもの</b>で、<code>window.Magic</code> に部品を並べています。違いは <code>sigil()</code> の <code>lite</code> オプション(目盛りを省く)と、<code>stars()</code> の色指定だけです。</p>' +
+          '<table><tr><th>部品</th><th>中身</th></tr>' +
+          '<tr><td><code>stage(container, o)</code></td><td>レンダラー・シーン・カメラ。光のにじみ(<code>EffectComposer</code> + <code>UnrealBloomPass</code>)。WebGL が作れなければ <code>null</code>(→ 一覧で表示)</td></tr>' +
+          '<tr><td><code>sigil(seed, o)</code></td><td>同心円・弧・目盛り・幾何学記号を、<code>seed</code> から作る乱数(<code>rng</code>)で組み合わせた魔法陣 1 つ。同じ種なら毎回同じ形</td></tr>' +
+          '<tr><td><code>crystal</code> / <code>glow</code> / <code>ring</code> / <code>disc</code></td><td>中心の結晶・光・輪・円板</td></tr>' +
+          '<tr><td><code>octi</code> / <code>ribbon</code> / <code>Path</code> / <code>Flow</code></td><td>回路っぽい折れ線、幅のある帯、線の上を流れる光の粒</td></tr>' +
+          '<tr><td><code>stars</code> / <code>smoke</code> / <code>glyphRingTexture</code></td><td>星・流れる煙・記号の輪の画像</td></tr></table>' +
+          '<ul><li>項目が 48 件を超えると、目盛りを省き(<code>lite</code>)、光の粒を 1 本 1 粒にして軽くする</li>' +
+          '<li>形と材質は使い回す(<code>unitCircle</code> など共有の形は <code>isShared</code> で捨てない)</li></ul>' +
+          '<div class="gg-note">three.js r128 と examples/js(<code>OrbitControls</code>・<code>EffectComposer</code> など)は <code>public/vendor/</code> に同梱(MIT)。ES Module にしていないので、そのまま <code>&lt;script&gt;</code> で順に読めます。</div>' +
+          '<p class="gg-files">📄 <code>public/magic.js</code>、<code>public/vendor/</code></p>'
+      },
+      {
+        title: '9. テスト',
+        camera: { pos: [6, 3, 20], target: [6, -3.5, 0] },
+        focus: ['test', 'handle', 'node', 'L-base', 'Ln-base', 'dep-test-handle'],
+        update: function (g, t) { g.pulse('test', t, 0.05); },
+        html:
+          '<p><code>node --test test/server.test.js</code>。本番のポートや設定を使わず、<b>別のサーバを子プロセスで立てて</b> HTTP で確かめます。</p>' +
+          '<ul><li>ポートは <code>TEST_PORT</code>(既定 8791)。<code>MAGIC_LAUNCHER_DATA</code> は一時フォルダ、<code>MAGIC_LAUNCHER_DRY_RUN=1</code> で実際には開かない</li>' +
+          '<li>設定ファイルの場所は <code>%ML_TEST_WORK%\\launcher.json</code> のように <code>%VAR%</code> 入りで覚えさせる。終わったら一時フォルダを消す</li></ul>' +
+          '<table><tr><th>テスト(全15件)</th></tr>' +
+          '<tr><td>小物: URL 判定・引用符外し・<code>%VAR%</code> 展開・id</td></tr>' +
+          '<tr><td>ファイルが無いときは空の状態 / 追加・更新・削除と <code>.bak</code> / id の無い項目の id</td></tr>' +
+          '<tr><td>開く: 登録済み id だけ・<code>%VAR%</code> 展開・無いパスは 404・DRY RUN</td></tr>' +
+          '<tr><td>並べ替え(items/swap・tags/swap)/ 名前の変更(タグ・魔法陣、circles が空のときも)/ layout</td></tr>' +
+          '<tr><td>版数 = mtime-size / 壊れた JSON は 409 で上書きしない / 設定ファイルの場所の検査</td></tr>' +
+          '<tr><td>安全: Host 違い・よその Origin・<code>X-Launcher</code> 無し、<code>public/</code> の外・本文 1MB</td></tr>' +
+          '<tr><td>二重起動: ポート使用中なら「すでに動いているかも」</td></tr></table>' +
+          '<div class="gg-note">項目の登録を自動化するときも、ファイルを手で書き換えず、動いているサーバの <code>POST /api/item</code> で入れて <code>GET /api/state</code> で照合する、という決まりです(README)。</div>' +
+          '<p class="gg-files">📄 <code>test/server.test.js</code>、<code>server.js</code> の <code>module.exports</code>(<code>expandEnv</code> / <code>isUrl</code> / <code>stripQuotes</code> / <code>itemId</code> など)</p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

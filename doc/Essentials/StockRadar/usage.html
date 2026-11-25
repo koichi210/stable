@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockRadar 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+<script src="sr-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var GOOD = C.good, RED = C.enemy;
+
+  // 上の段(by=7.4)と下の段(by=0.5)に、実画面を10枚。番号は説明の順
+  var TOP = 7.4, BOT = 0.5;
+  var OVERVIEW = { pos: [18, 6.6, 44], target: [18, 6.4, 0] };
+  // パネルの置き場所(id, 画像, 中心x, 下端y)。ステップのカメラ計算が build より先なので、先に登録しておく
+  var PLAN = [
+    ['p-filter', 'filter', 0, TOP], ['p-result', 'result', 9, TOP], ['p-card', 'card', 18, TOP], ['p-extras', 'extras', 27, TOP], ['p-gloss', 'gloss', 36, TOP],
+    ['p-long', 'long', 0, BOT], ['p-snaps', 'snaps', 9, BOT], ['p-compare', 'compare', 18, BOT], ['p-watch', 'watch', 27, BOT], ['p-avgform', 'avgform', 36, BOT],
+  ];
+  PLAN.forEach(function (p) { SR.place(p[0], p[2], p[3]); });
+
+  GameGuide.start({
+    title: 'StockRadar 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面(ダミーデータ)で、期間と予算 → 買い候補を探す → カードとチャートを読む → 保存して答え合わせ・見張り・平均割れ、を1歩ずつ',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;                       // 全体図は遠くまで見せたいのでフォグを切る
+      g.controls.maxDistance = 70;
+
+      PLAN.forEach(function (p) { SR.panel(g, p[0], p[1], p[2], p[3]); });
+      var lab = { size: 0.5, color: '#fff' };
+      var topY = TOP + SR.H + 0.6, botY = BOT + SR.H + 0.6;
+      g.label('① 期間・予算・絞り込み', [0, topY, 0.3], lab);
+      g.label('② 調べた結果(短期)', [9, topY, 0.3], lab);
+      g.label('③ 銘柄カードとチャート', [18, topY, 0.3], lab);
+      g.label('④ 配当・優待', [27, topY, 0.3], lab);
+      g.label('⑤ 用語集', [36, topY, 0.3], lab);
+      g.label('⑥ 長期のカード', [0, botY, 0.3], lab);
+      g.label('⑦ スナップショットの一覧', [9, botY, 0.3], lab);
+      g.label('⑧ 保存したときと今を比べる', [18, botY, 0.3], lab);
+      g.label('⑨ 値段の見張り(LINE)', [27, botY, 0.3], lab);
+      g.label('⑩ 平均割れ', [36, botY, 0.3], lab);
+
+      // ステップごとに出す注目枠（ピクセルはスクショ上の座標）
+      SR.hl(g, 'h-mode', 'p-filter', 33, 152, 448, 214);
+      SR.hl(g, 'h-budget', 'p-filter', 472, 130, 1005, 214, GOOD);
+      SR.hl(g, 'h-run', 'p-filter', 1029, 166, 1167, 214, RED);
+      SR.hl(g, 'h-filters', 'p-filter', 33, 230, 1167, 358);
+      SR.hl(g, 'h-perpbr', 'p-filter', 33, 300, 323, 358, GOOD);
+      SR.hl(g, 'h-cross', 'p-filter', 343, 276, 887, 358, GOOD);
+      SR.hl(g, 'h-status', 'p-filter', 16, 391, 1184, 433, GOOD);
+      SR.hl(g, 'h-topbtn', 'p-filter', 741, 24, 1184, 66);
+
+      SR.hl(g, 'h-r-status', 'p-result', 16, 10, 1184, 35);
+      SR.hl(g, 'h-r-market', 'p-result', 16, 44, 1184, 89, GOOD);
+      SR.hl(g, 'h-r-sort', 'p-result', 16, 105, 570, 141);
+      SR.hl(g, 'h-r-save', 'p-result', 579, 106, 708, 141, GOOD);
+
+      SR.hl(g, 'h-c-head', 'p-card', 33, 23, 1167, 50);
+      SR.hl(g, 'h-c-price', 'p-card', 33, 55, 1167, 103, GOOD);
+      SR.hl(g, 'h-c-plan', 'p-card', 33, 112, 1167, 195);
+      SR.hl(g, 'h-c-meta', 'p-card', 33, 203, 1167, 225, GOOD);
+      SR.hl(g, 'h-c-good', 'p-card', 33, 233, 480, 396, GOOD);
+      SR.hl(g, 'h-c-bad', 'p-card', 33, 403, 480, 480, RED);
+      SR.hl(g, 'h-c-chart', 'p-card', 496, 308, 1167, 673);
+      SR.hl(g, 'h-c-tabs', 'p-card', 496, 233, 1167, 264, GOOD);
+      SR.hl(g, 'h-c-info', 'p-card', 496, 269, 1167, 307, GOOD);
+      SR.hl(g, 'h-c-links', 'p-card', 33, 685, 445, 710, GOOD);
+
+      SR.hl(g, 'h-e-perks', 'p-extras', 33, 330, 480, 608);
+      SR.hl(g, 'h-e-cont', 'p-extras', 111, 431, 470, 488, GOOD);
+      SR.hl(g, 'h-e-yutai', 'p-extras', 111, 518, 470, 600, GOOD);
+
+      SR.hl(g, 'h-g-item', 'p-gloss', 257, 90, 943, 356);
+      SR.hl(g, 'h-g-base', 'p-gloss', 269, 130, 632, 158, GOOD);
+      SR.hl(g, 'h-g-scale', 'p-gloss', 269, 216, 931, 322, GOOD);
+
+      SR.hl(g, 'h-l-head', 'p-long', 33, 23, 1167, 50);
+      SR.hl(g, 'h-l-plan', 'p-long', 33, 112, 1167, 225, GOOD);
+      SR.hl(g, 'h-l-good', 'p-long', 33, 233, 480, 504, GOOD);
+
+      SR.hl(g, 'h-s-list', 'p-snaps', 257, 332, 943, 528);
+      SR.hl(g, 'h-s-open', 'p-snaps', 759, 413, 875, 448, GOOD);
+
+      SR.hl(g, 'h-cm-head', 'p-compare', 32, 24, 1168, 59);
+      SR.hl(g, 'h-cm-sum', 'p-compare', 32, 65, 1168, 89, GOOD);
+      SR.hl(g, 'h-cm-hit', 'p-compare', 816, 89, 1067, 357, GOOD);
+      SR.hl(g, 'h-cm-live', 'p-compare', 1067, 89, 1168, 357);
+      SR.hl(g, 'h-cm-new', 'p-compare', 32, 413, 1168, 460);
+
+      SR.hl(g, 'h-w-status', 'p-watch', 257, 213, 943, 271, RED);
+      SR.hl(g, 'h-w-form', 'p-watch', 257, 282, 943, 386);
+      SR.hl(g, 'h-w-suggest', 'p-watch', 257, 393, 943, 418, GOOD);
+      SR.hl(g, 'h-w-list', 'p-watch', 257, 454, 943, 622);
+      SR.hl(g, 'h-w-actions', 'p-watch', 257, 634, 943, 669, GOOD);
+
+      SR.hl(g, 'h-a-mode', 'p-avgform', 289, 173, 448, 235);
+      SR.hl(g, 'h-a-opts', 'p-avgform', 343, 298, 633, 356, GOOD);
+      SR.hl(g, 'h-a-budget', 'p-avgform', 472, 213, 952, 238, GOOD);
+      SR.hl(g, 'h-a-status', 'p-avgform', 16, 413, 1184, 455);
+      SR.hl(g, 'h-a-gap', 'p-avgform', 515, 517, 606, 800, GOOD);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p><b>StockRadar(株レーダー)</b> は、日本株の<b>買い候補</b>と、買ったあとに売る値段(<b>利確・損切り</b>)の目安を、ボタンを押した時点のデータで一覧にするローカル専用のツールです(Node.js、npm パッケージなし)。空売りの候補は出しません。</p>' +
+          '<ol><li>期間(短期 / 長期)と、100株を買うのに使える予算を入れる。必要なら PER・PBR・クロスで絞り込む</li>' +
+          '<li>「買い候補を探す」→ 点の高い順に最大20銘柄のカードが並ぶ</li>' +
+          '<li>カードで、買いの範囲・利確・損切り・押しポイント・チャート・配当と優待を見る</li>' +
+          '<li>結果を保存して、あとで「その後どう動いたか」と比べる。決めた値段になったら LINE で知らせる見張りもある</li>' +
+          '<li>別の使い方として、過去N年の平均より安い銘柄を探す「平均割れ」</li></ol>' +
+          '<p>上の段が「探す → 結果 → カード → 配当・優待 → 用語集」、下の段が「長期 → 保存 → 比べる → 見張り → 平均割れ」の順です。</p>' +
+          '<div class="gg-note">写っているのは、Yahoo! Finance につながずに<b>ダミーデータ</b>で動かした実際の画面です。<b>銘柄名・株価・指標・値動きはすべて架空</b>です。決まったルールで機械的に判定しているだけで、<b>値上がりを保証するものではありません</b>。</div>' +
+          '<p>ドラッグで回転、ホイールで拡大、矢印キー(←→)でも進めます。</p>' +
+          '<p class="gg-files">📄 <code>public/index.html</code> / <code>public/app.js</code>、<code>server.js</code>、<code>analyze.js</code></p>',
+      },
+      {
+        title: '1. 期間と予算を入れる',
+        camera: SR.cam('p-filter', 600, 220, 8.6),
+        show: ['h-mode', 'h-budget'],
+        html:
+          '<table><tr><th>期間</th><th>前提</th></tr>' +
+          '<tr><td><b>短期</b></td><td>1〜2週間で売る。日足から形(押し目・高値ブレイク・決算後の初動)を探す</td></tr>' +
+          '<tr><td><b>長期</b></td><td>半年〜1年持つ。PER・PBR・配当利回りなどで点を付ける</td></tr>' +
+          '<tr><td><b>平均割れ</b></td><td>過去N年の平均より安い銘柄を表で出す(手順14)</td></tr></table>' +
+          '<p><b>予算の上限・下限</b>は<b>万円</b>で入れます(初めは 70万円 / 30万円)。<b>100株を買うのに必要な金額</b>がこの間に入る銘柄だけが対象です。上限は1万円〜1億円、下限は上限より小さくします。</p>' +
+          '<div class="gg-note">入れた期間・予算・絞り込みは、ブラウザ(<code>localStorage</code>)に覚えておき、次に開いたときに戻します。前回の結果もそのまま表示します(調べた時刻が出るので古さは分かります)。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>readForm</code> / <code>init</code>、<code>server.js</code> の <code>parseScan</code></p>',
+      },
+      {
+        title: '2. 絞り込み(PER・PBR・クロス)',
+        camera: SR.cam('p-filter', 560, 300, 7.2),
+        show: ['h-filters', 'h-perpbr', 'h-cross'],
+        html:
+          '<p>選んだ条件を<b>すべて満たす</b>銘柄だけを出します。「条件をクリア」で最初の状態に戻ります。</p>' +
+          '<table><tr><th>項目</th><th>選べるもの</th></tr>' +
+          '<tr><td>PER</td><td>10・15・20・30倍<b>以下</b></td></tr>' +
+          '<tr><td>PBR</td><td>0.8・1・1.5・2倍<b>未満</b></td></tr>' +
+          '<tr><td>クロスを見る線</td><td>5日線と25日線 / 25日線と75日線 / MACD</td></tr>' +
+          '<tr><td>ゴールデンクロス</td><td>もうすぐ起きそう / 3・5・10・20日以内に起きた</td></tr>' +
+          '<tr><td>デッドクロス</td><td>上と同じ + 5・10・20日以内に起きた銘柄を<b>除く</b></td></tr></table>' +
+          '<ul><li>PER・PBR を指定すると、値の無い銘柄(赤字など)は外れます</li>' +
+          '<li>「N日以内」は今日の足を1日目に数えます。「もうすぐ起きそうも含む」は N日以内を選んだときだけ選べ、「除く」のときは「もうすぐ起きそうも除く」になります</li>' +
+          '<li>「もうすぐ起きそう」= 線の差がこの3日と同じ速さで縮むと、3日以内に交差するもの</li></ul>' +
+          '<p>画面の例は「PER 15倍以下・PBR 1.5倍未満・ゴールデンクロス10日以内」です。</p>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>syncCrossChecks</code> / <code>scanQuery</code>、<code>analyze.js</code> の <code>matchValuation</code> / <code>crossInfo</code> / <code>matchCross</code></p>',
+      },
+      {
+        title: '3. 「買い候補を探す」と、調べた条件',
+        camera: { pos: [4.5, 11.2, 13], target: [4.5, 10.9, 0] },
+        show: ['h-run', 'h-status', 'h-r-status', 'h-r-market'],
+        html:
+          '<p>「買い候補を探す」を押すと、サーバーが Yahoo! Finance の公開データ(約20分遅れ)を集めて判定し、<b>点の高い順に最大20銘柄</b>を返します。調べている間、ボタンは「調べています…」になります。</p>' +
+          '<p>結果の上の1行に、<b>調べた条件</b>が出ます。</p>' +
+          '<ul><li>調べた時刻・期間・予算 / 株価が何時点のものか / 絞り込み</li>' +
+          '<li>対象の銘柄数(100株の金額が予算に収まり、時価総額500億円以上の東証の銘柄)→ PER・PBR で絞った数 → 判定した数</li>' +
+          '<li>除外した理由と数(短期: 決算発表の直前・売買代金が少ない など)・取得に失敗した数</li></ul>' +
+          '<p>その下の帯が<b>地合い</b>(日経平均と25日線・75日線の位置)です。<b>良い</b>(上昇基調)/ <b>普通</b>(方向感なし。買うなら予算の半分から)/ <b>弱い</b>(両方を下回る。買いは控えめに)の3段階です。</p>' +
+          '<div class="gg-note">同じ条件なら3分間は前回の結果をそのまま返します(何度押しても Yahoo へ取りに行かない)。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>run</code> / <code>renderStatus</code>、<code>server.js</code> の <code>cachedScan</code> / <code>scan</code>、<code>analyze.js</code> の <code>analyzeMarket</code></p>',
+      },
+      {
+        title: '4. 銘柄カードの見かた(値段の計画)',
+        camera: SR.cam('p-card', 600, 125, 7.2),
+        show: ['h-c-head', 'h-c-price', 'h-c-plan', 'h-c-meta'],
+        html:
+          '<table><tr><th>場所</th><th>中身</th></tr>' +
+          '<tr><td>見出し</td><td>順位・社名・コード・<b>形</b>(押し目 / 高値ブレイク / 決算後の初動。長期は 高配当 / 割安)・<b>買いスコア</b>(0〜100)</td></tr>' +
+          '<tr><td>2行目</td><td>現在値と日付、<b>前日終値と前日比</b>(上がったら赤・下がったら青)、100株の金額、PER・PBR・ROE・配当・RSI。数字の横の小さな字は判断を入れない基準(例「境目1倍・平均約1.7倍」)</td></tr>' +
+          '<tr><td>買い</td><td>この範囲(または値段)で<b>指値</b></td></tr>' +
+          '<tr><td>利確 / 損切り</td><td>売る値段と、100株での損益の目安</td></tr>' +
+          '<tr><td>⏳ の行</td><td>短期は<b>手じまいの期限</b>(10営業日後。祝日は数えない)と<b>損益比</b></td></tr></table>' +
+          '<p>短期の値段の決め方: 買いは押し目なら25日線のすぐ下まで、それ以外は今の値から ATR の半分下まで。損切りは買いから ATR の1.5倍下(7%より深くしない)。利確は損切り幅の2倍上(途中に60日高値・52週高値があればその手前)。</p>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>analyzeShort</code>、<code>public/app.js</code> の <code>card</code> / <code>prevCloseText</code></p>',
+      },
+      {
+        title: '5. 押しポイントと気をつけるところ',
+        camera: SR.cam('p-card', 256, 356, 6.0),
+        show: ['h-c-good', 'h-c-bad'],
+        html:
+          '<p>カードの左側に、点を付けた理由を<b>文章</b>で出します。下線の言葉を押すと用語集のその項目が開きます。</p>' +
+          '<ul><li><b>👍 押しポイント</b>(加点した理由): 上昇トレンド・25日線が上向き・押し目・出来高の増加・MACD のゴールデンクロス・ROE 10%以上 など</li>' +
+          '<li><b>⚠ 気をつけるところ</b>(減点・注意): 買われすぎ(RSI)・25日線から上ぶれ・下降トレンド・決算の反応待ち・赤字・利益の幅が小さい・デッドクロス など</li></ul>' +
+          '<p>クロスは、10日以内(絞り込みで長く選んだときはその日数まで)の交差と「もうすぐ」を、ゴールデンなら押しポイント、デッドなら気をつけるところに足します。</p>' +
+          '<div class="gg-note">短期で持つ間(今日〜期限)に配当や優待の<b>権利確定</b>が来るときは、「保有中に◯◯の権利確定」と気をつけるところに出ます(権利落ち日は株価が下がりやすいため)。</div>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>analyzeShort</code> / <code>crossPoint</code> / <code>rightsDuring</code>、<code>server.js</code> の <code>addCrossPoints</code>、<code>public/app.js</code> の <code>points</code></p>',
+      },
+      {
+        title: '6. チャート(日足・週足)',
+        camera: SR.cam('p-card', 830, 440, 6.6),
+        show: ['h-c-chart', 'h-c-tabs', 'h-c-info'],
+        html:
+          '<p>カードの右(幅1000px未満では下)に、ローソク足のチャートを出します。</p>' +
+          '<table><tr><th>タブ</th><th>本数</th><th>移動平均線</th></tr>' +
+          '<tr><td>日足</td><td>100本</td><td>5日・25日・75日線</td></tr>' +
+          '<tr><td>週足</td><td>78本</td><td>13週・26週線</td></tr></table>' +
+          '<ul><li>短い2本の線の交差に印: ▲ ゴールデンクロス(足の下)/ ▼ デッドクロス(足の上)</li>' +
+          '<li>買いの範囲(帯)・利確(破線)・損切り(点線)を横線で引き、右の目盛りに値段を出す</li>' +
+          '<li>ローソク足の色は<b>前の足の終値より上がったら赤・下がったら青</b>。中抜きは始値より上で終わった足、塗りつぶしは下で終わった足</li>' +
+          '<li><b>なぞると</b>、上の行にその足の始値・高値・安値・終値・前日比・出来高・移動平均が出る(画面の例は 10/15 の足)</li></ul>' +
+          '<div class="gg-note">20銘柄を一度に取りに行かないよう、<b>画面に近づいたカードから</b>読み込みます。一度取ったチャートは画面の中で覚えておきます。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>chartBox</code> / <code>showChart</code> / <code>drawChart</code>、<code>analyze.js</code> の <code>chartSeries</code></p>',
+      },
+      {
+        title: '7. 配当と株主優待',
+        camera: SR.cam('p-extras', 256, 465, 5.8),
+        show: ['h-e-perks', 'h-e-cont', 'h-e-yutai'],
+        html:
+          '<table><tr><th>項目</th><th>出すもの</th></tr>' +
+          '<tr><td>💴 配当</td><td>100株での年額(予想)、権利確定月(過去2年の配当の月)と次の確定月</td></tr>' +
+          '<tr><td>🎁 優待</td><td>種類、権利確定月(権利付き最終日)、100株から対象か(100株では対象外なら ⚠)</td></tr>' +
+          '<tr><td>⏳ 継続保有の条件</td><td>優待の内容のうち「継続」を含む行をそのまま出し、いちばん短い期間(「1年以上」など)を見出しにする</td></tr>' +
+          '<tr><td>優待の内容を見る</td><td>開くと、株数ごとの内容を優待ページに出ている順に出す</td></tr></table>' +
+          '<ul><li>配当・優待は、画面に出す上位20銘柄の分だけ取り、12時間覚えておきます</li>' +
+          '<li>優待は Yahoo!ファイナンス(日本)の優待ページの HTML から読み取っているので、ページの作りが変わると「取得できませんでした」になります。そのときはカードの下の「優待のページ」で確かめます</li></ul>' +
+          '<p>画面の例の優待(QUOカード)も<b>ダミー</b>です。</p>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>parseDividends</code> / <code>parseIncentive</code> / <code>continuitySpan</code>、<code>public/app.js</code> の <code>perks</code> / <code>yutaiBody</code></p>',
+      },
+      {
+        title: '8. 用語集',
+        camera: SR.cam('p-gloss', 600, 230, 6.2),
+        show: ['h-g-item', 'h-g-base', 'h-g-scale'],
+        html:
+          '<p><b>下線の付いた言葉</b>(PER・PBR・ROE・RSI・押し目・損切り など)を押すと、用語集のその項目へ飛んで光ります。右上の「📖 用語集」からも開けます。× か、枠の外を押すと閉じます。</p>' +
+          '<p>5つのグループ(割安さ・稼ぐ力・配当と優待・チャート・売買のことば)に33語あり、1語ごとに次を出します。</p>' +
+          '<ul><li><b>📏 基準</b>: 判断を入れない基準(東証プライムの平均や、PBR 1倍のような定義上の境目)</li>' +
+          '<li>意味の説明</li>' +
+          '<li><b>このアプリの目安</b>: 何倍なら割安か など(👍 良い / ⚠ 注意)。判定ルールのしきい値と合わせてある</li>' +
+          '<li>💡 見るときのコツ</li></ul>' +
+          '<div class="gg-note">平均の値は JPX の集計などから取った値なので、ときどき <code>public/glossary.js</code> の <code>base</code> を新しい値に直します。</div>' +
+          '<p class="gg-files">📄 <code>public/glossary.js</code> の <code>GLOSSARY</code>、<code>public/app.js</code> の <code>renderGlossary</code> / <code>openGlossary</code></p>',
+      },
+      {
+        title: '9. 長期のカード',
+        camera: SR.cam('p-long', 600, 260, 7.6),
+        show: ['h-l-head', 'h-l-plan', 'h-l-good'],
+        html:
+          '<p>期間を<b>長期</b>にすると、日足の形ではなく、スクリーナーの値で点を付けます(赤字の銘柄は除外)。</p>' +
+          '<table><tr><th>指標</th><th>加点・減点(抜粋)</th></tr>' +
+          '<tr><td>PER(予想があれば予想)</td><td>10倍以下 +25、15倍以下 +18、20倍以下 +8、40倍超え −10</td></tr>' +
+          '<tr><td>PBR</td><td>0.8倍未満 +20、1倍未満 +15、1.5倍未満 +8</td></tr>' +
+          '<tr><td>配当利回り</td><td>4%以上 +20、3%以上 +15、2%以上 +8</td></tr>' +
+          '<tr><td>200日線</td><td>上 +15、15%以上下 −15(割安の罠)</td></tr></table>' +
+          '<p>ほかに ROE・配当性向・増益予想・アナリスト評価・52週高値の近さも見ます。</p>' +
+          '<ul><li>買い: 50日線より上なら50日線まで(5%下まで)、下なら3%下まで</li>' +
+          '<li>損切り: 10%下 / 利確: 20%上(52週高値が手前にあればその手前)</li>' +
+          '<li>期限の代わりに「🗓️ 半年〜1年が目安。決算のたびに見直し」と出る</li></ul>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>analyzeLong</code> / <code>fundamentals</code></p>',
+      },
+      {
+        title: '10. 並べ替え',
+        camera: SR.cam('p-result', 360, 120, 5.4),
+        show: ['h-r-sort'],
+        html:
+          '<p>表示している銘柄を、ブラウザの中で並べ替えます(サーバーへは取りに行きません)。サーバーは買いスコアの順で返すので、それを元にします。</p>' +
+          '<ul><li>買いスコアが高い順(初め)</li>' +
+          '<li>最低購入金額(100株の金額)が安い順 / 高い順</li>' +
+          '<li>PBR が低い順 / 高い順</li>' +
+          '<li>PER が低い順 / 高い順</li></ul>' +
+          '<p>値の無い銘柄(赤字で PER が無いなど)は、向きに関係なく最後に回します。選んだ並び順はブラウザに覚えておきます。</p>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>SORTS</code> / <code>byValue</code> / <code>renderList</code></p>',
+      },
+      {
+        title: '11. スナップショットを保存する・開く',
+        camera: { pos: [9, 7.6, 14], target: [9, 7.2, 0] },
+        show: ['h-r-save', 'h-s-list', 'h-s-open'],
+        html:
+          '<ol><li>調べた結果の上の「<b>📸 この結果を保存</b>」を押す。「保存しました(時刻)」と出る</li>' +
+          '<li>右上の「📸 スナップショット」で一覧を開く。保存した時刻・期間・予算・銘柄数・絞り込み・上位3銘柄の名前が出る</li>' +
+          '<li>「<b>開いて今と比べる</b>」で、そのときの結果を表示して比べる(次の手順)。「削除」は確認してから消す</li></ol>' +
+          '<p>保存先は PC の <code>%LOCALAPPDATA%\\StockRadar\\snapshots\\&lt;保存した時刻&gt;.json</code>(1回の保存で1ファイル)です。</p>' +
+          '<div class="gg-note">画面の一覧の「11/12」「11/5」の2件は、ダミーデータの値動きに合わせて「前に保存した」形に作ったものです。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>saveSnapshot</code> / <code>openSnapshots</code> / <code>snapRow</code>、<code>server.js</code> の <code>handleSnapshots</code> / <code>saveSnapshot</code></p>',
+      },
+      {
+        title: '12. 保存したときと今を比べる',
+        camera: SR.cam('p-compare', 600, 230, 7.0),
+        show: ['h-cm-head', 'h-cm-sum', 'h-cm-hit', 'h-cm-live', 'h-cm-new'],
+        html:
+          '<p>開くと、銘柄カードは<b>保存したときの内容</b>で並び(チャートだけ今のデータ)、上に比べた表が出ます。「最新の結果に戻る」で戻ります。</p>' +
+          '<ul><li>上の1行: 利確に届いた数・損切りに届いた数・まだどちらも、と<b>値段の変化の平均</b></li>' +
+          '<li>表: 保存したとき → 今の値段と変化、その後の高値 / 安値、<b>利確・損切りのどちらに先に届いたか</b>とその日</li>' +
+          '<li>同じ期間で保存より後に調べた結果がブラウザにあれば、「最新の検索」の順位(圏外も)と、🆕 新しく入った銘柄も出す</li></ul>' +
+          '<div class="gg-note">「その後」は、保存したときの株価の日より後の<b>日足</b>で見ます。1日の中で利確と損切りのどちらが先かは分からないので、同じ日に両方届いたら「同じ日に両方」とします。値段の変化は保存したときの株価から今の終値まで(買いの指値で買えたかどうかは見ていません)。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>openSnapshot</code> / <code>renderCompare</code> / <code>hitText</code>、<code>server.js</code> の <code>compareSnapshot</code>、<code>analyze.js</code> の <code>compareSince</code></p>',
+      },
+      {
+        title: '13. 値段の見張り(LINE で知らせる)',
+        camera: SR.cam('p-watch', 600, 420, 7.0),
+        show: ['h-w-status', 'h-w-form', 'h-w-suggest', 'h-w-list', 'h-w-actions'],
+        html:
+          '<p>右上の「🔔 見張り」か、カードの「🔔 この銘柄を見張る」で開きます。<b>銘柄コード・値段・「以下になったら / 以上になったら」・メモ</b>を入れて「見張る」。カードから開くと「買いの上限・利確・損切り」の値段をボタンで入れられます。</p>' +
+          '<ul><li>株レーダーが動いている間、<b>平日 9:00〜15:50</b> に数分おき(既定5分)に今の値段(約20分遅れ)を確かめる。祝日は見分けていない</li>' +
+          '<li>今日の 9:00 以降についた値段が条件を満たしたら、LINE に<b>1通</b>知らせて「知らせた」にし、見張りを止める。「再開」でまた見張る</li>' +
+          '<li>「以上」「以下」はちょうどの値段も含む。「今の値段を確かめる」はいつでも値段を取り直す</li>' +
+          '<li>LINE の設定は <code>line-setup.ps1</code> で登録(画面の例は<b>まだ設定していない</b>状態)。「LINE にテスト送信」で届くか確かめられる</li></ul>' +
+          '<div class="gg-note">トークンと送り先は Windows の DPAPI で暗号化して PC に置き、画面やログには出しません。LINE の無料プランは月200通までです。画面の「サンプル海運」の「知らせました」はダミーです(このガイドの撮影では LINE に送っていません)。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>openWatches</code> / <code>addWatch</code> / <code>renderWatches</code>、<code>server.js</code> の <code>handleWatches</code> / <code>checkWatches</code>、<code>line.js</code> の <code>pushText</code></p>',
+      },
+      {
+        title: '14. 平均割れ(過去N年の平均より安い銘柄)',
+        camera: SR.cam('p-avgform', 600, 420, 8.0),
+        show: ['h-a-mode', 'h-a-opts', 'h-a-budget', 'h-a-status', 'h-a-gap'],
+        html:
+          '<p>期間で「<b>平均割れ</b>」を選ぶと、東証の普通株ぜんぶ(REIT・ETF・優先株を除く)から、今の株価が過去N年の平均より安い銘柄を、<b>平均より安い率の大きい順</b>に表で出します。ボタンは「平均より安い銘柄を探す」に変わります。</p>' +
+          '<ul><li>平均をとる期間: 3・5・10・15・20年(初めは10年)。平均 = 今月を除く直近 N×12 か月の<b>月末終値の単純平均</b></li>' +
+          '<li>先に絞る: PER・PBR・時価総額、「平均割れでも予算で絞る」を付けたときは予算も。クロスの絞り込みは使わない</li>' +
+          '<li>表: 今の株価・平均・<b>平均より◯%安い</b>・N年の安値〜高値・100株の金額・PER・PBR・配当・「🔔 見張る」</li>' +
+          '<li>表の上で「平均より10%以上安い」などに絞ったり、PER・PBR・100株の金額・時価総額で並べ替えたりできる</li>' +
+          '<li>上場してN年たっていない銘柄は「データ不足」として表の下に名前だけ出す</li></ul>' +
+          '<div class="gg-note">全部の銘柄だと数分かかるので、進み具合のバーと「やめる」が出ます。月足は1日覚えておくので、同じ日の2回目からは速くなります。画面の例は<b>ダミーの24銘柄</b>だけです。</div>' +
+          '<p class="gg-files">📄 <code>public/app.js</code> の <code>startAvg</code> / <code>pollAvg</code> / <code>renderAvg</code>、<code>server.js</code> の <code>runAvgScan</code>、<code>analyze.js</code> の <code>belowAverage</code> / <code>longAverage</code></p>',
+      },
+      {
+        title: 'おまけ: 起動・停止・スマホから開く',
+        camera: SR.cam('p-filter', 700, 200, 9),
+        show: ['h-topbtn'],
+        html:
+          '<table><tr><th>ファイル</th><th>やること</th></tr>' +
+          '<tr><td><code>start.bat</code></td><td>起動済みならブラウザで開くだけ、未起動なら起動して <code>http://127.0.0.1:8766/</code> を開く</td></tr>' +
+          '<tr><td><code>stop.bat</code></td><td>8766 で待ち受けているプロセスだけを止める</td></tr>' +
+          '<tr><td><code>autostart.ps1</code> / <code>open.ps1</code></td><td>窓なしで裏起動する / 起動してから開く(秘書さんのメニューやランチャーから呼ぶ)</td></tr>' +
+          '<tr><td><code>remote-setup.ps1</code></td><td>自分の Tailscale(VPN)につないだスマホから開けるようにする(インターネットには公開しない)</td></tr></table>' +
+          '<ul><li>画面右上の「<b>⏻ 停止</b>」でも止められます(止めると見張りも止まる)。このボタンは PC の画面(<code>127.0.0.1</code> / <code>localhost</code>)にだけ出ます</li>' +
+          '<li>前提は Node.js 20 以上。npm パッケージは使いません</li>' +
+          '<li>短期の売買は、損失を他の利益と相殺できる特定口座の方が向いています(画面の下の注意書き)</li></ul>' +
+          '<div class="gg-note">データは約20分遅れの公開データで、決算の中身やニュースは読んでいません。注文の前に、証券会社の画面で今の値段を確かめてください。仕組みは「データの流れ」「内部設計」へ。</div>' +
+          '<p class="gg-files">📄 <code>start.bat</code> / <code>stop.bat</code> / <code>autostart.ps1</code> / <code>open.ps1</code> / <code>remote-setup.ps1</code>、<code>public/app.js</code> の <code>initStop</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

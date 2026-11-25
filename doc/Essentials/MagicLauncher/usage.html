@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagicLauncher 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+<script src="ml-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var WIDE = { pos: [0, 6.3, 47], target: [0, 6.2, 0] };
+  var ALL = ML.keys().map(function (k) { return 'p-' + k; });
+
+  GameGuide.start({
+    title: 'MagicLauncher 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面で、起動 → 開く → 登録・編集 → 並べ替え → 絞り込み・検索 → 設定、を1歩ずつ',
+    camera: WIDE,
+    floor: false,
+
+    build: function (g) {
+      ML.keys().forEach(function (k) { ML.panel(g, k); });
+
+      // ステップごとに出す注目枠・輪・吹き出し（座標は撮影した画面 1200×720 の上のピクセル）
+      // 1. 画面の見かた
+      ML.hl(g, 'h-title', 'main', 8, 8, 245, 48);
+      ML.hl(g, 'h-search', 'main', 252, 8, 724, 46, C.data);
+      ML.hl(g, 'h-btns', 'main', 736, 9, 1188, 45, C.good);
+      ML.hl(g, 'h-legend', 'main', 8, 51, 520, 78, C.third);
+      ML.hl(g, 'h-hint', 'main', 100, 697, 1196, 717);
+      // 2. 魔法陣の見かた
+      ML.ring(g, 'r-hub', 'main', 304, 393, 50, C.data);
+      ML.ring(g, 'r-junc', 'main', 309, 290, 13, C.good);
+      ML.ring(g, 'r-item', 'main', 241, 252, 27);
+      ML.hl(g, 'h-miss', 'main', 96, 436, 206, 457, C.enemy);
+      ML.note(g, 'n-hub', 'main', '中心 = 魔法陣の名前と件数', 300, 502, C.data);
+      ML.note(g, 'n-junc', 'main', '分岐点 = タグ', 470, 322, C.good);
+      ML.note(g, 'n-item', 'main', '小さな円 = 登録した項目', 140, 165);
+      ML.note(g, 'n-miss', 'main', '⚠ この PC に見つからない', 125, 362, C.enemy);
+      // 3. クリックで開く
+      ML.ring(g, 'r-open', 'open', 523, 395, 30);
+      ML.hl(g, 'h-toast', 'open', 404, 654, 796, 690, C.good);
+      // 4. 編集
+      ML.hl(g, 'h-e-path', 'edit', 311, 221, 889, 256, C.data);
+      ML.hl(g, 'h-e-tags', 'edit', 311, 349, 889, 413);
+      ML.hl(g, 'h-e-more', 'edit', 311, 441, 889, 495, C.good);
+      ML.hl(g, 'h-e-del', 'edit', 309, 521, 367, 557, C.enemy);
+      // 5. 登録
+      ML.hl(g, 'h-a-path', 'add', 311, 203, 889, 238, C.data);
+      ML.hl(g, 'h-a-warn', 'add', 311, 244, 889, 274, C.enemy);
+      ML.hl(g, 'h-a-name', 'add', 311, 303, 889, 338, C.good);
+      ML.hl(g, 'h-a-tags', 'add', 311, 367, 889, 431);
+      // 6. ドラッグ
+      ML.ring(g, 'r-d-hole', 'drag', 459, 482, 22, C.third);
+      ML.hl(g, 'h-d-orb', 'drag', 448, 376, 716, 454);
+      ML.note(g, 'n-d-hole', 'drag', '持ち上げた跡(穴)', 459, 540, C.third);
+      // 7. タグで絞り込み
+      ML.hl(g, 'h-t-chip', 'tag', 188, 51, 259, 78);
+      ML.hl(g, 'h-t-count', 'tag', 632, 14, 692, 40, C.data);
+      ML.ring(g, 'r-t-junc', 'tag', 556, 479, 20, C.third);
+      ML.ring(g, 'r-t-item', 'tag', 792, 176, 36, C.data);
+      ML.note(g, 'n-t-dash', 'tag', '2つ目のタグの点線', 430, 330, C.third);
+      // 8. 検索
+      ML.hl(g, 'h-s-q', 'search', 252, 8, 724, 46, C.data);
+      ML.hl(g, 'h-s-drop', 'search', 252, 52, 724, 194);
+      ML.hl(g, 'h-s-sel', 'search', 258, 101, 718, 144, C.good);
+      // 9. 名前の変更・魔法陣を分ける
+      ML.hl(g, 'h-r-form', 'rename', 360, 273, 840, 448);
+      ML.hl(g, 'h-r-circ', 'settings2', 632, 372, 941, 617, C.good);
+      // 10. 設定
+      ML.hl(g, 'h-st-path', 'settings', 258, 85, 942, 250, C.data);
+      ML.hl(g, 'h-st-cols', 'settings', 258, 252, 942, 357);
+      ML.hl(g, 'h-st-idle', 'settings', 258, 361, 942, 481, C.good);
+      ML.hl(g, 'h-st-color', 'settings', 258, 485, 942, 603, C.third);
+      // 12. 一覧と Light
+      ML.hl(g, 'h-l-panel', 'list', 810, 86, 1190, 694, C.data);
+      ML.hl(g, 'h-l-btn', 'list', 919, 9, 995, 45);
+      ML.hl(g, 'h-lt-btn', 'lite', 1072, 9, 1188, 45, C.good);
+      ML.hl(g, 'h-lt-list', 'lite', 14, 104, 1186, 716, C.data);
+      // 13. 壊れたとき
+      ML.hl(g, 'h-b-banner', 'broken', 298, 60, 902, 143, C.enemy);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: WIDE,
+        focus: ALL,
+        html:
+          '<p><b>MagicLauncher</b> は、よく開く Web ページ・フォルダ・ファイルを、ブラウザの中の<b>光る魔法陣</b>の上に円として並べ、クリックで Windows の既定のアプリで開く個人用ランチャーです。</p>' +
+          '<ol><li><code>start.bat</code> で起動(ブラウザで開く)</li><li>円をクリックして開く</li><li>右クリックで登録・編集、ドラッグで並べ替え</li><li>キーを打って検索・タグで絞り込み</li><li>⚙ 設定で、設定ファイルの場所・並べ方・待機中の動き・色</li></ol>' +
+          '<p>写っているのは、このガイド用に作った<b>ダミーの登録データ</b>(架空の名前・<code>example.com</code>・確認用の <code>T:</code> ドライブのフォルダ)です。確認用のモード(<code>MAGIC_LAUNCHER_DRY_RUN=1</code>)で動かしているので、タイトルに「DRY RUN」と出ていて、クリックしても実際には開きません。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「1〜15」のボタンで好きなステップへ飛べます。</div>' +
+          '<p class="gg-files">📄 <code>public/index.html</code> / <code>public/launcher.js</code> / <code>server.js</code></p>',
+      },
+      {
+        title: '1. 起動して、画面の見かた',
+        camera: ML.cam('main', 600, 360, 9.6),
+        focus: ['p-main'],
+        show: ['h-title', 'h-search', 'h-btns', 'h-legend', 'h-hint'],
+        html:
+          '<ol><li><code>start.bat</code> を実行。<code>127.0.0.1:8790</code> で待ち受けていなければ <code>autostart.ps1</code> が裏でサーバを起動し、既定のブラウザで <code>http://127.0.0.1:8790/</code> を開きます(起動済みならブラウザで開くだけ)</li>' +
+          '<li>要るのは Windows 10/11 と Node.js 18 以上だけ。npm パッケージは使わず、three.js r128 は同梱なのでオフラインで動きます</li></ol>' +
+          '<table><tr><th>場所</th><th>役割</th></tr>' +
+          '<tr><td>左上(黄)</td><td>タイトル(設定ファイルの <code>title</code>)</td></tr>' +
+          '<tr><td>検索欄(水色)</td><td>キーを打つとここに入る(手順8)。絞り込み中は「4 / 15 件」と「×」</td></tr>' +
+          '<tr><td>ボタン(緑)</td><td>＋ 追加 / ⟲ 全体表示 / ☰ 一覧 / ⚙ 設定 / 🍃 Light</td></tr>' +
+          '<tr><td>2段目(紫)</td><td>凡例。魔法陣の名前ごとに、タグと件数が並ぶ。クリックで絞り込み</td></tr>' +
+          '<tr><td>いちばん下</td><td>操作のヒント(クリック・右クリック・ドラッグ・ホイール)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>public/index.html</code>、<code>launcher.js</code> の <code>boot</code> / <code>setState</code> / <code>renderLegend</code></p>',
+      },
+      {
+        title: '2. 魔法陣の見かた',
+        camera: ML.cam('main', 330, 360, 6.6),
+        focus: ['p-main'],
+        show: ['r-hub', 'r-junc', 'r-item', 'h-miss', 'n-hub', 'n-junc', 'n-item', 'n-miss'],
+        update: function (g, t) { ML.beat(g, ['r-hub', 'r-junc', 'r-item'], t); },
+        html:
+          '<p>中心の結晶から<b>タグ = 分岐点</b>へ回路のような線(幹)が伸び、その先に<b>登録した項目 = 小さな魔法陣</b>が、八方向の折れ線(枝)でぶら下がります。枝には光の粒が流れます。</p>' +
+          '<ul><li>項目の<b>先頭のタグ</b>が、円の色と置き場所を決める。2つ目以降のタグの分岐点からは、選んだときだけ光る点線が伸びる(手順7)</li>' +
+          '<li>中心の下は魔法陣の名前と件数。タグに魔法陣の名前を付けると、魔法陣が分かれて横に並ぶ(写真は「仕事」と「くらし」の2つ。手順10)</li>' +
+          '<li>名前の札の頭の絵文字は、登録で決めていなければ種類で決まる: 🌐 Web / 🔗 そのほかの URL(<code>vscode://</code>・<code>onenote:</code> など)/ 📁 フォルダ / 📄 ファイル / ❔ 確かめられない(ネットワークの場所が 1.5 秒で答えない)</li>' +
+          '<li>この PC に見つからない項目は ⚠️ と、点線で黄色い文字の札(写真の「古い作業フォルダ」)。マウスを乗せると、パスと「この PC には見つかりません」が出る</li>' +
+          '<li>名前が空なら、URL はホスト名(写真の <code>www.example.org</code>)、パスは末尾の名前を出す</li></ul>' +
+          '<div class="gg-note">円の図柄は項目の id から決まる乱数で描くので、毎回同じ形になります。どの項目にも使われていないタグは出しません。</div>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>buildView</code>、<code>create3D</code> の <code>buildCircle</code>、<code>magic.js</code> の <code>sigil</code></p>',
+      },
+      {
+        title: '3. 円をクリックして開く',
+        camera: ML.cam('open', 600, 470, 8.4),
+        focus: ['p-open'],
+        show: ['r-open', 'h-toast'],
+        update: function (g, t) { ML.beat(g, ['r-open'], t); },
+        html:
+          '<p>円か名前の札を<b>左クリック</b>すると、Windows の既定のアプリで開きます(フォルダはエクスプローラー、ファイルは関連付けのアプリ、URL はブラウザなど)。</p>' +
+          '<ul><li>マウスを乗せると円が光り、中心からその円までの線が明るくなって白い光が走る</li>' +
+          '<li>結果は下のトーストで: 「開きました: 名前」/ ⚠️ 見つかりません / ⏳ 応答がありません(ネットワークの場所が止まっているかも)</li>' +
+          '<li>開いた窓はブラウザの手前に出る(小さな「開く係」<code>opener.exe</code> を通すため。仕組みは「データの流れ」へ)</li></ul>' +
+          '<div class="gg-note">写真は確認用の DRY RUN なので、開かずに「開くはずだったもの」(<code>https://example.com/portal</code>)をトーストに出しています。</div>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>openItem</code> / <code>click</code>、<code>server.js</code> の <code>POST /api/open</code></p>',
+      },
+      {
+        title: '4. 右クリックで編集',
+        camera: ML.cam('edit', 600, 370, 7.4),
+        focus: ['p-edit'],
+        show: ['h-e-path', 'h-e-tags', 'h-e-more', 'h-e-del'],
+        html:
+          '<p>円か名前の札を<b>右クリック</b>すると「編集」が開きます(検索のプルダウン・一覧の行の右クリックでも同じ)。</p>' +
+          '<table><tr><th>欄</th><th>中身</th></tr>' +
+          '<tr><td>パス / URL(水色)</td><td>フォルダ・ファイルのパス、<code>https://</code>、<code>vscode://</code> などのスキーム付き URL。<code>%USERPROFILE%</code> などの環境変数が使える。エクスプローラーの「パスのコピー」で付く前後の <code>"</code> は自動で外す</td></tr>' +
+          '<tr><td>名前</td><td>空ならパスから付ける。空欄でスペースか Tab を押すと、透かし文字(パスから作った名前)が入る</td></tr>' +
+          '<tr><td>タグ(黄)</td><td>Enter か「,」で確定。<b>先頭のタグが円の色と置き場所</b>を決める。クリックで先頭へ・ドラッグで並べ替え・× で外す。下のボタンは設定ファイルにあるほかのタグ(押すと足す)</td></tr>' +
+          '<tr><td>絵文字・メモ(緑)</td><td>絵文字は空なら種類で自動。メモは検索の対象で、マウスを乗せると出る</td></tr></table>' +
+          '<p><b>削除</b>(赤)は、1回目でボタンが「リンクを削除します」に変わり、もう一度押すと消えます。Esc か「キャンセル」で閉じます。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>openItemDialog</code> / <code>saveItem</code> / <code>deleteItem</code>、<code>server.js</code> の <code>POST /api/item</code> / <code>/api/item/delete</code></p>',
+      },
+      {
+        title: '5. 新しく登録する',
+        camera: ML.cam('add', 600, 360, 7.4),
+        focus: ['p-add'],
+        show: ['h-a-path', 'h-a-warn', 'h-a-name', 'h-a-tags'],
+        html:
+          '<p>「登録」を開く方法:</p>' +
+          '<ul><li>右上の「<b>＋ 追加</b>」</li><li>魔法陣の<b>何もない所を右クリック</b></li><li>上の凡例のタグを右クリック(そのタグを最初から付ける)</li><li>分岐点のタグを右クリック →「<b>＋ このタグで追加</b>」</li></ul>' +
+          '<p>タグで絞り込んでいるときは、そのタグが最初から付きます。保存すると設定ファイルの <code>items</code> の末尾に入り、新しいタグには 12 色のパレットからまだ使っていない色を順に割り当てます。</p>' +
+          '<div class="gg-note"><code>.exe</code> / <code>.bat</code> / <code>.cmd</code> / <code>.ps1</code> / <code>.lnk</code> などを登録すると、クリックで<b>実行</b>されます。そのときは赤枠のような注意が出ます(設定ファイルを共有フォルダに置くなら、書き込める人に注意)。</div>' +
+          '<p>写真はパスに <code>%USERPROFILE%\\Tools\\setup.bat</code> を入れて、タグ「ツール」を足したところ。名前の欄の透かし文字(緑)が <code>setup.bat</code> になっています。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>newItem</code> / <code>onPathChange</code>、<code>server.js</code> の <code>newId</code> / <code>ensureTags</code> / <code>nextPaletteColor</code></p>',
+      },
+      {
+        title: '6. ドラッグで入れ替える',
+        camera: ML.cam('drag', 520, 440, 6.4),
+        focus: ['p-drag'],
+        show: ['r-d-hole', 'h-d-orb', 'n-d-hole'],
+        update: function (g, t) { ML.beat(g, ['r-d-hole'], t); },
+        html:
+          '<p>円・タグ・魔法陣の中心を<b>左ドラッグ</b>すると、持ち上げた物が<b>光の玉</b>になってカーソルに付き、元の場所は穴になります。重ねられる相手の札が光ったところで離すと入れ替わります。</p>' +
+          '<table><tr><th>持ち上げる物</th><th>重ねる先</th><th>結果</th></tr>' +
+          '<tr><td>円(項目)</td><td>同じ先頭タグの円</td><td>場所を交換</td></tr>' +
+          '<tr><td>タグ(分岐点)</td><td>タグ</td><td>タグの並びを交換(別の魔法陣どうしなら置き場所も交換)</td></tr>' +
+          '<tr><td>タグ(分岐点)</td><td>別の魔法陣の空き所</td><td>そのタグをその魔法陣へ移す</td></tr>' +
+          '<tr><td>魔法陣の中心</td><td>別の魔法陣の中心</td><td>魔法陣の左右の並びを交換</td></tr></table>' +
+          '<p><b>Esc</b> か、何もない所で離すと取り消し(玉が穴へ戻ってはまる)。写真は「勤怠」を「社内ポータル(サンプル)」に重ねたところです。</p>' +
+          '<div class="gg-note">円・タグ・中心以外の所の左ドラッグは、魔法陣を傾けます(右ドラッグで移動、ホイールでズーム)。</div>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>startDrag</code> / <code>dropFor</code> / <code>finishDrag</code>、<code>server.js</code> の <code>/api/items/swap</code> / <code>/api/tags/swap</code> / <code>/api/circles</code> / <code>/api/tag</code></p>',
+      },
+      {
+        title: '7. タグで絞り込む・魔法陣へ寄る',
+        camera: ML.cam('tag', 600, 330, 8.4),
+        focus: ['p-tag'],
+        show: ['h-t-chip', 'h-t-count', 'r-t-junc', 'r-t-item', 'n-t-dash'],
+        update: function (g, t) { ML.beat(g, ['r-t-junc', 'r-t-item'], t); },
+        html:
+          '<p>上の凡例か、分岐点のタグを<b>クリック</b>すると、そのタグを持つ円だけが明るく残り、ほかは暗くなります。カメラは合う円へ寄ります。</p>' +
+          '<ul><li>もう一度クリックで外す。<b>複数選ぶと、全部のタグを持つものだけ</b></li>' +
+          '<li>検索欄の右に「4 / 15 件」、中心の下に「4 / 9 件」と、合う件数が出る</li>' +
+          '<li>2つ目以降のタグの線は、そのタグを選んだときだけ点線で光る(写真: 先頭タグが「資料」の「週報」へ、「開発」の分岐点から点線)</li>' +
+          '<li><b>Esc</b> か検索欄の「×」で解除</li></ul>' +
+          '<p>魔法陣の中の空き(中心も)を左クリックすると、その魔法陣が画面に収まるところまで寄ります。外をクリックするか「⟲ 全体表示」で全体へ戻ります。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>toggleTag</code> / <code>applyFilter</code> / <code>onFilter</code> / <code>focusNodes</code> / <code>focusCircle</code> / <code>buildSecondary</code></p>',
+      },
+      {
+        title: '8. キーを打って検索',
+        camera: ML.cam('search', 520, 200, 6.8),
+        focus: ['p-search'],
+        show: ['h-s-q', 'h-s-drop', 'h-s-sel'],
+        html:
+          '<p>どこにいても、<b>キーを打つと検索欄に入ります</b>。打つたびにプルダウンに候補が出て、魔法陣の側も合わない円が暗くなります。</p>' +
+          '<ul><li>名前・パス・タグ・メモをつないだ文字列への<b>部分一致</b>。空白で区切ると AND。全角/半角・大文字/小文字は区別しない</li>' +
+          '<li>並び順は「名前の先頭が合う」→「名前に含む」→「タグが合う」→「タグに含む」→「パスに含む」の順(最大60件)</li>' +
+          '<li><b>↑↓</b> で選んで(緑)、<b>Enter</b> で開く。プルダウンの行はクリックで開く・右クリックで編集</li>' +
+          '<li><b>Esc</b> で絞り込みを解除</li></ul>' +
+          '<p>写真は <code>example com</code>(「example」と「com」の両方を含む)で 3 / 15 件に絞ったところです。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>words</code> / <code>score</code> / <code>applyFilter</code> / <code>renderDrop</code> / <code>bindUI</code></p>',
+      },
+      {
+        title: '9. ⚙ 設定',
+        camera: ML.cam('settings', 600, 350, 8.2),
+        focus: ['p-settings'],
+        show: ['h-st-path', 'h-st-cols', 'h-st-idle', 'h-st-color'],
+        html:
+          '<table><tr><th>項目</th><th>中身</th></tr>' +
+          '<tr><td>設定ファイルの場所(水色)</td><td>登録したパスの一覧を保存する JSON。OneDrive などに置くと複数の PC で共有できる(<code>%USERPROFILE%</code> なども使える)。空にすると既定(ランチャー本体の隣の <code>launcher.json</code>)。フォルダは指定できない</td></tr>' +
+          '<tr><td>魔法陣を横に並べる数(黄)</td><td>横一列(折り返さない)/ 1〜4。超えた魔法陣は下の段へ。縦長の窓では行と列を入れ替える</td></tr>' +
+          '<tr><td>待機中の動き(緑)</td><td>反時計回りに回る / ふわふわ漂う / 動かさない(手順11)</td></tr>' +
+          '<tr><td>魔法陣の色(紫)</td><td>色を選ぶ。変えたあとは「自動の色に戻す」で、名前から決まる色へ戻せる</td></tr>' +
+          '<tr><td>タグの色と、置く魔法陣</td><td>タグの色と、そのタグを置く魔法陣の名前(手順10)</td></tr></table>' +
+          '<p>「設定ファイルの場所」だけは PC ごとの設定で、<code>%LOCALAPPDATA%\\MagicLauncher\\settings.json</code> に覚えます。ほかはすべて設定ファイル(<code>launcher.json</code>)の中に書きます。</p>' +
+          '<div class="gg-note">写真の「いま使っている場所」は、このガイド用のダミー(<code>T:\\Users\\demo\\OneDrive\\launcher.json</code>)です。枠の外(暗い所)をクリックするか、「閉じる」か Esc で閉じます。</div>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>renderSettings</code> / <code>bindSettings</code>、<code>server.js</code> の <code>/api/config</code> / <code>/api/layout</code> / <code>/api/circle</code> / <code>/api/tag</code></p>',
+      },
+      {
+        title: '10. 名前を変える・魔法陣を分ける',
+        camera: ML.cam2('rename', 'settings2', 16.5),
+        focus: ['p-rename', 'p-settings', 'p-settings2'],
+        show: ['h-r-form', 'h-r-circ'],
+        html:
+          '<p><b>名前の変更</b>は右クリックで:</p>' +
+          '<ul><li>分岐点のタグを右クリック →「タグの名前を変更」。付いている項目のタグもまとめて変わる(並び・色・置く魔法陣はそのまま)。「＋ このタグで追加」でそのタグ付きの登録へ</li>' +
+          '<li>魔法陣の中心を右クリック →「魔法陣の名前を変更」。並び・色・そこに置いたタグごと付いていく</li></ul>' +
+          '<p><b>魔法陣を分ける</b>には、⚙ 設定の「タグの色と、置く魔法陣」(右の写真の緑枠)で、タグの右の欄に魔法陣の名前を入れます。</p>' +
+          '<ul><li>同じ名前を入れたタグが 1 つの魔法陣にまとまり、左から横に並ぶ。新しい名前を入れると魔法陣が増える</li>' +
+          '<li>空欄のタグと、タグなしの項目は<b>最初の魔法陣</b>に入る</li>' +
+          '<li>タグを別の魔法陣の空き所へドラッグしても移せる(手順6)。最後のタグが抜けた魔法陣は消える</li></ul>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>openRename</code> / <code>saveRename</code>、<code>server.js</code> の <code>/api/tag/rename</code> / <code>/api/circle/rename</code> / <code>/api/tag</code></p>',
+      },
+      {
+        title: '11. 待機中は魔法陣が動く',
+        camera: ML.cam('idle', 600, 380, 9.2),
+        focus: ['p-idle'],
+        html:
+          '<p>マウスがページの外へ出て <b>1 秒</b>たつと、魔法陣がゆっくり動き出します。マウスを戻すと約 1 秒で、魔法陣が全部窓に入る全体表示へ戻ります。</p>' +
+          '<table><tr><th>動き</th><th>中身</th></tr>' +
+          '<tr><td>反時計回りに回る(既定)</td><td>全体の中心のまわりを 90 秒で 1 周。20 秒で 1 往復、外へ離れてまたくっつき、離れた隙間に合わせて少し大きくなる</td></tr>' +
+          '<tr><td>ふわふわ漂う</td><td>窓の中を不規則に漂い、大きさも魔法陣ごとに 0.7〜1.3 倍で変わる(窓からははみ出さない)</td></tr>' +
+          '<tr><td>動かさない</td><td>止まったまま</td></tr></table>' +
+          '<ul><li>マウスが上にある間・キー操作中・ダイアログ中・ドラッグ中は動かない。タグを選んで寄っていても、マウスが外れたら動き出す</li>' +
+          '<li>魔法陣が 1 つだけなら、「回る」でも漂う</li>' +
+          '<li>魔法陣をまたぐ点線は、動いている間は消える</li></ul>' +
+          '<p>写真は、マウスが外にいる状態で開いて、回り始めたところです。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>idleWanted</code> / <code>startIdle</code> / <code>initIdleLayout</code> / <code>updateIdle</code> / <code>stopIdle</code></p>',
+      },
+      {
+        title: '12. ☰ 一覧と 🍃 Light 版',
+        camera: ML.cam2('list', 'lite', 16.5),
+        focus: ['p-list', 'p-lite'],
+        show: ['h-l-panel', 'h-l-btn', 'h-lt-btn', 'h-lt-list'],
+        html:
+          '<p><b>☰ 一覧</b>(左の写真)は、魔法陣の横に文字の一覧を出します。魔法陣 → タグ → 項目の順で、クリックで開く・右クリックで編集。絞り込み中は合うものだけ出します。</p>' +
+          '<p><b>🍃 Light</b>(右の写真)は、three.js を読み込まない<b>文字の一覧と検索だけ</b>の版です。</p>' +
+          '<ul><li>登録・編集・設定・開くはそのまま使える。「⟲ 全体表示」は「⟲ 先頭へ」になり、☰ 一覧は使えない</li>' +
+          '<li>オン/オフは、ブラウザの <code>localStorage</code>(<code>magic-launcher-lite</code>)に覚える。設定ファイルには書かない。切り替えるとページを読み直す</li>' +
+          '<li>Light 版では 10 秒ごとの変更チェックはしない</li>' +
+          '<li>WebGL が使えない環境では、Light でなくても同じ一覧で表示する(「WebGL が使えないため、一覧で表示しています」)</li></ul>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>startList</code> / <code>listHtml</code> / <code>renderLists</code> / <code>readLite</code> / <code>writeLite</code></p>',
+      },
+      {
+        title: '13. 設定ファイルが壊れたとき(赤い帯)',
+        camera: ML.cam('broken', 600, 300, 8.4),
+        focus: ['p-broken'],
+        show: ['h-b-banner'],
+        html:
+          '<p>設定ファイルが次のどれかのときは、画面の上に<b>赤い帯</b>で理由と場所を出します。</p>' +
+          '<ul><li>JSON として読めない(写真は <code>,</code> が 1 つ抜けている)</li><li>いちばん外が <code>{}</code> ではない</li><li><code>items</code> が配列ではない</li><li>フォルダが指定されている</li></ul>' +
+          '<p>このあいだ、魔法陣は空の状態で表示され、<b>保存はすべて断ります</b>(サーバが 409 を返す)。空の内容で上書きして、登録を消してしまわないためです。</p>' +
+          '<ul><li>ファイルを直して保存すると、10 秒以内に(タブに戻ったときはすぐ)読み直して帯が消える</li>' +
+          '<li>保存のたびに、直前の内容を <code>launcher.json.bak</code> に 1 世代残している</li>' +
+          '<li>サーバが止まっているときは「サーバにつながりません …(start.bat で起動してください)」の帯になる</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>loadConfig</code> / <code>mutate</code> / <code>writeConfig</code>、<code>launcher.js</code> の <code>setState</code></p>',
+      },
+      {
+        title: 'おまけ: 止める・PC の起動時に・複数の PC で',
+        camera: WIDE,
+        focus: ALL,
+        html:
+          '<table><tr><th>ファイル</th><th>使いどころ</th></tr>' +
+          '<tr><td><code>stop.bat</code></td><td>8790 で待ち受けているプロセスだけを止める(ほかの node は止めない)</td></tr>' +
+          '<tr><td><code>autostart.ps1</code></td><td>窓なしで裏起動。Node.js が無ければ確認してから winget で入れる</td></tr>' +
+          '<tr><td><code>open.ps1</code></td><td>窓なしで、起動していなければ起動してからブラウザで開く(秘書さんの吹き出しの選択肢などから呼ぶ用)</td></tr></table>' +
+          '<p>PC の起動時に立ち上げるには、次のショートカットを <code>shell:startup</code> に置きます。</p>' +
+          '<pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "&lt;このフォルダ&gt;\\autostart.ps1"</code></pre>' +
+          '<p><b>複数の PC で使う</b>ときは、⚙ 設定で設定ファイルを OneDrive などの同じ場所にします。パスを <code>%USERPROFILE%\\…</code> のように書けば、PC ごとに展開されます。ほかの PC で足した項目は、10 秒ごと(とタブに戻ったとき)に読み直して反映されます。</p>' +
+          '<div class="gg-note">待ち受けは <code>127.0.0.1</code> だけで、ほかの PC からはつながりません。ポート番号 8790 は <code>server.js</code>・<code>start.bat</code>・<code>stop.bat</code>・<code>autostart.ps1</code>・<code>open.ps1</code> の 5 か所に出てきます(変えるときは全部)。ログは <code>%LOCALAPPDATA%\\MagicLauncher\\server.log</code>(1MB を超えたら作り直す)。</div>' +
+          '<p class="gg-files">📄 <code>start.bat</code> / <code>stop.bat</code> / <code>autostart.ps1</code> / <code>open.ps1</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

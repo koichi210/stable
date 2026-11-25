@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FiddleAroundString 使い方</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+<script src="shots-data.js"></script>
+<script src="fas-common.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  var GOLD = C.gold, GOOD = C.good, RED = C.enemy;
+
+  // 上の段(by=8)と下の段(by=0.3)に、実画面を6枚。番号は説明の順(タブの並びと同じ)
+  var TOP = 8, BOT = 0.3, X0 = 0, X1 = 10.6, X2 = 21.2;
+  var OVERVIEW = { pos: [10.6, 7.6, 30.5], target: [10.6, 7.3, 0] };
+  // パネルの置き場所(id, 画像, 中心x, 下端y)。ステップのカメラ計算が build より先なので、先に登録しておく
+  var PLAN = [
+    ['p-file', 'file', X0, TOP], ['p-dup', 'data-dup', X1, TOP], ['p-w2n', 'data-w2n', X2, TOP],
+    ['p-ref', 'ref', X0, BOT], ['p-busy', 'html-busy', X1, BOT], ['p-html', 'html', X2, BOT],
+  ];
+  PLAN.forEach(function (p) { FAS.place(p[0], p[2], p[3]); });
+
+  GameGuide.start({
+    title: 'FiddleAroundString 使い方',
+    back: 'index.html',
+    subtitle: '実際の画面で、ファイル加工 → データ加工 → ファイル抽出 → HTML抽出 の4つのタブを1歩ずつ',
+    camera: OVERVIEW,
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;                       // 全体図は遠くまで見せたいのでフォグを切る
+      g.controls.maxDistance = 70;
+
+      PLAN.forEach(function (p) { FAS.panel(g, p[0], p[1], p[2], p[3]); });
+      var topY = TOP + FAS.H + 0.6, botY = BOT + FAS.H + 0.55;
+      var lab = { size: 0.42, color: '#fff' };
+      g.label('① ファイル加工タブ', [X0, topY, 0.3], lab);
+      g.label('② データ加工タブ(重複を削除)', [X1, topY, 0.3], lab);
+      g.label('③ データ加工タブ(全角を半角に)', [X2, topY, 0.3], lab);
+      g.label('④ ファイル抽出タブ', [X0, botY, 0.3], lab);
+      g.label('⑤ HTML抽出タブ(取得中)', [X1, botY, 0.3], lab);
+      g.label('⑥ HTML抽出タブ(終わったところ)', [X2, botY, 0.3], lab);
+      g.arrow([X1 + 4.4, BOT + 3.2, 0.3], [X2 - 4.4, BOT + 3.2, 0.3], { color: GOLD, lift: 0.5, head: 0.22 });
+
+      // ファイル加工の実行前・実行後(ダミーのファイルの中身)。手順3でだけ見せる
+      var MX = X0 - 8.4;
+      g.label('P:\\memo\\議事録_0401.txt(実行前)\n【下書き】4月の定例\n出席: Aさん、Bさん\n議題1: 新しい棚の配置(仮)\n議題2: 備品の注文',
+        [MX, TOP + 4.6, 0.3], { id: 'memo-before', size: 0.3, color: '#ffffff', bg: '#000000cc' });
+      g.label('実行後(上書きされる)\n4月の定例\n出席: Aさん、Bさん\n議題1: 新しい棚の配置\n議題2: 備品の注文',
+        [MX, TOP + 1.3, 0.3], { id: 'memo-after', size: 0.3, color: GOOD, bg: '#000000cc' });
+      g.arrow([MX, TOP + 3.1, 0.3], [MX, TOP + 2.6, 0.3], { id: 'memo-arrow', color: GOLD, lift: 0, head: 0.2 });
+
+      // ステップごとに出す注目枠（ピクセルはスクショ上の座標）
+      FAS.hl(g, 'h-tabs', 'p-file', 6, 38, 276, 58);
+      FAS.hl(g, 'h-f-menu', 'p-file', 34, 90, 550, 448);
+      FAS.hl(g, 'h-f-opt', 'p-file', 46, 447, 194, 486, GOOD);
+      FAS.hl(g, 'h-f-target', 'p-file', 564, 88, 794, 158);
+      FAS.hl(g, 'h-f-run', 'p-file', 719, 495, 799, 523, RED);
+
+      FAS.hl(g, 'h-d-radio', 'p-dup', 34, 94, 152, 117);
+      FAS.hl(g, 'h-d-src', 'p-dup', 265, 70, 510, 492);
+      FAS.hl(g, 'h-d-dst', 'p-dup', 541, 70, 797, 492, GOOD);
+      FAS.hl(g, 'h-d-run', 'p-dup', 709, 494, 797, 521, RED);
+      FAS.hl(g, 'h-w-opts', 'p-w2n', 34, 115, 167, 224);
+      FAS.hl(g, 'h-w-dst', 'p-w2n', 541, 70, 797, 492, GOOD);
+
+      FAS.hl(g, 'h-r-path', 'p-ref', 16, 68, 799, 94);
+      FAS.hl(g, 'h-r-common', 'p-ref', 26, 116, 604, 157, GOOD);
+      FAS.hl(g, 'h-r-checks', 'p-ref', 610, 112, 792, 177, GOOD);
+      FAS.hl(g, 'h-r-words', 'p-ref', 16, 188, 233, 451);
+      FAS.hl(g, 'h-r-result', 'p-ref', 250, 188, 799, 451, GOOD);
+      FAS.hl(g, 'h-r-run', 'p-ref', 718, 453, 799, 481, RED);
+      FAS.hl(g, 'h-r-prof', 'p-ref', 16, 486, 799, 516);
+
+      FAS.hl(g, 'h-b-title', 'p-busy', 0, 0, 300, 30, GOOD);
+      FAS.hl(g, 'h-b-btn', 'p-busy', 719, 393, 799, 442, RED);
+      FAS.hl(g, 'h-b-bar', 'p-busy', 16, 465, 799, 486, GOOD);
+
+      FAS.hl(g, 'h-h-src', 'p-html', 16, 70, 329, 391);
+      FAS.hl(g, 'h-h-word', 'p-html', 16, 392, 329, 415);
+      FAS.hl(g, 'h-h-num', 'p-html', 356, 395, 526, 420);
+      FAS.hl(g, 'h-h-checks', 'p-html', 356, 424, 537, 465, GOOD);
+      FAS.hl(g, 'h-h-dst', 'p-html', 356, 70, 799, 391, GOOD);
+      FAS.hl(g, 'h-h-prof', 'p-html', 16, 486, 799, 516);
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: OVERVIEW,
+        html:
+          '<p><b>FiddleAroundString</b> は、文字をいじる小さなツール4本を<b>1つのウィンドウのタブ</b>にまとめた Windows アプリ(WPF)です。タブの中身は、元のツールの画面をそのまま載せたものです。</p>' +
+          '<table><tr><th>タブ</th><th>すること</th></tr>' +
+          '<tr><td>ファイル加工</td><td>フォルダの中のファイルから、指定した文字(またはその文字を含む行)を消して上書きする</td></tr>' +
+          '<tr><td>データ加工</td><td>貼り付けた文字の重複行を消す / 全角の英数字・スペースを半角にする</td></tr>' +
+          '<tr><td>ファイル抽出</td><td>手元のテキストファイルから、検索ワードを含む行を抜き出す</td></tr>' +
+          '<tr><td>HTML抽出</td><td>Web ページの HTML から、検索文字を含む行(とその後ろの行)を抜き出す</td></tr></table>' +
+          '<p>写っているのは、このガイド用に作った<b>ダミーのフォルダ</b>(<code>P:\\memo</code> / <code>P:\\ref</code>)と、手元(<code>127.0.0.1</code>)で配った<b>ダミーのページ</b>だけです。ドラッグで回転、ホイールで拡大できます。</p>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code></p>',
+      },
+      {
+        title: '1. タブを選ぶ',
+        camera: FAS.cam('p-file', 300, 140, 9),
+        show: ['h-tabs'],
+        html:
+          '<p>上のタブで、使うものを切り替えます。起動直後は左端の「ファイル加工」が選ばれています。</p>' +
+          '<p>タブにマウスを乗せると、何をするタブか(と元のツール名)が出ます。</p>' +
+          '<table><tr><th>タブ</th><th>元のツール</th></tr>' +
+          '<tr><td>ファイル加工</td><td>ToyingFile</td></tr><tr><td>データ加工</td><td>ToyingData</td></tr>' +
+          '<tr><td>ファイル抽出</td><td>TrimFileData</td></tr><tr><td>HTML抽出</td><td>TrimHtmlData</td></tr></table>' +
+          '<div class="gg-note">タブを切り替えても、入力した内容はそれぞれのタブに残ったままです。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> の <code>tabControl_Menu</code></p>',
+      },
+      {
+        title: '2. ファイル加工: 消す文字を決める',
+        camera: FAS.cam('p-file', 408, 270, 10.4),
+        show: ['h-f-menu', 'h-f-opt'],
+        html:
+          '<p>まず「<b>指定文字を削除</b>」を選びます(起動直後は選ばれていません。選ばずに実行しても何も起きません)。</p>' +
+          '<p>その下の欄に、消したい文字を<b>1行に1つずつ</b>書きます(空行は無視)。ここでは <code>【下書き】</code> と <code>(仮)</code>。</p>' +
+          '<table><tr><th>チェック</th><th>意味</th></tr>' +
+          '<tr><td>大文字小文字を区別</td><td>OFF(既定)なら <code>todo</code> で <code>TODO</code> も消える</td></tr>' +
+          '<tr><td>行を削除</td><td>ON なら、その文字を含む<b>行ごと空行</b>にする(行は詰めない)。改行コード(CRLF / LF / CR)は元のまま</td></tr></table>' +
+          '<p class="gg-files">📄 <code>ToyingFileLogic.cs</code> の <code>SplitDeleteStrings</code> / <code>DeleteStringFromContent</code></p>',
+      },
+      {
+        title: '3. ファイル加工: 対象を決めて実行',
+        camera: { pos: [-3.6, TOP + 3.2, 15.5], target: [-3.6, TOP + 3.1, 0] },
+        show: ['h-f-target', 'h-f-run', 'memo-before', 'memo-after', 'memo-arrow'],
+        html:
+          '<p>右の「対象ファイル」で、どのファイルを書き換えるかを決めます。</p>' +
+          '<ul><li><b>ディレクトリ</b>: 対象のフォルダ(フォルダをドラッグ＆ドロップしても入る)</li>' +
+          '<li><b>ファイル</b>: ファイル名のパターン。<code>*</code> や <code>?</code> が使える。空欄なら全部のファイル</li>' +
+          '<li><b>サブディレクトリも対象</b>: 既定で ON。中のフォルダもたどる</li></ul>' +
+          '<p><b>実行</b>を押すと、対象のファイルを <b>Shift_JIS</b> として読み、消した結果で<b>そのまま上書き</b>します。左は、ダミーのファイルでの実行前と実行後です(<code>*.txt</code> ではない <code>readme.md</code> は触らない)。</p>' +
+          '<div class="gg-note">⚠ <b>バックアップは作りません</b>。大事なファイルは先にコピーしておいてください。消す文字が1つも無かったファイルは書き戻さないので、そのままです。終わっても完了のメッセージは出ません。</div>' +
+          '<p>ディレクトリが空欄・見つからないときは、メッセージを出して何もしません。</p>' +
+          '<p class="gg-files">📄 <code>ToyingFileView.xaml.cs</code> の <code>Execute</code> / <code>DeleteStringFromFiles</code>、<code>ToyingFileLogic.cs</code> の <code>ValidateDirectory</code> / <code>GetTargetFiles</code></p>',
+      },
+      {
+        title: '4. データ加工: 重複を削除',
+        camera: FAS.cam('p-dup', 408, 270, 10.2),
+        show: ['h-d-radio', 'h-d-src', 'h-d-dst', 'h-d-run'],
+        html:
+          '<p>「<b>変更前データ</b>」に文字を貼り付けて、「<b>重複を削除</b>」を選び、<b>実行</b>を押します。</p>' +
+          '<ul><li>1行を1件として、同じ行は<b>最初の1行だけ</b>残す(並び順はそのまま)</li>' +
+          '<li><b>空行は取り除かれる</b></li>' +
+          '<li>結果は「<b>変更後データ</b>」に出て、<b>クリップボードにもコピー</b>される</li></ul>' +
+          '<p>例(ダミー): <code>りんご / みかん / りんご / (空行) / ぶどう / みかん / バナナ</code> → <code>りんご / みかん / ぶどう / バナナ</code></p>' +
+          '<div class="gg-note">変更前データの欄にファイルをドラッグ＆ドロップすると、<b>ファイルのパス</b>が1行ずつ入ります(中身ではありません)。メニューをどちらも選ばずに実行すると、結果は空のままです。</div>' +
+          '<p class="gg-files">📄 <code>ToyingDataView.xaml.cs</code> の <code>Execute</code> / <code>SetDroppedFiles</code>、<code>_Common/StandardTemplateClass.cs</code> の <code>TrimDuplication</code></p>',
+      },
+      {
+        title: '5. データ加工: 全角を半角に変換',
+        camera: { pos: [X2, TOP + 3.3, 10.2], target: [X2, TOP + 3.2, 0] },
+        show: ['h-w-opts', 'h-w-dst'],
+        html:
+          '<p>「<b>全角を半角に変換</b>」を選び、その下で<b>半角にしたい種類</b>にチェックを入れます。</p>' +
+          '<table><tr><th>チェック</th><th>対象</th></tr>' +
+          '<tr><td>数値</td><td><code>０</code>〜<code>９</code></td></tr><tr><td>英大字</td><td><code>Ａ</code>〜<code>Ｚ</code></td></tr>' +
+          '<tr><td>英小字</td><td><code>ａ</code>〜<code>ｚ</code></td></tr><tr><td>スペース</td><td>全角スペース</td></tr></table>' +
+          '<p>チェックした種類<b>だけ</b>が半角になります。この例では英小字を外したので <code>ｘｙｚ</code> は全角のまま、どれにも入らない <code>－</code>(全角のハイフン)もそのままです。</p>' +
+          '<p><code>ＡＢＣ－１２３　ｘｙｚ</code> → <code>ABC－123 ｘｙｚ</code></p>' +
+          '<div class="gg-note">1つもチェックしないで実行すると「変換対象が選ばれませんでした」と出ます。</div>' +
+          '<p class="gg-files">📄 <code>ToyingDataLogic.cs</code> の <code>TryGetRegexPattern</code> / <code>ApplyWide2Narrow</code></p>',
+      },
+      {
+        title: '6. ファイル抽出: リファレンスと検索ワード',
+        camera: FAS.cam('p-ref', 408, 240, 10.4),
+        show: ['h-r-path', 'h-r-common', 'h-r-checks', 'h-r-words'],
+        html:
+          '<ul><li><b>リファレンスファイルパス</b>: 探す相手のテキストファイル(Shift_JIS として読む)。ファイルをドラッグ＆ドロップしても入る。欄で <code>Enter</code> を押すと、そのファイルを関連付けられたアプリで開く</li>' +
+          '<li><b>共通ワード</b>: 書くと、<b>この文字を含む行だけ</b>を探す相手にする(空欄なら全行)。ここでは <code>在庫あり</code></li>' +
+          '<li><b>検索ワード</b>: 1行に1つ。行の先頭から、<b>後ろから見て最初の半角スペースの手前まで</b>が検索ワード(<code>りんご 3</code> → <code>りんご</code>。後ろにメモを書いておける)</li></ul>' +
+          '<table><tr><th>チェック</th><th>意味</th></tr>' +
+          '<tr><td>最初にヒットしたワードだけを抽出</td><td>検索ワードごとに、最初に見つかった1行だけ</td></tr>' +
+          '<tr><td>大文字小文字を区別する</td><td>OFF(既定)なら区別しない</td></tr>' +
+          '<tr><td>全角半角を区別しない</td><td>ON なら、両方の全角英数字・記号・スペースを半角にそろえてから比べる(結果には元の行を出す)</td></tr></table>' +
+          '<p class="gg-files">📄 <code>TrimFileDataView.xaml</code>、<code>TrimFileDataLogic.cs</code> の <code>ExtractSearchWord</code> / <code>ToNarrow</code></p>',
+      },
+      {
+        title: '7. ファイル抽出: 検索結果',
+        camera: FAS.cam('p-ref', 520, 330, 8.4),
+        show: ['h-r-result', 'h-r-run'],
+        html:
+          '<p><b>実行</b>を押すと、検索ワードごとに <code>◆</code> の見出し(検索ワード欄の行そのまま)を付けて、ヒットした行を並べます。結果は<b>クリップボードにもコピー</b>されます。</p>' +
+          '<ul><li><code>◆りんご 3</code>: <code>A001,りんご,…,在庫あり</code>。<code>りんご(ふじ)</code> の行は <code>在庫なし</code> なので、共通ワードで外れる</li>' +
+          '<li><code>◆メロン</code>: ヒットなし。見出しだけが出る</li>' +
+          '<li>同じ行が2回ヒットしても、1回だけ出す</li></ul>' +
+          '<div class="gg-note">リファレンスファイルが見つからない(または中身が空の)ときは「リファレンスファイルが開けません。」と出ます。改行コードは CRLF / LF / CR のどれでも行に分けます。</div>' +
+          '<p class="gg-files">📄 <code>TrimFileDataView.xaml.cs</code> の <code>ExecuteSearch</code>、<code>TrimFileDataLogic.cs</code> の <code>GetSearchData</code> / <code>GetHitLines</code></p>',
+      },
+      {
+        title: '8. HTML抽出: 取得元と検索文字',
+        camera: { pos: [X2, BOT + 3.2, 10.4], target: [X2, BOT + 3.1, 0] },
+        show: ['h-h-src', 'h-h-word', 'h-h-num', 'h-h-checks'],
+        html:
+          '<ul><li><b>取得元</b>: HTML を取ってくるページの URL。1行に1つ(空行は無視)</li>' +
+          '<li><b>検索文字先頭</b>: この文字を含む行を探す(行の中のどこにあってもヒット)。ここでは <code>class="price"</code></li>' +
+          '<li><b>取得行数</b>: ヒットした行から数えて何行取るか(ヒットした行を含む)。<b>空欄・0 は1行</b>。数字以外や負の数だと「取得行数は0以上の数字で入力してください。」と出て、取りに行きません</li>' +
+          '<li><b>最初にヒットしたワードだけを抽出</b>: URL ごとに、最初にヒットした所だけ</li>' +
+          '<li><b>大文字小文字を区別する</b>: OFF(既定)なら区別しない</li></ul>' +
+          '<div class="gg-note">元のツールにあった「検索文字終端」の欄は、元のツールと同じく<b>隠してあり、使っていません</b>(設定ファイルの互換のために残してあるだけ)。</div>' +
+          '<p class="gg-files">📄 <code>TrimHtmlDataView.xaml</code>、<code>TrimHtmlDataLogic.cs</code> の <code>TryGetTrimLine</code></p>',
+      },
+      {
+        title: '9. HTML抽出: 取得中',
+        camera: { pos: [X1, BOT + 3.4, 11.2], target: [X1, BOT + 3.3, 0] },
+        show: ['h-b-title', 'h-b-btn', 'h-b-bar'],
+        html:
+          '<p><b>実行</b>を押すと、URL を上から1つずつ取りに行きます。取りに行く間も<b>ウィンドウは固まりません</b>。</p>' +
+          '<ul><li>タイトルに <code>FiddleAroundString - HTML取得中 (2/3)</code> のように、何件目かが出る</li>' +
+          '<li>実行ボタンは「<b>取得中...</b>」になって押せない(二重に押せない)</li>' +
+          '<li>下のバーが、取り終えた URL の数 / 全部の数 で進む</li></ul>' +
+          '<div class="gg-note">取れなかった URL は「ソース取得に失敗しました。」と URL を出して、<b>残りの URL は続けて</b>取りに行きます。取得中にウィンドウを閉じたら、後から届いた結果は捨てます。</div>' +
+          '<p class="gg-files">📄 <code>TrimHtmlDataView.xaml.cs</code> の <code>ExecuteTrimAsync</code> / <code>SetFetching</code>、<code>MainWindow.xaml.cs</code> の <code>ShowFetchStatus</code></p>',
+      },
+      {
+        title: '10. HTML抽出: 取得値',
+        camera: FAS.cam('p-html', 520, 250, 9.4),
+        show: ['h-h-dst'],
+        html:
+          '<p>全部の URL が終わると、「<b>取得値</b>」に URL ごとの結果が並び、<b>クリップボードにもコピー</b>されます。</p>' +
+          '<ul><li>URL ごとに <code>◆</code> + URL の見出し</li>' +
+          '<li>ヒットした行と、そこから取得行数ぶんの行(ここでは2行: <code>&lt;td class="price"&gt;</code> と <code>120円</code>)</li>' +
+          '<li>ヒットとヒットの間には空行が入る</li>' +
+          '<li>ページの最後に近くて取得行数ぶんの行が無いときは、ある分だけ</li></ul>' +
+          '<p>ページは <b>UTF-8</b> として読みます。</p>' +
+          '<p class="gg-files">📄 <code>TrimHtmlDataLogic.cs</code> の <code>GetSearchString</code>、<code>TrimHtmlDataView.xaml.cs</code> の <code>DownloadHtmlSource</code></p>',
+      },
+      {
+        title: '11. 設定の保存と読み込み',
+        camera: { pos: [X1, BOT + 1.2, 25], target: [X1, BOT + 1.2, 0] },
+        show: ['h-r-prof', 'h-h-prof'],
+        html:
+          '<p><b>ファイル抽出</b>と <b>HTML抽出</b> のタブには、入力した値を名前を付けて取っておく欄が一番下にあります。</p>' +
+          '<ul><li><b>設定保存</b>: 「現在の設定ファイルに保存しますか？」→ はい=今のファイルに上書き、いいえ=名前を付けて保存。「設定値を保存しました♪」と出る</li>' +
+          '<li>左の一覧で選ぶと、そのファイルの値に置き換わる(一覧はタブの設定フォルダの中の <code>*.json</code>)</li>' +
+          '<li>起動したときは、既定のファイル(<code>TrimFileData.json</code> / <code>TrimHtmlData.json</code>)を読み込む</li></ul>' +
+          '<table><tr><th>タブ</th><th>保存する値</th></tr>' +
+          '<tr><td>ファイル抽出</td><td>リファレンスファイルパス・共通ワード・チェック3つ・検索ワード・検索結果</td></tr>' +
+          '<tr><td>HTML抽出</td><td>検索文字・取得行数・大文字小文字の区別だけ。<b>取得元と取得値は入れない</b>(毎回入れ替えるデータなので)。「最初にヒット」も入れない</td></tr></table>' +
+          '<p class="gg-files">📄 <code>TrimFileDataView.xaml.cs</code> / <code>TrimHtmlDataView.xaml.cs</code> の <code>RegisterSettingItems</code>、<code>_Common/Wpf/WpfProfile.cs</code></p>',
+      },
+      {
+        title: 'おまけ: 保存先・隠し機能・動かすのに要るもの',
+        camera: OVERVIEW,
+        html:
+          '<p>設定の保存先は既定で <code>%LOCALAPPDATA%\\FiddleAroundString\\</code>。その下に、タブごとに <code>TrimFileData\\</code> と <code>TrimHtmlData\\</code> のフォルダを分けて置きます。exe と同じフォルダの <code>DataFolder.txt</code>(1行目が保存先のパス)が指す場所を使い、タイトルバーを右クリック →「データ保存先を変更」で別の場所へ引っ越せます(再起動しなくても読み込み直します)。</p>' +
+          '<p>初めて起動したときだけ、元の TrimFileData / TrimHtmlData の既定の保存先(<code>%LOCALAPPDATA%\\TrimFileData\\</code> など)にある設定(<code>*.json</code>)を<b>コピー</b>して取り込みます(元のファイルはそのまま)。</p>' +
+          '<div class="gg-note">隠し機能: HTML抽出タブの<b>余白をダブルクリック</b>するとデバッグモードが切り替わり(<code>IsDebug=True</code> と出る)、取ってきた HTML と抜き出した結果を、exe と同じフォルダに連番のファイル(<code>01_1_source.txt</code> など)で書き出します。</div>' +
+          '<p>動かすのに要るもの:</p>' +
+          '<ul><li>.NET Framework 4.5 以上</li>' +
+          '<li>exe と同じフォルダの dll(<code>Newtonsoft.Json.dll</code> / <code>Microsoft.WindowsAPICodePack.dll</code> / <code>Microsoft.WindowsAPICodePack.Shell.dll</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml.cs</code>、<code>LegacySettingImporter.cs</code>、<code>_Common/UserDataLocation.cs</code> / <code>DataFolderMenu.cs</code></p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockRadar 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:    { y: 12, color: C.data,    name: '画面\n(public/ ブラウザで動く)' },
+    api:   { y: 8,  color: C.server,  name: 'サーバーの入口と処理\n(server.js)' },
+    fetch: { y: 4,  color: C.me,      name: 'Yahoo からの取得と\nキャッシュ(server.js)' },
+    rule:  { y: 0,  color: C.third,   name: '判定のルール\n(analyze.js 通信しない)' },
+    base:  { y: -4, color: C.neutral, name: '通知・起動・テスト\n(line.js / スクリプト / test/)' }
+  };
+  // 箱の配置。[id, 表示名, 層, x]
+  var CLS = [
+    // 画面
+    ['html', 'index.html\n(フォームと3つのダイアログ)', 'ui', -12],
+    ['app', 'app.js\nrun / render / card / drawChart\nopenSnapshot / openWatches / renderAvg', 'ui', -3],
+    ['gloss', 'glossary.js\nGLOSSARY(5グループ33語)', 'ui', 6],
+    ['css', 'style.css', 'ui', 14],
+    // サーバーの入口と処理
+    ['handle', 'handle\nHost・Origin の確認\nserveStatic', 'api', -13],
+    ['scan', 'scan / cachedScan\nparseScan / shortCandidates', 'api', -6.5],
+    ['snaps', 'handleSnapshots\nsaveSnapshot / compareSnapshot', 'api', 0],
+    ['watches', 'handleWatches\ncheckWatches / startMonitor', 'api', 6.5],
+    ['avg', 'handleAvgScan\nstartAvgScan / runAvgScan', 'api', 13],
+    // 取得とキャッシュ
+    ['yscreen', 'yahooSession / screenPage\nscreenAll', 'fetch', -10],
+    ['yhist', 'history / chart / quoteNow', 'fetch', -3],
+    ['yextra', 'extras / dividends\nincentive', 'fetch', 4],
+    ['ymonth', 'monthlyHistory', 'fetch', 11],
+    // 判定のルール
+    ['rind', 'sma / rsi / atr / macd\nfloorTick / ceilTick', 'rule', -13],
+    ['rshort', 'analyzeShort\nanalyzeLong / analyzeMarket', 'rule', -6.8],
+    ['rcross', 'crossInfo / matchCross\ncrossPoint / chartSeries', 'rule', -0.6],
+    ['rcomp', 'parseDividends / parseIncentive\nrightsDuring / compareSince', 'rule', 5.6],
+    ['rwatch', 'isMarketHours / watchHit\nwatchMessage', 'rule', 11.8],
+    ['ravg', 'longAverage / belowAverage\nisCommonStock', 'rule', 18],
+    // 通知・起動・テスト
+    ['line', 'line.js\npushText / readSecret / redact', 'base', -10],
+    ['scripts', 'start.bat / stop.bat / open.ps1\nautostart.ps1 / remote-setup.ps1\nline-setup.ps1', 'base', -2],
+    ['test', 'test/analyze.test.js\n(node --test・36件)', 'base', 6],
+    ['node', 'Node.js 20+ の標準だけ\nhttp / fetch / fs / crypto', 'base', 14]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, 0]; });
+  function top(id, dy) { var p = POS[id]; return [p[0], p[1] + 0.45 + (dy || 0), p[2]]; }
+  function ids(layer) { return CLS.filter(function (c) { return c[2] === layer; }).map(function (c) { return c[0]; }); }
+
+  // 依存の矢印 [from, to, 色]  (使う側 → 使われる側)
+  var DEPS = [
+    ['app', 'gloss', '#7ef0ff'],
+    ['scan', 'yscreen', '#ff9f43'],
+    ['scan', 'yhist', '#ff9f43'],
+    ['scan', 'yextra', '#ff9f43'],
+    ['scan', 'rshort', '#c77dff'],
+    ['scan', 'rcross', '#c77dff'],
+    ['snaps', 'yhist', '#ff9f43'],
+    ['snaps', 'rcomp', '#c77dff'],
+    ['watches', 'yhist', '#ff9f43'],
+    ['watches', 'rwatch', '#c77dff'],
+    ['watches', 'line', '#ff5f6d'],
+    ['avg', 'yscreen', '#ff9f43'],
+    ['avg', 'ymonth', '#ff9f43'],
+    ['avg', 'ravg', '#c77dff'],
+    ['yextra', 'rcomp', '#4fa3ff'],
+    ['rshort', 'rind', '#c77dff'],
+    ['rcross', 'rind', '#c77dff'],
+    ['test', 'rshort', '#b8b2d6'],
+    ['test', 'line', '#b8b2d6']
+  ];
+
+  GameGuide.start({
+    title: 'StockRadar 内部設計',
+    back: 'index.html',
+    subtitle: 'server.js(入口・取得・キャッシュ)/ analyze.js(判定のルール)/ line.js / public/app.js の役割と、実際の関数名',
+    camera: { pos: [2, 24, 46], target: [2, 5, 0] },
+    floor: false,
+
+    build: function (g) {
+      g.scene.fog = null;                       // 全体図は遠くまで見せたいのでフォグを切る
+      g.controls.maxDistance = 70;
+      // ---- 層の板 ----
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [40, 7], pos: [2.5, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-20, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      // ---- 箱 ----
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [4.6, 0.9, 1.9], pos: [c[3], L.y + 0.45, 0], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.28, labelOffset: [0, 1.2, 0], labelBg: '#000000aa'
+        });
+      });
+      // ---- 画面 → サーバー ----
+      g.arrow(top('app'), top('handle'), { id: 'dep-app-handle', color: C.server, lift: 1.2, head: 0.25, label: 'fetch(/api/...)', labelSize: 0.26 });
+      ['scan', 'snaps', 'watches', 'avg'].forEach(function (k) {
+        g.arrow(top('handle'), top(k), { id: 'dep-handle-' + k, color: C.server, lift: 0.9, head: 0.22, radius: 0.03 });
+      });
+      // ---- 外のサービス(右端) ----
+      g.box({ id: 'yahoo', size: [4.6, 1.2, 2.6], pos: [24, 4.6, 0], color: '#2d2944', emissive: C.me, emissiveIntensity: 0.4, radius: 0.1, edgeColor: C.me,
+        label: 'Yahoo! Finance\nYahoo!ファイナンス(優待)\n(詳しくは「データの流れ」)', labelSize: 0.27, labelOffset: [0, 1.8, 0], labelBg: '#000000cc' });
+      g.arrow([13.6, 4.9, 0.3], [21.6, 4.9, 0.3], { id: 'dep-yahoo', color: C.me, lift: 1.0, head: 0.25, label: 'fetch(UA 付き)', labelSize: 0.26 });
+
+      // ---- 依存の矢印 ----
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+
+      // ---- 見張りの状態(手順8) ----
+      var WS = [
+        ['ws-watch', 'watching\n見張り中', -6, '#5ee6a8'],
+        ['ws-hit', '条件を満たした\n(今日の値段で)', 1, '#ffd166'],
+        ['ws-done', 'notified\n知らせた・止める', 8, '#ff5f6d']
+      ];
+      WS.forEach(function (s) {
+        g.box({ id: s[0], size: [4.4, 1.0, 2.0], pos: [s[2], 17.5, 0], color: '#2d2944', emissive: s[3], emissiveIntensity: 0.4, radius: 0.12, edgeColor: s[3], label: s[1], labelSize: 0.34, labelOffset: [0, 1.4, 0], labelBg: '#000000cc' });
+      });
+      g.arrow([-6, 18, 0], [1, 18, 0], { id: 'ws-a1', color: C.gold, lift: 1.3, label: 'checkWatches\n(5分おき)', labelSize: 0.26 });
+      g.arrow([1, 18, 0], [8, 18, 0], { id: 'ws-a2', color: C.gold, lift: 1.3, label: 'LINE に送れた', labelSize: 0.26 });
+      g.arrow([1, 17, 0], [-6, 17, 0], { id: 'ws-a3', color: C.enemy, lift: -1.4, label: '送れない → 理由を残して次の回', labelSize: 0.26 });
+      g.arrow([8, 17, 0], [-6, 17, 0], { id: 'ws-a4', color: C.good, lift: -3.0, label: '「再開」(POST …/resume)', labelSize: 0.26 });
+
+      // ---- 平均割れの仕事の状態(手順9) ----
+      var JS = [
+        ['js-idle', 'idle\nまだ無い', -10, '#b8b2d6'],
+        ['js-screen', 'running\nphase: screen', -3.5, '#4fa3ff'],
+        ['js-hist', 'running\nphase: history', 3, '#ffd166'],
+        ['js-done', 'done / cancelled\n/ error', 9.5, '#5ee6a8']
+      ];
+      JS.forEach(function (s) {
+        g.box({ id: s[0], size: [4.4, 1.0, 2.0], pos: [s[2], 17.5, 0], color: '#2d2944', emissive: s[3], emissiveIntensity: 0.4, radius: 0.12, edgeColor: s[3], label: s[1], labelSize: 0.34, labelOffset: [0, 1.4, 0], labelBg: '#000000cc' });
+      });
+      g.arrow([-10, 18, 0], [-3.5, 18, 0], { id: 'js-a1', color: C.gold, lift: 1.3, label: 'POST /api/avgscan', labelSize: 0.26 });
+      g.arrow([-3.5, 18, 0], [3, 18, 0], { id: 'js-a2', color: C.gold, lift: 1.3, label: '一覧を取り終えた', labelSize: 0.26 });
+      g.arrow([3, 18, 0], [9.5, 18, 0], { id: 'js-a3', color: C.gold, lift: 1.3, label: '月足を見終えた\n(やめる・失敗も)', labelSize: 0.26 });
+      g.arrow([9.5, 17, 0], [-3.5, 17, 0], { id: 'js-a4', color: C.good, lift: -1.6, label: 'もう一度 POST(走っている間は 409)', labelSize: 0.26 });
+      g.sphere({ id: 'js-pkt', radius: 0.28, pos: [-10, 18, 0], color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 5つの層',
+        camera: { pos: [2, 24, 46], target: [2, 5, 0] },
+        update: function (g, t) { g.pulse('scan', t, 0.04); },
+        html:
+          '<p>StockRadar は <b>Node.js の標準機能だけ</b>(npm パッケージなし)で動く、サーバー1本 + ブラウザの画面です。ビルドの工程もありません。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>画面</td><td><code>public/</code>。<code>app.js</code> が入力・結果の表示・チャート・ダイアログを全部受け持つ。<code>glossary.js</code> は用語集のデータ</td></tr>' +
+          '<tr><td>入口と処理</td><td><code>server.js</code> の <code>handle</code> が振り分け、調査・スナップショット・見張り・平均割れの処理へ</td></tr>' +
+          '<tr><td>取得とキャッシュ</td><td>Yahoo から取ってくる関数と、覚えておく仕組み(<code>server.js</code> の中)</td></tr>' +
+          '<tr><td>判定のルール</td><td><code>analyze.js</code>。<b>通信はせず</b>、受け取った値から点・値段・文章を計算するだけ</td></tr>' +
+          '<tr><td>通知・起動・テスト</td><td><code>line.js</code>(LINE)、起動・設定のスクリプト、<code>test/analyze.test.js</code></td></tr></table>' +
+          '<p>右端の青い箱が外のサービス(Yahoo! Finance と Yahoo!ファイナンスの優待ページ)です。矢印は「使う側 → 使われる側」です。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「次へ」で順番に寄っていきます。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> / <code>analyze.js</code> / <code>line.js</code> / <code>public/app.js</code> / <code>public/glossary.js</code></p>'
+      },
+      {
+        title: '1. 画面 public/app.js',
+        camera: { pos: [1, 19, 28], target: [1, 11.5, 0] },
+        focus: ['L-ui', 'Ln-ui', 'dep-app-gloss', 'dep-app-handle'].concat(ids('ui')),
+        show: ['dep-app-gloss', 'dep-app-handle'],
+        update: function (g, t) { g.pulse('app', t, 0.05); },
+        html:
+          '<p><code>app.js</code> は1つのファイルを、区切り線のコメントで分けています(フレームワークなし。<code>el()</code> で DOM を組み立てる)。</p>' +
+          '<table><tr><th>区切り</th><th>主な関数</th></tr>' +
+          '<tr><td>用語集</td><td><code>term</code> / <code>renderGlossary</code> / <code>openGlossary</code>。数字の横の基準は <code>BASE</code>(<code>GLOSSARY</code> の <code>base</code> から作る)</td></tr>' +
+          '<tr><td>描画</td><td><code>renderStatus</code> / <code>card</code> / <code>points</code> / <code>perks</code> / <code>renderList</code>、並べ替え <code>SORTS</code></td></tr>' +
+          '<tr><td>チャート</td><td><code>chartObserver</code> / <code>chartBox</code> / <code>showChart</code> / <code>drawChart</code>(SVG を文字列で作る。幅が変わったら描き直す)</td></tr>' +
+          '<tr><td>スナップショット</td><td><code>saveSnapshot</code> / <code>openSnapshots</code> / <code>openSnapshot</code> / <code>renderCompare</code></td></tr>' +
+          '<tr><td>平均割れ</td><td><code>startAvg</code> / <code>pollAvg</code> / <code>renderAvg</code></td></tr>' +
+          '<tr><td>見張り</td><td><code>openWatches</code> / <code>addWatch</code> / <code>renderWatches</code></td></tr>' +
+          '<tr><td>操作</td><td><code>init</code> / <code>run</code> / <code>syncMode</code> / <code>initStop</code></td></tr></table>' +
+          '<p>ブラウザに覚えるのは <code>localStorage</code> の <code>stockRadar.form</code>(入力)・<code>.last</code>(前回の結果)・<code>.sort</code>・<code>.avg</code>・<code>.avgView</code> だけ。読み書きは try/catch で囲み、使えなくても画面は動きます。</p>' +
+          '<p class="gg-files">📄 <code>public/app.js</code>、<code>public/glossary.js</code>、<code>public/index.html</code></p>'
+      },
+      {
+        title: '2. server.js の入口 handle',
+        camera: { pos: [0, 15, 29], target: [0, 8.5, 0] },
+        focus: ['L-api', 'Ln-api', 'dep-handle-scan', 'dep-handle-snaps', 'dep-handle-watches', 'dep-handle-avg', 'dep-app-handle', 'app'].concat(ids('api')),
+        show: ['dep-handle-scan', 'dep-handle-snaps', 'dep-handle-watches', 'dep-handle-avg', 'dep-app-handle'],
+        update: function (g, t) { g.pulse('handle', t, 0.05); },
+        html:
+          '<p><code>http.createServer</code> は <code>127.0.0.1</code> だけで待ち受け、1つの <code>handle(req, res)</code> で振り分けます。</p>' +
+          '<ol><li><code>ALLOWED_HOSTS</code> に無い Host は 403</li>' +
+          '<li><code>/api/shutdown</code>: <code>canShutdown</code>(PC の画面から)なら返事を送り切ってから終了</li>' +
+          '<li><code>WRITE_APIS</code>(<code>/api/snapshots</code> <code>/api/watches</code> <code>/api/line/test</code> <code>/api/avgscan</code>): GET 以外は Origin を確かめてから各 <code>handle…</code> へ</li>' +
+          '<li><code>/api/scan</code> → <code>cachedScan</code>、<code>/api/chart</code> → <code>history</code> + <code>chartSeries</code></li>' +
+          '<li>それ以外は <code>serveStatic</code>(<code>public/</code> の外は 403)</li></ol>' +
+          '<p>起動時は <code>startMonitor</code> で見張りのタイマーも始めます。</p>' +
+          '<div class="gg-note"><code>require.main === module</code> のときだけサーバーを起動し、<code>module.exports</code> で <code>parseScan</code> / <code>shortCandidates</code> / <code>isScanResult</code> / <code>parseWatch</code> / <code>parseAvgScan</code> / <code>canShutdown</code> などをテストへ出しています。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handle</code> / <code>WRITE_APIS</code> / <code>serveStatic</code> / <code>sendJson</code> / <code>canShutdown</code></p>'
+      },
+      {
+        title: '3. 調べる処理 scan',
+        camera: { pos: [-3, 9, 25], target: [-3, 4, 0] },
+        focus: ['scan', 'yscreen', 'yhist', 'yextra', 'rshort', 'rcross', 'dep-scan-yscreen', 'dep-scan-yhist', 'dep-scan-yextra', 'dep-scan-rshort', 'dep-scan-rcross'],
+        show: ['dep-scan-yscreen', 'dep-scan-yhist', 'dep-scan-yextra', 'dep-scan-rshort', 'dep-scan-rcross'],
+        update: function (g, t) { g.pulse('scan', t, 0.05); },
+        html:
+          '<p><code>scan(req)</code> の中の呼び出し順です(<code>req</code> は <code>parseScan</code> が作った条件)。</p>' +
+          '<ol><li><code>screen(min/100, max/100)</code> と日経平均の <code>chart(\'^N225\')</code> を同時に</li>' +
+          '<li><code>matchValuation</code> で PER・PBR を絞る</li>' +
+          '<li>長期: 全部に <code>analyzeLong</code> / 短期: <code>shortCandidates</code> の100銘柄を <code>mapLimit(…, 6)</code> で <code>chart</code> → <code>analyzeShort</code> + <code>crossInfo</code></li>' +
+          '<li><code>byScore</code> で並べ、クロスの指定があれば(長期は <code>attachCross</code> で150銘柄の日足を取ってから)<code>matchesCross</code></li>' +
+          '<li>上位 <code>TOP</code>=20 → <code>addCrossPoints</code> → <code>attachExtras</code></li>' +
+          '<li><code>analyzeMarket</code> の地合い、<code>countExcluded</code> の除外の数と一緒に返す</li></ol>' +
+          '<p><code>mapLimit(items, limit, fn)</code> は「同時に limit 本まで」動かす小さな仕組みで、1銘柄の失敗は <code>{ error }</code> にして全体を止めません。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>scan</code> / <code>cachedScan</code> / <code>shortCandidates</code> / <code>attachCross</code> / <code>addCrossPoints</code> / <code>attachExtras</code> / <code>mapLimit</code></p>'
+      },
+      {
+        title: '4. 取得とキャッシュ',
+        camera: { pos: [5, 9, 33], target: [5, 3.8, 0] },
+        focus: ['L-fetch', 'Ln-fetch', 'yahoo', 'dep-yahoo'].concat(ids('fetch')),
+        show: ['dep-yahoo'],
+        update: function (g, t) { g.pulse('yahoo', t, 0.05); },
+        html:
+          '<table><tr><th>関数</th><th>取るもの</th><th>覚えておく</th></tr>' +
+          '<tr><td><code>yahooSession</code></td><td>cookie と crumb(スクリーナー用)</td><td>1時間(401 で取り直し)</td></tr>' +
+          '<tr><td><code>cachedScan</code></td><td>調べた結果まるごと</td><td>同じ条件なら3分</td></tr>' +
+          '<tr><td><code>history</code> / <code>chart</code></td><td>日足・週足(chart API)</td><td>銘柄・範囲・間隔ごとに10分</td></tr>' +
+          '<tr><td><code>extras</code></td><td>配当(<code>dividends</code>)と優待(<code>incentive</code>)</td><td>12時間(両方取れたときだけ)</td></tr>' +
+          '<tr><td><code>monthlyHistory</code></td><td>月足20年</td><td>1日(ファイル <code>cache/monthly/</code>)</td></tr>' +
+          '<tr><td><code>quoteNow</code></td><td>見張り用の今の値段</td><td>覚えない(毎回取る)</td></tr></table>' +
+          '<ul><li>メモリのキャッシュは <code>Map</code> で、サーバーを止めると消える(月足だけファイル)</li>' +
+          '<li>どの通信も <code>AbortSignal.timeout</code>(15〜20秒)で打ち切る。ブラウザと同じ <code>User-Agent</code> を付ける</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>yahooSession</code> / <code>screenPage</code> / <code>history</code> / <code>quoteNow</code> / <code>monthlyHistory</code> / <code>dividends</code> / <code>incentive</code> / <code>extras</code></p>'
+      },
+      {
+        title: '5. analyze.js の短期 analyzeShort',
+        camera: { pos: [-10, 5, 18], target: [-10, 0.5, 0] },
+        focus: ['rshort', 'rind', 'dep-rshort-rind', 'L-rule', 'Ln-rule'],
+        show: ['dep-rshort-rind'],
+        update: function (g, t) { g.pulse('rshort', t, 0.05); },
+        html:
+          '<p>日足80本未満は「データ不足」、1日の売買代金3億円未満・7日以内に決算発表があるものは除外。残りは <b>30点</b>から足し引きします(0〜100に丸める)。</p>' +
+          '<table><tr><th>形(setup)</th><th>条件</th><th>点</th></tr>' +
+          '<tr><td>決算後の初動</td><td>7日以内の決算で、発表前より3%以上高く、反応した日の始値近くを保つ</td><td>+30</td></tr>' +
+          '<tr><td>高値ブレイク</td><td>20日高値を更新、5日平均の出来高が25日平均の1.5倍以上、RSI 75未満</td><td>+25</td></tr>' +
+          '<tr><td>押し目</td><td>上昇トレンドで、25日線の −3%〜+2%、RSI 38〜55</td><td>+30</td></tr></table>' +
+          '<ul><li>加点: 上昇トレンド +20・25日線が上向き +10・出来高の増加 +5・MACD のゴールデンクロス +8・ROE 10%以上 +5</li>' +
+          '<li>減点: 下降トレンド −20・RSI 75以上 −25(70以上 −10、30未満 −15)・25日線から8%超え −15・決算の反応待ち −10・決算後の下落 −15・赤字 −10・損益比1.2未満 −15</li>' +
+          '<li>値段: <code>floorTick</code> / <code>ceilTick</code> で東証の呼値に丸める。損切り = 買いの中央 − ATR×1.5(7%より深くしない)、利確 = 損切り幅の2倍上(60日高値・52週高値が途中にあればその99%)、期限 = <code>addBusinessDays</code> で10営業日</li></ul>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>analyzeShort</code> / <code>earningsInfo</code> / <code>reactionIndex</code> / <code>sma</code> / <code>rsi</code> / <code>atr</code> / <code>macd</code> / <code>tickOf</code></p>'
+      },
+      {
+        title: '6. 長期 analyzeLong と地合い analyzeMarket',
+        camera: { pos: [-7, 6, 18], target: [-7, 0.5, 0] },
+        focus: ['rshort', 'L-rule', 'Ln-rule'],
+        update: function (g, t) { g.pulse('rshort', t, 0.05); },
+        html:
+          '<p><code>analyzeLong</code> は日足を使わず、スクリーナーの値だけで <b>0点</b>から足し引きします。PER が無い(赤字など)銘柄は除外。</p>' +
+          '<table><tr><th>見るもの</th><th>点</th></tr>' +
+          '<tr><td>PER</td><td>10倍以下 +25 / 15倍以下 +18 / 20倍以下 +8 / 40倍超え −10</td></tr>' +
+          '<tr><td>PBR</td><td>0.8倍未満 +20 / 1倍未満 +15 / 1.5倍未満 +8</td></tr>' +
+          '<tr><td>ROE(1株利益 ÷ 1株純資産)</td><td>15%以上 +12 / 10%以上 +8 / 8%以上 +4 / 5%未満 −5</td></tr>' +
+          '<tr><td>配当利回り・配当性向</td><td>4%以上 +20 / 3%以上 +15 / 2%以上 +8。性向50%以下 +5、100%超え −10</td></tr>' +
+          '<tr><td>増益予想・アナリスト評価</td><td>+5 / 2.0以下 +8・2.5以下 +4・3.5以上 −5</td></tr>' +
+          '<tr><td>200日線・52週高値</td><td>上 +15、15%以上下 −15 / 52週高値の3%以内 −5</td></tr></table>' +
+          '<p>形は配当3%以上なら「高配当」、PBR 1倍未満なら「割安」。損切り10%下・利確20%上(52週高値が手前ならその99%)。</p>' +
+          '<p><code>analyzeMarket</code>: 日経平均の終値と25日線・75日線の位置で <code>good</code> / <code>mixed</code> / <code>bad</code>。RSI 75以上なら「過熱ぎみ」を足します。</p>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>analyzeLong</code> / <code>fundamentals</code> / <code>perOf</code> / <code>analyzeMarket</code></p>'
+      },
+      {
+        title: '7. クロス・グラフ・配当優待・答え合わせ',
+        camera: { pos: [-3, 7, 25], target: [-3, 1.5, 0] },
+        focus: ['rcross', 'rcomp', 'rind', 'yextra', 'dep-rcross-rind', 'dep-yextra-rcomp', 'L-rule', 'Ln-rule'],
+        show: ['dep-rcross-rind', 'dep-yextra-rcomp'],
+        update: function (g, t) { g.pulse('rcross', t, 0.05); g.pulse('rcomp', t + 1, 0.05); },
+        html:
+          '<table><tr><th>関数</th><th>やること</th></tr>' +
+          '<tr><td><code>crossDiffs</code> → <code>crossFromDiffs</code> → <code>crossInfo</code></td><td>直近20本の「短い線 − 長い線」(MACD はヒストグラム)の符号が変わった、いちばん新しい日と、3日前からの縮み方で「あと何日で交差しそうか」</td></tr>' +
+          '<tr><td><code>matchCross</code> / <code>crossPoint</code></td><td>絞り込みの条件に合うか(<code>not</code> なら逆)/ 押しポイントの文章</td></tr>' +
+          '<tr><td><code>chartSeries</code></td><td>グラフ用に本数を切り出し、移動平均・交差の位置・前の終値を付ける</td></tr>' +
+          '<tr><td><code>parseDividends</code> / <code>parseIncentive</code> / <code>continuitySpan</code></td><td>配当履歴の月・優待ページの HTML を正規表現で読む / 継続保有のいちばん短い期間</td></tr>' +
+          '<tr><td><code>rightsDuring</code></td><td>短期で持つ間に来る権利確定(優待は権利付き最終日、配当は確定月の月末)</td></tr>' +
+          '<tr><td><code>compareSince</code></td><td>保存した日より後の日足で、高値 ≥ 利確 / 安値 ≤ 損切りになった最初の日(同じ日なら <code>both</code>)</td></tr></table>' +
+          '<div class="gg-note"><code>analyze.js</code> は通信もファイルも触らないので、テストでは作った日足や HTML を渡すだけで確かめられます。</div>' +
+          '<p class="gg-files">📄 <code>analyze.js</code> の <code>crossInfo</code> / <code>matchCross</code> / <code>crossPoint</code> / <code>chartSeries</code> / <code>parseDividends</code> / <code>parseIncentive</code> / <code>rightsDuring</code> / <code>compareSince</code></p>'
+      },
+      {
+        title: '8. 見張りの状態と line.js',
+        camera: { pos: [1, 18, 22], target: [1, 14.5, 0] },
+        focus: ['ws-watch', 'ws-hit', 'ws-done', 'ws-a1', 'ws-a2', 'ws-a3', 'ws-a4', 'watches', 'rwatch', 'line', 'dep-watches-rwatch', 'dep-watches-line', 'dep-watches-yhist'],
+        show: ['ws-watch', 'ws-hit', 'ws-done', 'ws-a1', 'ws-a2', 'ws-a3', 'ws-a4', 'dep-watches-rwatch', 'dep-watches-line', 'dep-watches-yhist'],
+        update: function (g, t) { g.pulse('ws-hit', t, 0.06); },
+        html:
+          '<p>見張り1件は <code>{ id(12けたの16進), code, name, op, price, note, state, lastPrice, lastTime, checkedAt … }</code> で、<code>watches.json</code> に配列で置きます。</p>' +
+          '<ul><li><code>state</code> は <code>watching</code> → (条件を満たし、LINE に送れた)→ <code>notified</code>(<code>notifiedAt</code> / <code>hitPrice</code> / <code>hitTime</code> を足す)。「再開」で <code>watching</code> に戻す</li>' +
+          '<li>送れなかったときは <code>error</code> に理由を残し、<code>watching</code> のまま次の回にまた送る</li>' +
+          '<li><code>loadWatches</code> は最初の1回だけファイルを読み、壊れていれば <code>watches.broken.json</code> に写して空から始める。<code>saveWatches</code> は <code>.tmp</code> に書いてから <code>rename</code>、書く順番は呼んだ順</li>' +
+          '<li><code>checkWatches</code> は二重に走らないよう <code>monitor.running</code> で守る</li></ul>' +
+          '<p><code>line.js</code>: <code>readSecret</code> が <code>powershell.exe</code> で <code>ProtectedData.Unprotect</code>(DPAPI、CurrentUser)を呼んで <code>{ token, to }</code> を戻し、形を確かめる。<code>pushText</code> は5000字までを1通で push。失敗の文は <code>redact</code> でトークン・送り先を伏せ、状態コードごとのヒント(401 はトークン、429 は送信数の上限 など)を付けます。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>loadWatches</code> / <code>saveWatches</code> / <code>checkWatches</code> / <code>watchStatus</code>、<code>line.js</code> の <code>readSecret</code> / <code>pushText</code> / <code>redact</code> / <code>isDryRun</code>、<code>line-setup.ps1</code></p>'
+      },
+      {
+        title: '9. 平均割れの仕事(avgJob)',
+        camera: { pos: [0, 18, 22], target: [0, 14.5, 0] },
+        focus: ['js-idle', 'js-screen', 'js-hist', 'js-done', 'js-a1', 'js-a2', 'js-a3', 'js-a4', 'js-pkt', 'avg', 'ymonth', 'ravg', 'yscreen', 'dep-avg-ymonth', 'dep-avg-ravg', 'dep-avg-yscreen'],
+        show: ['js-idle', 'js-screen', 'js-hist', 'js-done', 'js-a1', 'js-a2', 'js-a3', 'js-a4', 'js-pkt', 'dep-avg-ymonth', 'dep-avg-ravg', 'dep-avg-yscreen'],
+        update: function (g, t) {
+          var xs = [-10, -3.5, 3, 9.5];
+          var k = (t / 1.4) % 3, i = Math.min(2, Math.floor(k)), u = k - i;
+          g.get('js-pkt').position.set(xs[i] + (xs[i + 1] - xs[i]) * u, 18 + Math.sin(u * Math.PI), 0);
+        },
+        html:
+          '<p>平均割れは時間がかかるので、サーバーに<b>仕事(<code>avgJob</code>)を1つだけ</b>持たせ、画面は進み具合を聞きに来る形です。</p>' +
+          '<ul><li><code>startAvgScan</code> が <code>{ state: \'running\', phase: \'screen\', done, total, cached … }</code> を作って <code>runAvgScan</code> を待たずに返す</li>' +
+          '<li><code>phase</code> は <code>screen</code>(一覧を取る。<code>done</code>/<code>total</code> はページの件数)→ <code>history</code>(月足。<code>done</code>/<code>total</code> は銘柄数)</li>' +
+          '<li>終わると <code>done</code>(<code>result</code> 付き)、「やめる」なら <code>cancelled</code>、例外なら <code>error</code>。<code>publicJob</code> が画面へ出す項目だけを返す</li>' +
+          '<li>走っている間の POST は 409 で、今の進み具合を返す。画面を開き直しても <code>init</code> が <code>GET /api/avgscan</code> を見て続きを表示する</li></ul>' +
+          '<p>計算は <code>analyze.js</code> の <code>avgWindow</code>(今月を除く N×12 か月)→ <code>monthlyCloses</code>(同じ月は後の足)→ <code>longAverage</code>(2か月以上欠けたらデータ不足)→ <code>belowAverage</code>(<code>gap</code> = (1 − 株価 ÷ 平均) × 100)。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>startAvgScan</code> / <code>runAvgScan</code> / <code>publicJob</code> / <code>handleAvgScan</code>、<code>analyze.js</code> の <code>avgWindow</code> / <code>longAverage</code> / <code>belowAverage</code> / <code>isCommonStock</code> / <code>listedAfter</code>、<code>public/app.js</code> の <code>pollAvg</code></p>'
+      },
+      {
+        title: '10. 起動スクリプトとテスト',
+        camera: { pos: [2, 1, 28], target: [2, -3.5, 0] },
+        focus: ['L-base', 'Ln-base', 'dep-test-rshort', 'dep-test-line'].concat(ids('base')),
+        show: ['dep-test-rshort', 'dep-test-line'],
+        update: function (g, t) { g.pulse('test', t, 0.05); },
+        html:
+          '<table><tr><th>ファイル</th><th>中身</th></tr>' +
+          '<tr><td><code>start.bat</code> / <code>stop.bat</code></td><td>8766 が LISTEN 中かを <code>netstat</code> で見て、開くだけ / 起動。止めるのは<b>そのポートの PID だけ</b>(他の node を巻き込まない)</td></tr>' +
+          '<tr><td><code>autostart.ps1</code> / <code>open.ps1</code> / <code>open.bat</code></td><td>窓なしで裏起動し、ログを <code>server.log</code>(1MB を超えたら作り直す)へ / 待ち受けが始まるまで待って開く</td></tr>' +
+          '<tr><td><code>remote-setup.ps1</code></td><td>Tailscale の名前を <code>config.json</code> の <code>allowedHosts</code> に書き、ログオン時に起動するタスクを登録し、<code>tailscale serve</code> で中継(<code>-Remove</code> でやめる)</td></tr>' +
+          '<tr><td><code>line-setup.ps1</code></td><td>LINE のトークンと送り先を伏せ字入力か <code>.env</code> から読み、DPAPI で <code>line.dpapi</code> に保存(<code>-Remove</code> で消す)</td></tr></table>' +
+          '<p>テストは <code>node --test test/analyze.test.js</code>(36件)。呼値・営業日・指標、短期・長期の判定、クロス、絞り込み、グラフ、地合い、配当・優待、権利確定、スナップショット、見張り、平均割れ、条件の検証、LINE の伏せ字、停止の許可を確かめます。通信はしません。</p>' +
+          '<div class="gg-note">フォルダを指定する <code>node --test test</code> は Node 24 では動かないので、ファイル名を指定します(README より)。</div>' +
+          '<p class="gg-files">📄 <code>test/analyze.test.js</code>、<code>start.bat</code> / <code>stop.bat</code> / <code>autostart.ps1</code> / <code>open.ps1</code> / <code>remote-setup.ps1</code> / <code>line-setup.ps1</code></p>'
+      },
+      {
+        title: '11. 依存の向き',
+        camera: { pos: [2, 24, 46], target: [2, 5, 0] },
+        show: DEPS.map(function (d) { return 'dep-' + d[0] + '-' + d[1]; }).concat(['dep-app-handle', 'dep-yahoo', 'dep-handle-scan', 'dep-handle-snaps', 'dep-handle-watches', 'dep-handle-avg']),
+        update: function (g, t) { g.pulse('handle', t, 0.05); },
+        html:
+          '<p>矢印は「使う側 → 使われる側」です。</p>' +
+          '<ul><li>画面とサーバーのつながりは <code>fetch</code> の JSON だけ。画面はサーバーのコードを読み込まない</li>' +
+          '<li><code>server.js</code> が通信・ファイル・タイマーを全部持ち、<code>analyze.js</code> へは<b>取ってきた値を渡すだけ</b>。判定のしきい値を変えるときは <code>analyze.js</code> と、用語集の目安(<code>glossary.js</code> の <code>scale</code>)を合わせて直す</li>' +
+          '<li>LINE へ送るのは <code>line.js</code> だけで、秘密の値はサーバーのほかの場所へ出てこない</li>' +
+          '<li>外へ出る通信は Yahoo の2つ(Finance の API と、日本の優待ページ)と、LINE の push だけ</li></ul>' +
+          '<div class="gg-note">決まったルールで機械的に判定しているだけで、決算の中身やニュースは読んでいません。<b>値上がりを保証するものではありません</b>。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>require(\'./analyze.js\')</code> / <code>require(\'./line.js\')</code>、<code>README.md</code></p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

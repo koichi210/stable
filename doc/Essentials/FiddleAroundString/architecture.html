@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FiddleAroundString 内部設計</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 層の高さ(y)と色
+  var LAYER = {
+    ui:     { y: 12, color: C.third,   name: '画面層\n(WPF)' },
+    logic:  { y: 8,  color: C.good,    name: 'ロジック層\n(文字だけを扱う)' },
+    common: { y: 4,  color: C.data,    name: '共通部品\n(_Common)' },
+    ext:    { y: 0,  color: C.neutral, name: '外部ライブラリ・OS' }
+  };
+  // 部品の配置。[id, 表示名, 層, x, z]
+  var CLS = [
+    ['app', 'App.xaml(.cs)\n(起動・例外の受け止め)', 'ui', -15, 0],
+    ['main', 'MainWindow\n(タブ・保存先・タイトル)', 'ui', -9, 0],
+    ['vFile', 'ToyingFileView\n(ファイル加工)', 'ui', -3, 0],
+    ['vData', 'ToyingDataView\n(データ加工)', 'ui', 3, 0],
+    ['vRef', 'TrimFileDataView\n(ファイル抽出)', 'ui', 9, 0],
+    ['vHtml', 'TrimHtmlDataView\n(HTML抽出)', 'ui', 15, 0],
+
+    ['legacy', 'LegacySettingImporter\n(元の設定を初回だけコピー)', 'logic', -9, 0],
+    ['lFile', 'ToyingFileLogic\nGetTargetFiles\nDeleteStringFromContent', 'logic', -3, 0],
+    ['lData', 'ToyingDataLogic\nTryGetRegexPattern\nApplyWide2Narrow', 'logic', 3, 0],
+    ['lRef', 'TrimFileDataLogic\nExtractSearchWord\nGetSearchData / GetHitLines', 'logic', 9, 0],
+    ['lHtml', 'TrimHtmlDataLogic\nTryGetTrimLine\nGetSearchString', 'logic', 15, 0],
+
+    ['util', 'StcUtils\n(行の分割・重複削除・\nクリップボード)', 'common', -12, -2.2],
+    ['fio', 'StcFileInputOutput\n(Shift_JIS で読み書き)', 'common', -5, -2.2],
+    ['dbg', 'StcDebug\n(デバッグ出力)', 'common', 2, -2.2],
+    ['guard', 'StcWpfExceptionGuard\n(想定外の例外を表示)', 'common', 9, -2.2],
+    ['save', 'WpfSaveRestore /\nWpfProfile\n(設定の保存・一覧)', 'common', -12, 2.2],
+    ['jsonf', 'JsonFileStorage /\nAtomicFile', 'common', -5, 2.2],
+    ['loc', 'UserDataLocation /\nDataFolderMenu /\nWpfDataFolderMenu', 'common', 2, 2.2],
+    ['tbx', 'TextBoxEx / Placeholder\n(ドロップ・入力例)', 'common', 9, 2.2],
+
+    ['vb', 'Microsoft.VisualBasic\n(Strings.StrConv)', 'ext', -15, 0],
+    ['net', 'WebClient\n(System.Net)', 'ext', -9, 0],
+    ['json', 'Newtonsoft.Json', 'ext', -3, 0],
+    ['clip', 'クリップボード', 'ext', 3, 0],
+    ['fs', 'ファイルシステム', 'ext', 9, 0],
+    ['dlg', 'WinForms のダイアログ /\nWindowsAPICodePack', 'ext', 15, 0]
+  ];
+  var POS = {};
+  CLS.forEach(function (c) { POS[c[0]] = [c[3], LAYER[c[2]].y + 0.5, c[4]]; });
+  function top(id) { var p = POS[id]; return [p[0], p[1] + 0.45, p[2]]; }
+
+  // 依存の矢印 [from, to, 色]
+  var DEPS = [
+    ['main', 'vFile', C.gold], ['main', 'vData', C.gold], ['main', 'vRef', C.gold], ['main', 'vHtml', C.gold],
+    ['main', 'legacy', '#7ef0ff'], ['main', 'loc', '#7ef0ff'], ['app', 'guard', '#7ef0ff'],
+    ['vFile', 'lFile', '#5ee6a8'], ['vData', 'lData', '#5ee6a8'], ['vRef', 'lRef', '#5ee6a8'], ['vHtml', 'lHtml', '#5ee6a8'],
+    ['vFile', 'fio', '#7ef0ff'], ['vData', 'util', '#7ef0ff'], ['vRef', 'fio', '#7ef0ff'], ['vRef', 'save', '#7ef0ff'],
+    ['vHtml', 'save', '#7ef0ff'], ['vHtml', 'dbg', '#7ef0ff'], ['vHtml', 'net', '#b8b2d6'],
+    ['lData', 'vb', '#b8b2d6'], ['lRef', 'util', '#7ef0ff'],
+    ['util', 'clip', '#b8b2d6'], ['fio', 'fs', '#b8b2d6'], ['save', 'jsonf', '#7ef0ff'], ['jsonf', 'json', '#b8b2d6'],
+    ['jsonf', 'fs', '#b8b2d6'], ['loc', 'fs', '#b8b2d6'], ['legacy', 'fs', '#b8b2d6'], ['save', 'dlg', '#b8b2d6'], ['loc', 'dlg', '#b8b2d6']
+  ];
+
+  GameGuide.start({
+    title: 'FiddleAroundString 内部設計',
+    back: 'index.html',
+    subtitle: '層構造・クラスと関数の責務・依存の向き(実際の名前)',
+    camera: { pos: [0, 22, 38], target: [0, 5, 0] },
+    floor: false,
+
+    build: function (g) {
+      Object.keys(LAYER).forEach(function (k) {
+        var L = LAYER[k];
+        g.plate({ id: 'L-' + k, size: [37, 7], pos: [0, L.y - 0.02, 0], color: '#2d2944', opacity: 0.55, emissive: L.color, emissiveIntensity: 0.12 });
+        g.label(L.name, [-21.2, L.y + 0.9, 0], { id: 'Ln-' + k, size: 0.34, bg: '#000000aa', color: L.color, border: L.color });
+      });
+      CLS.forEach(function (c) {
+        var L = LAYER[c[2]];
+        g.box({
+          id: c[0], size: [5, 0.9, 1.9], pos: [c[3], L.y + 0.45, c[4]], color: '#2d2944', emissive: L.color, emissiveIntensity: 0.32,
+          radius: 0.1, edgeColor: L.color, label: c[1], labelSize: 0.28, labelOffset: [0, 1.05, 0], labelBg: '#000000aa'
+        });
+      });
+      DEPS.forEach(function (d) {
+        g.arrow(top(d[0]), top(d[1]), { id: 'dep-' + d[0] + '-' + d[1], color: d[2], lift: 0.5, head: 0.22, radius: 0.03 });
+      });
+      // HTML抽出のスレッドの流れ(手順4でだけ見せる)
+      g.flow(top('vHtml'), top('net'), { id: 'thr-1', color: C.gold, lift: 4.5, count: 6, size: 0.12 });
+      g.flow(top('net'), top('vHtml'), { id: 'thr-2', color: C.data, lift: 6.5, count: 6, size: 0.12 });
+      g.label('await Task.Run で裏のスレッドへ\n(取得だけ)', [4.5, 15.2, 0], { id: 'thr-l1', size: 0.3, color: C.gold, bg: '#000000cc' });
+      g.label('URL ごとに画面のスレッドへ戻って\n結果を処理・タイトルとバーを進める', [3, 17.4, -1.5], { id: 'thr-l2', size: 0.3, color: C.data, bg: '#000000cc' });
+      // テスト(手順7でだけ見せる)
+      g.box({ id: 'tests', size: [6.6, 1.2, 2.6], pos: [24.5, 8.6, 0], color: '#2d2944', emissive: C.gold, emissiveIntensity: 0.35, radius: 0.1, edgeColor: C.gold,
+        label: 'FiddleAroundString.Tests\n(MSTest 99件・12ファイル)\nLogic / View / 保存と復元\nMainWindow / LegacySettingImporter', labelSize: 0.26, labelOffset: [0, 2.0, 0], labelBg: '#000000cc' });
+      g.arrow([21.2, 8.9, 0], [17.6, 9.0, 0], { id: 'dep-tests', color: C.gold, lift: 1.2, head: 0.25, label: 'internal を直接呼ぶ', labelSize: 0.26 });
+      g.arrow([21.2, 9.2, 0], [17.6, 12.9, 0], { id: 'dep-tests2', color: C.gold, lift: 1.0, head: 0.25 });
+    },
+
+    steps: [
+      {
+        title: '0. 全体像: 4つの層',
+        camera: { pos: [0, 22, 38], target: [0, 5, 0] },
+        update: function (g, t) { g.pulse('main', t, 0.04); },
+        html:
+          '<p>FiddleAroundString は C# / WPF(.NET Framework 4.5)のツールで、元の4本のツールを<b>中身を変えずに</b>1つのプロジェクトに入れ、<code>MainWindow</code> のタブに並べています。</p>' +
+          '<table><tr><th>層</th><th>中身</th></tr>' +
+          '<tr><td>画面層</td><td><code>MainWindow</code>(タブの入れ物)と、元のツールの画面を UserControl にした <code>〜View</code> 4つ、<code>App</code></td></tr>' +
+          '<tr><td>ロジック層</td><td>元のツールの <code>Logic.cs</code> を名前だけ変えて移した静的クラス4つと、<code>LegacySettingImporter</code>。<b>文字を受け取って文字を返すだけ</b>で、画面を知らない</td></tr>' +
+          '<tr><td>共通部品</td><td>Essentials の他のツールと共有する <code>_Common</code>(サブモジュール)。csproj からファイルをリンクして使う</td></tr>' +
+          '<tr><td>外部</td><td>全角→半角(<code>Microsoft.VisualBasic</code>)・Web の取得・JSON・クリップボード・ファイル</td></tr></table>' +
+          '<p>矢印は「呼ぶ側 → 呼ばれる側」。上の層から下の層へだけ向いています。<b>View どうしは呼び合いません</b>。</p>',
+      },
+      {
+        title: '1. 画面層: MainWindow',
+        camera: { pos: [-8, 18, 24], target: [-8, 10.5, 0] },
+        focus: ['app', 'main', 'legacy', 'loc', 'L-ui', 'Ln-ui', 'dep-main-legacy', 'dep-main-loc'],
+        html:
+          '<p><code>MainWindow</code> はタブの入れ物で、自分では文字をいじりません。受け持つのは次の4つだけです。</p>' +
+          '<ul><li><b>データ保存先を決める</b>: <code>UserDataLocation.GetUserDataFolder("FiddleAroundString")</code>。初回は <code>ImportLegacySettings</code> で元のツールの設定を取り込む</li>' +
+          '<li><b>タブに保存先を配る</b>: <code>ApplyDataFolderToViews</code> が <code>TrimFileDataView</code> / <code>TrimHtmlDataView</code> の <code>SetDataFolder</code> にサブフォルダを渡す</li>' +
+          '<li><b>「データ保存先を変更」</b>: <code>WpfDataFolderMenu.Attach</code> → <code>DataFolderMenu.ChangeDataFolder</code>。<code>MoveProfiles</code> でサブフォルダごと引っ越し、<code>ApplyDataFolderToViews</code> で読み込み直す</li>' +
+          '<li><b>タイトルと閉じたこと</b>: HTML抽出の進み具合を <code>ShowFetchStatus</code> でタイトルに出し、<code>OnClosed</code> で <code>NotifyHostClosed</code> を呼ぶ</li></ul>' +
+          '<div class="gg-note">テスト用に <code>internal MainWindow(dataFolder, importLegacySettings)</code> があり、本物の <code>%LOCALAPPDATA%</code> に触らずに作れます。<code>App</code> は起動時に <code>StcWpfExceptionGuard.Install</code> で想定外の例外を受け止めます。</div>' +
+          '<p class="gg-files">📄 <code>MainWindow.xaml</code> / <code>MainWindow.xaml.cs</code> / <code>App.xaml.cs</code></p>',
+      },
+      {
+        title: '2. 画面層: 4つの View',
+        camera: { pos: [6, 17, 26], target: [6, 10, 0] },
+        focus: ['vFile', 'vData', 'vRef', 'vHtml', 'L-ui', 'Ln-ui'],
+        html:
+          '<p>4つの View は、元のツールの <code>MainWindow</code> を UserControl にしたものです。<b>コントロール名・既定値・ツールチップ・処理は元のまま</b>(テストで元と同じかを確かめている)。</p>' +
+          '<table><tr><th>View</th><th>実行の入口</th></tr>' +
+          '<tr><td><code>ToyingFileView</code></td><td><code>Execute</code> → <code>DeleteStringFromFiles</code></td></tr>' +
+          '<tr><td><code>ToyingDataView</code></td><td><code>Execute</code>(<code>ChangeWide2Narrow</code>)</td></tr>' +
+          '<tr><td><code>TrimFileDataView</code></td><td><code>ExecuteSearch</code></td></tr>' +
+          '<tr><td><code>TrimHtmlDataView</code></td><td><code>ExecuteTrimAsync</code>(<code>async</code>)</td></tr></table>' +
+          '<p>外とやり取りする所は、テストで差し替えられるよう<b>関数のプロパティ</b>にしてあります: <code>ClipboardWriter</code> / <code>CopyToClipboard</code>(クリップボード)、<code>FetchHtmlSource</code>(Web の取得)、<code>ShowMessage</code>(メッセージ)、<code>ShowStatus</code>(タイトルへの表示)。</p>' +
+          '<p>ファイルの読み書き(<code>StcFileInputOutput</code>)とメッセージボックスは View 側に残し、ロジックには文字だけを渡します。</p>' +
+          '<p class="gg-files">📄 <code>ToyingFileView.xaml.cs</code> / <code>ToyingDataView.xaml.cs</code> / <code>TrimFileDataView.xaml.cs</code> / <code>TrimHtmlDataView.xaml.cs</code></p>',
+      },
+      {
+        title: '3. ロジック層: 文字を受け取って文字を返す',
+        camera: { pos: [4, 13, 24], target: [4, 6.5, 0] },
+        focus: ['lFile', 'lData', 'lRef', 'lHtml', 'legacy', 'L-logic', 'Ln-logic', 'util', 'vb'],
+        html:
+          '<p>4つとも <code>internal static class</code>。元のツールの <code>Logic.cs</code> を<b>中身ごと</b>移し、1つのプロジェクトに入れるためにクラス名だけ変えました(<code>Logic</code> → <code>ToyingFileLogic</code> など)。</p>' +
+          '<table><tr><th>クラス</th><th>主な関数</th></tr>' +
+          '<tr><td><code>ToyingFileLogic</code></td><td><code>ValidateDirectory</code> / <code>GetTargetFiles</code> / <code>SplitDeleteStrings</code> / <code>DeleteStringFromContent</code></td></tr>' +
+          '<tr><td><code>ToyingDataLogic</code></td><td><code>TryGetRegexPattern</code> / <code>ApplyWide2Narrow</code>(<code>Strings.StrConv</code>)</td></tr>' +
+          '<tr><td><code>TrimFileDataLogic</code></td><td><code>SplitLines</code> / <code>ExtractSearchWord</code> / <code>ToNarrow</code> / <code>GetSearchData</code> / <code>GetHitLines</code></td></tr>' +
+          '<tr><td><code>TrimHtmlDataLogic</code></td><td><code>SplitLines</code> / <code>TryGetTrimLine</code> / <code>GetSearchString</code></td></tr>' +
+          '<tr><td><code>LegacySettingImporter</code></td><td><code>GetLegacyDefaultFolder</code> / <code>ImportIfFirstRun</code></td></tr></table>' +
+          '<p>行の分け方は、どれも CRLF / LF / CR を問わない形に直してあります(<code>ToyingFileLogic</code> だけは改行コードを取っておいて元に戻す)。長い結果は <code>StringBuilder</code> にためます。</p>' +
+          '<p class="gg-files">📄 <code>ToyingFileLogic.cs</code> / <code>ToyingDataLogic.cs</code> / <code>TrimFileDataLogic.cs</code> / <code>TrimHtmlDataLogic.cs</code> / <code>LegacySettingImporter.cs</code></p>',
+      },
+      {
+        title: '4. HTML抽出のスレッドのつなぎ方',
+        camera: { pos: [3, 15, 30], target: [3, 8, 0] },
+        show: ['thr-1', 'thr-2', 'thr-l1', 'thr-l2'],
+        focus: ['vHtml', 'lHtml', 'net', 'main', 'thr-1', 'thr-2', 'thr-l1', 'thr-l2'],
+        html:
+          '<p>ファイル加工・データ加工・ファイル抽出は、画面のスレッドでそのまま処理します。<b>HTML抽出だけ</b>は Web の取得を待つので、取得だけを裏へ回します。</p>' +
+          '<ol><li>実行ボタン → <code>async void button_Execute_Click</code> → <code>await ExecuteTrimAsync()</code></li>' +
+          '<li><code>IsFetching</code> なら何もしない(二重に押せない)。<code>SetFetching(true)</code> でボタンを「取得中...」に</li>' +
+          '<li>URL ごとに <code>await Task.Run(() =&gt; fetchHtmlSource(url))</code>。<code>await</code> の後は<b>画面のスレッドに戻る</b>ので、メッセージ・<code>GetSearchString</code>・プログレスバーは普通に触れる</li>' +
+          '<li>全部終わったら取得値欄に1回だけ入れて、<code>SetFetching(false)</code> → <code>ShowStatus(null)</code> でタイトルを戻し、クリップボードへ</li></ol>' +
+          '<div class="gg-note">取得中にウィンドウを閉じると <code>MainWindow.OnClosed</code> → <code>NotifyHostClosed</code> で <code>_isClosed</code> が立ち、後から届いた結果では画面にもクリップボードにも触らずに抜けます。</div>' +
+          '<p class="gg-files">📄 <code>TrimHtmlDataView.xaml.cs</code> の <code>ExecuteTrimAsync</code> / <code>SetFetching</code> / <code>NotifyHostClosed</code></p>',
+      },
+      {
+        title: '5. 共通部品と外部',
+        camera: { pos: [-2, 11, 26], target: [-2, 2.5, 0] },
+        focus: ['util', 'fio', 'dbg', 'guard', 'save', 'jsonf', 'loc', 'tbx', 'vb', 'net', 'json', 'clip', 'fs', 'dlg', 'L-common', 'Ln-common', 'L-ext', 'Ln-ext'],
+        html:
+          '<p><code>_Common</code> のファイルは、csproj の <code>&lt;Compile Include="..\\..\\_Common\\…" &gt;&lt;Link&gt;</code> でリンクして一緒にビルドします(dll にはしない)。</p>' +
+          '<table><tr><th>部品</th><th>ここでの使い道</th></tr>' +
+          '<tr><td><code>StcUtils</code></td><td><code>ChangeStrLinear2Array</code> / <code>TrimDuplication</code> / <code>SetClipboardText</code>(数回やり直す)/ <code>ExecutePath</code> / <code>ChangeNewLineCodeLf2Crlf</code></td></tr>' +
+          '<tr><td><code>StcFileInputOutput</code></td><td><code>LoadFile</code> / <code>SaveFile</code>。<b>Shift_JIS 固定</b>。無いファイルは空文字</td></tr>' +
+          '<tr><td><code>StcDebug</code></td><td>HTML抽出のデバッグモードで、連番のファイルに書き出す</td></tr>' +
+          '<tr><td><code>TextBoxEx</code> / <code>Placeholder</code></td><td>ファイル・フォルダのドラッグ＆ドロップでパスを入れる。空の間だけ入力例(<code>例: *.txt</code> など)を薄く出す</td></tr>' +
+          '<tr><td><code>WpfSaveRestore</code> ほか</td><td>設定の保存・読み込み(次の手順)</td></tr></table>' +
+          '<p>外部は、全角→半角の <code>Strings.StrConv</code>(<code>Microsoft.VisualBasic</code> を参照)、Web の取得の <code>WebClient</code>、JSON の <code>Newtonsoft.Json</code>(NuGet)、データ保存先のフォルダを選ぶダイアログ(<code>DataFolderChooser</code>)用の <code>WindowsAPICodePack-Shell</code>(NuGet)、設定を保存するときのダイアログ用の WinForms です。</p>' +
+          '<p class="gg-files">📄 <code>FiddleAroundString.csproj</code>、<code>_Common/StandardTemplateClass.cs</code> / <code>Wpf/WpfPathDropControls.cs</code> / <code>Wpf/WpfPlaceholder.cs</code></p>',
+      },
+      {
+        title: '6. 設定と保存先',
+        camera: { pos: [-6, 14, 24], target: [-6, 5, 0] },
+        focus: ['main', 'vRef', 'vHtml', 'legacy', 'save', 'jsonf', 'loc', 'json', 'fs'],
+        html:
+          '<p>設定を持つのは <code>TrimFileDataView</code> と <code>TrimHtmlDataView</code> だけです。どちらも <code>SaveRestore</code>(<code>WpfSaveRestore</code>)にコントロールを登録しておき、まとめて JSON にします。</p>' +
+          '<ul><li><code>RegisterSettingItems</code>: <code>RegisterCtrl("Common", "textBox_ReferencePath", …)</code> のように、<b>元のツールと同じキー</b>で登録。綴り違いの古いキー(<code>textBox_SerchWordList</code> など)も <code>legacyAttrValue</code> で読める</li>' +
+          '<li><code>SetDataFolder</code>: フォルダを作り、<code>LoadOrDefault</code> で既定の JSON を読み、<code>WpfProfile.UpdateProfileList</code> で一覧を作り直す</li>' +
+          '<li>「設定保存」: <code>WpfProfile.SaveProfileWithDialog</code> → <code>JsonFileStorage.Save</code>(<code>AtomicFile</code> で一時ファイルに書いてから置き換え)</li></ul>' +
+          '<p>保存先の置き場所は <code>UserDataLocation</code>(exe の横の <code>DataFolder.txt</code> が指す場所。既定 <code>%LOCALAPPDATA%\\FiddleAroundString</code>)。案内板は exe 1つに1つなので、タブごとには分けず、<b>1つの保存先の中でフォルダを分けて</b>います。</p>' +
+          '<p><code>LegacySettingImporter.ImportIfFirstRun</code> は、タブのフォルダがまだ無く元のフォルダがあるときだけ、<code>*.json</code> をフォルダ構成ごと<b>コピー</b>します(1件失敗しても続ける・起動は止めない)。</p>' +
+          '<p class="gg-files">📄 <code>TrimFileDataView.xaml.cs</code> / <code>TrimHtmlDataView.xaml.cs</code> の <code>RegisterSettingItems</code> / <code>SetDataFolder</code>、<code>LegacySettingImporter.cs</code></p>',
+      },
+      {
+        title: '7. テスト',
+        camera: { pos: [18, 13, 22], target: [18, 8.5, 0] },
+        show: ['tests', 'dep-tests', 'dep-tests2'],
+        html:
+          '<p><code>Tests/FiddleAroundString.Tests</code>(MSTest、.NET Framework 4.7.2)が、<code>InternalsVisibleTo</code> で internal のクラスや画面のコントロールを直接さわります(<b>99件</b>)。画面のテストは <code>StaRunner</code> で STA スレッドを作って動かします。</p>' +
+          '<table><tr><th>ファイル</th><th>件数</th><th>主な中身</th></tr>' +
+          '<tr><td><code>ToyingFileLogicTests</code></td><td>15</td><td>行ごと削除、大文字小文字、LF だけ・改行コード混在、ディレクトリの確認</td></tr>' +
+          '<tr><td><code>ToyingFileViewTests</code></td><td>6</td><td>実行で書き換わる、パターン外は触らない、変わらなければ書き戻さない、Shift_JIS</td></tr>' +
+          '<tr><td><code>ToyingDataLogicTests</code> / <code>ViewTests</code></td><td>5 / 6</td><td>文字クラスの組み立て、重複除去、空行、未選択、ドロップ</td></tr>' +
+          '<tr><td><code>TrimFileDataLogicTests</code> / <code>ViewTests</code></td><td>17 / 4</td><td>検索ワードの取り出し、共通ワード、全角半角、ツールチップが元と同じ</td></tr>' +
+          '<tr><td><code>TrimHtmlDataLogicTests</code> / <code>ViewTests</code></td><td>13 / 10</td><td>取得行数、末尾で足りない、取得中の表示、閉じたとき、失敗した URL</td></tr>' +
+          '<tr><td><code>〜SaveRestoreTests</code></td><td>7 / 5</td><td>保存キーが元と同じ、元のツールの JSON・古いキーを読める</td></tr>' +
+          '<tr><td><code>MainWindowTests</code> / <code>LegacySettingImporterTests</code></td><td>5 / 6</td><td>タブの並び、タブごとのフォルダ、タイトル、初回だけのコピー</td></tr></table>' +
+          '<p>Web の取得は <code>FetchHtmlSource</code> を差し替えるので、テストで本物のサイトには行きません。クリップボードも差し替えます。</p>' +
+          '<p class="gg-files">📄 <code>Tests/FiddleAroundString.Tests/*.cs</code>、<code>_Common/Wpf/Tests/StaRunner.cs</code></p>',
+      },
+      {
+        title: '8. ファイル一覧',
+        camera: { pos: [0, 22, 38], target: [0, 5, 0] },
+        html:
+          '<table><tr><th>ファイル</th><th>役割</th></tr>' +
+          '<tr><td><code>FiddleAroundString.csproj</code></td><td>旧形式・.NET Framework 4.5・AnyCPU。Newtonsoft.Json 13.0.4 / WindowsAPICodePack-Shell 1.1.1、<code>_Common</code> のファイルをリンク</td></tr>' +
+          '<tr><td><code>App.xaml(.cs)</code></td><td>起動。例外ガードを入れる</td></tr>' +
+          '<tr><td><code>MainWindow.xaml(.cs)</code></td><td>4つのタブ・保存先・タイトル</td></tr>' +
+          '<tr><td><code>ToyingFileView</code> / <code>ToyingFileLogic</code></td><td>ファイル加工(旧 ToyingFile)</td></tr>' +
+          '<tr><td><code>ToyingDataView</code> / <code>ToyingDataLogic</code></td><td>データ加工(旧 ToyingData)</td></tr>' +
+          '<tr><td><code>TrimFileDataView</code> / <code>TrimFileDataLogic</code></td><td>ファイル抽出(旧 TrimFileData)</td></tr>' +
+          '<tr><td><code>TrimHtmlDataView</code> / <code>TrimHtmlDataLogic</code></td><td>HTML抽出(旧 TrimHtmlData)</td></tr>' +
+          '<tr><td><code>LegacySettingImporter.cs</code></td><td>元の2本の設定を初回だけコピー</td></tr>' +
+          '<tr><td><code>Properties/AssemblyInfo.cs</code></td><td>バージョンなど。テストに internal を見せる</td></tr>' +
+          '<tr><td><code>bin/Release/</code></td><td>ビルド済みの exe と dll</td></tr></table>' +
+          '<p>旧形式の csproj なので、ビルドは Visual Studio の MSBuild(<code>dotnet build</code> ではない)で <code>FiddleAroundString.sln</code> を Release に。</p>',
+      },
+    ],
+  });
+})();
+</script>
+</body>
+</html>

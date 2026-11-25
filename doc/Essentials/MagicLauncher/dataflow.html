@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagicLauncher データの流れ</title>
+<link rel="stylesheet" href="../lib/guide.css">
+<style>.gg-body td code, .gg-body li code { word-break: break-all; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="../lib/guide.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  var C = GameGuide.colors;
+  // 色の意味: 画面(水色)・サーバの内部(橙)・ファイル(緑)・開く(金)・ほかの PC(紫)・検査(赤)
+  var COL = { ui: C.data, srv: C.server, file: C.good, open: C.gold, other: C.third, gate: C.enemy };
+
+  // ノードの座標 [x, z](奥が -z)。列: 画面 -16 / API -8 / サーバの中 0 / ファイル 8 / 外 16
+  var N = {
+    // 開く(いちばん奥)
+    click: [-16, -14], apiopen: [-8, -14], resolve: [0, -14], opener: [8, -14], win: [16, -14],
+    // 読む
+    boot: [-16, -5], apistate: [-8, -5], build: [0, -5], settings: [16, -5],
+    // 設定ファイル(読む・書くの間)
+    json: [8, -0.5],
+    // 書く
+    dlg: [-16, 4], apipost: [-8, 4], mutate: [0, 4], bak: [16, 4],
+    // 変更チェック(手前)
+    poll: [-16, 13], apiver: [-8, 13], ver: [0, 13], other: [16, 13]
+  };
+  function P(id, dy) { return [N[id][0], 1.35 + (dy || 0), N[id][1]]; }
+
+  // 1個のデータ(金色の玉)が pts を順に旅する。1区間 seg 秒
+  function travel(g, t, pts, seg, texts) {
+    var pk = g.get('pkt');
+    pk.visible = true;
+    var loop = seg * (pts.length - 1) + 0.8;
+    var k = (t % loop) / seg;
+    var i = Math.min(Math.floor(k), pts.length - 2);
+    var u = Math.min(k - i, 1);
+    g.arcPos(pk, pts[i], pts[i + 1], u, 0.9);
+    var lb = g.get('pkt-l');
+    if (texts && (g._pktText !== texts[i] || lb.material.map === lb.userData.origMap)) { g._pktText = texts[i]; g.setLabel('pkt-l', texts[i], { size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' }); }
+  }
+  function pts(ids) { return ids.map(function (id) { return P(id, 0.2); }); }
+
+  GameGuide.start({
+    title: 'MagicLauncher データの流れ',
+    back: 'index.html',
+    subtitle: 'ブラウザ → /api/* → launcher.json / .bak / settings.json → opener.exe → Windows(+ ほかの PC の変更に追いつく)',
+    camera: { pos: [0, 34, 31], target: [0, 0, -0.5] },
+
+    build: function (g) {
+      function node(id, text, color) {
+        g.box({
+          id: id, size: [4.6, 1.2, 2.1], pos: [N[id][0], 0.6, N[id][1]], color: '#2d2944', emissive: color, emissiveIntensity: 0.28,
+          radius: 0.12, edgeColor: color, label: text, labelSize: 0.34, labelOffset: [0, 1.55, 0.2], labelBg: '#000000aa'
+        });
+      }
+      // ---- 開く(奥) ----
+      node('click', 'openItem()\n円をクリック', COL.ui);
+      node('apiopen', 'POST /api/open\n{ id } だけを送る', COL.srv);
+      node('resolve', '登録済みか確かめる\nitemIds → expandEnv\n→ statKind(5秒)', COL.srv);
+      node('opener', 'opener.exe(開く係)\n手前に出てから開く', COL.open);
+      node('win', 'Windows\n既定のアプリ', COL.open);
+      // ---- 読む ----
+      node('boot', 'boot() / reload()\nsetState → buildView', COL.ui);
+      node('apistate', 'GET /api/state', COL.srv);
+      node('build', 'buildState()\nloadConfig + kindOf', COL.srv);
+      node('settings', 'settings.json\n設定ファイルの場所\n(PC ごと)', COL.file);
+      node('json', 'launcher.json\n登録データ(JSON 1つ)', COL.file);
+      // ---- 書く ----
+      node('dlg', '登録・編集・ドラッグ\n(画面の mutate)', COL.ui);
+      node('apipost', 'POST /api/item\n/tags/swap /layout …', COL.srv);
+      node('mutate', 'mutate()\nディスクを読み直して\n差分だけ当てる', COL.srv);
+      node('bak', 'launcher.json.bak\n(直前の1世代)', COL.file);
+      // ---- 変更チェック(手前) ----
+      node('poll', 'checkVersion()\n10秒ごと・タブに戻ったとき', COL.ui);
+      node('apiver', 'GET /api/version', COL.srv);
+      node('ver', '版数 = mtime(ms)-size', COL.srv);
+      node('other', 'ほかの PC\n(OneDrive などで同期)', COL.other);
+
+      // ---- 検査の門(画面と API の間) ----
+      g.box({ id: 'gate', size: [0.3, 2.6, 30], pos: [-12, 1.3, -0.5], color: '#2d2944', emissive: COL.gate, emissiveIntensity: 0.5, opacity: 0.35, edgeColor: COL.gate });
+      g.label('handle(): Host / Origin / X-Launcher の検査', [-12, 3.6, -15.8], { id: 'gate-l', size: 0.34, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+
+      // ---- 矢印(id は 'a-' + 始点 + '-' + 終点) ----
+      function arrow(a, b, color, label, lift) {
+        g.arrow(P(a), P(b), { id: 'a-' + a + '-' + b, color: color, lift: lift == null ? 0.9 : lift, label: label, labelSize: 0.26 });
+      }
+      // 開く
+      arrow('click', 'apiopen', COL.ui, 'id');
+      arrow('apiopen', 'resolve', COL.srv);
+      arrow('json', 'resolve', COL.file, 'id → path', 1.2);
+      arrow('resolve', 'opener', COL.open, '開く対象');
+      arrow('opener', 'win', COL.open, 'ShellExecute');
+      // 読む
+      arrow('boot', 'apistate', COL.ui, 'GET');
+      arrow('apistate', 'build', COL.srv);
+      arrow('settings', 'build', COL.file, '場所', 2.2);
+      arrow('json', 'build', COL.file, '毎回読む', 1.0);
+      arrow('build', 'boot', COL.ui, '全部の状態(JSON)', 2.4);
+      // 書く
+      arrow('dlg', 'apipost', COL.ui, 'POST');
+      arrow('apipost', 'mutate', COL.srv);
+      arrow('json', 'mutate', COL.file, '読み直す', 1.0);
+      arrow('mutate', 'bak', COL.file, 'コピー', 1.8);
+      arrow('mutate', 'json', COL.file, '書く', 2.0);
+      // 変更チェック
+      arrow('poll', 'apiver', COL.ui, 'GET');
+      arrow('apiver', 'ver', COL.srv);
+      arrow('json', 'ver', COL.file, 'stat', 1.4);
+      arrow('ver', 'poll', COL.ui, '変わっていたら reload()', 2.4);
+      arrow('other', 'json', COL.other, '同期で書き換わる', 1.6);
+
+      // ---- 常時流れる粒 ----
+      var FL = [['click', 'apiopen', COL.ui], ['apiopen', 'resolve', COL.srv], ['resolve', 'opener', COL.open], ['opener', 'win', COL.open],
+        ['boot', 'apistate', COL.ui], ['apistate', 'build', COL.srv], ['json', 'build', COL.file], ['build', 'boot', COL.ui],
+        ['dlg', 'apipost', COL.ui], ['apipost', 'mutate', COL.srv], ['mutate', 'json', COL.file],
+        ['poll', 'apiver', COL.ui], ['apiver', 'ver', COL.srv], ['other', 'json', COL.other]];
+      var LIFT = { 'json-build': 1.0, 'build-boot': 2.4, 'mutate-json': 2.0, 'other-json': 1.6 };
+      FL.forEach(function (f) {
+        var key = f[0] + '-' + f[1];
+        g.flow(P(f[0]), P(f[1]), { id: 'fl-' + key, color: f[2], count: 5, lift: LIFT[key] == null ? 0.9 : LIFT[key], speed: 0.3, size: 0.08 });
+      });
+
+      // ---- 旅する1個のデータ ----
+      g.sphere({ id: 'pkt', radius: 0.26, pos: P('boot'), color: '#ffd166', emissive: '#ffd166', emissiveIntensity: 0.7 });
+      g.label(' ', [0, 0.9, 0], { id: 'pkt-l', parent: 'pkt', size: 0.3 });
+      g.get('pkt').visible = false;
+
+      // ---- 手順の補助ラベル ----
+      g.label('409: 保存しません\n(空の内容で上書きしないため)', [0, 4.6, 4], { id: 'err-l', size: 0.32, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+      g.label('DRY RUN なら\nここで止めてパスを返す', [4, 3.8, -11.5], { id: 'dry-l', size: 0.3, bg: '#000000cc', color: '#7ef0ff', border: '#7ef0ff' });
+      g.label('作れない PC では\nrundll32 url.dll で開く\n(窓は後ろに出る)', [12, 4.2, -10.5], { id: 'rund-l', size: 0.3, bg: '#000000cc', color: '#ffd166', border: '#ffd166' });
+      g.label('127.0.0.1 だけで待ち受け\n(ほかの PC からは届かない)', [-4, 4.4, -0.5], { id: 'lo-l', size: 0.3, bg: '#000000cc', color: '#ff5f6d', border: '#ff5f6d' });
+    },
+
+    steps: [
+      {
+        title: '全体の流れ',
+        camera: { pos: [0, 34, 31], target: [0, 0, -0.5] },
+        update: function (g, t) { travel(g, t, pts(['boot', 'apistate', 'build', 'boot', 'click', 'apiopen', 'resolve', 'opener', 'win']), 1.0, null); },
+        html:
+          '<p>MagicLauncher は、<b>ブラウザの画面</b>と、<code>127.0.0.1</code> だけで待ち受ける<b>小さな Node サーバ</b>(<code>server.js</code>)の2つでできています。ブラウザだけではローカルのフォルダを開けないので、「設定ファイルの読み書き」と「開く」をサーバが受け持ちます。</p>' +
+          '<ul><li><b>水色(左)</b>: 画面(<code>public/launcher.js</code>)。<code>fetch</code> で <code>/api/*</code> を呼ぶ</li>' +
+          '<li><b>赤い門</b>: サーバの入口 <code>handle()</code>。Host・Origin・<code>X-Launcher</code> ヘッダを確かめる</li>' +
+          '<li><b>橙</b>: サーバの中。毎回ディスクから読み直す</li>' +
+          '<li><b>緑</b>: ファイル。登録データ <code>launcher.json</code> と <code>.bak</code>、PC ごとの <code>settings.json</code></li>' +
+          '<li><b>金</b>: 開く係 <code>opener.exe</code> → Windows</li>' +
+          '<li><b>紫</b>: ほかの PC(設定ファイルを OneDrive などで共有したとき)</li></ul>' +
+          '<p>4 つの列は、奥から <b>開く / 読む / 書く / 変更チェック</b> です。金色の玉が、起動して読み込み → 円をクリックして開く、までを旅します。</p>' +
+          '<div class="gg-note">3Dはドラッグで回転・ホイールで拡大縮小。「次へ」で順番に寄っていきます。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> / <code>public/launcher.js</code> / <code>opener.cs</code></p>'
+      },
+      {
+        title: '1. 設定ファイルの場所を決める',
+        camera: { pos: [8, 18, 9], target: [8, 0, -3] },
+        focus: ['settings', 'json', 'build', 'a-settings-build', 'a-json-build', 'fl-json-build', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['settings', 'build']), 1.8, ['configPath(%VAR% 入りのまま)']); },
+        html:
+          '<p>登録データは <b>JSON ファイル 1 つ</b>(<code>launcher.json</code>)。その<b>場所だけ</b>は PC ごとの <code>settings.json</code> に覚えます。</p>' +
+          '<table><tr><th>ファイル</th><th>置き場所</th></tr>' +
+          '<tr><td><code>settings.json</code></td><td><code>%LOCALAPPDATA%\\MagicLauncher\\</code>(<code>{ "configPath": "…" }</code>)。同じフォルダに <code>server.log</code> と <code>opener.exe</code></td></tr>' +
+          '<tr><td><code>launcher.json</code></td><td><code>configPath</code> の場所。空なら既定(ランチャー本体の隣)。OneDrive などに置けば複数の PC で共有できる</td></tr></table>' +
+          '<ol><li><code>configLocation()</code> が毎回 <code>settings.json</code> を読む(<code>readSettings</code>。読めなければ <code>{}</code>)</li>' +
+          '<li><code>configPath</code> の <code>%VAR%</code> を環境変数で展開(<code>expandEnv</code>。無い変数はそのまま残す)して、<code>path.resolve</code> でフルパスに</li>' +
+          '<li>画面の ⚙ 設定で変えると <code>POST /api/config</code>。フルパスでない・フォルダ・親フォルダが無い、は 400 で断ってから <code>writeSettings</code></li></ol>' +
+          '<div class="gg-note">環境変数 <code>MAGIC_LAUNCHER_DATA</code> で <code>settings.json</code> などの置き場を変えられます(確認用に偽のフォルダを指せば、本番の設定を汚さない)。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>configLocation</code> / <code>readSettings</code> / <code>writeSettings</code> / <code>expandEnv</code> / <code>POST /api/config</code></p>'
+      },
+      {
+        title: '2. 画面が状態を全部もらう(/api/state)',
+        camera: { pos: [-4, 22, 10], target: [-4, 0, -4] },
+        focus: ['boot', 'apistate', 'build', 'json', 'a-boot-apistate', 'a-apistate-build', 'a-json-build', 'a-build-boot', 'fl-boot-apistate', 'fl-apistate-build', 'fl-json-build', 'fl-build-boot', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['boot', 'apistate', 'build', 'json', 'build', 'boot']), 1.3, ['GET /api/state', 'buildState()', 'loadConfig(毎回)', '種類を調べる', '']); },
+        html:
+          '<p>起動すると <code>boot()</code> が <code>GET /api/state</code> を呼びます。サーバは<b>毎回ディスクから読み直して</b>、画面に要るものを全部返します。</p>' +
+          '<ol><li><code>loadConfig()</code>: ファイルを読んで <code>JSON.parse</code>(先頭の BOM は外す)。版数 <code>mtime(ms)-size</code> も作る。壊れていれば <code>error</code> を付けて返す(手順7)</li>' +
+          '<li><code>itemIds()</code>: <code>id</code> の無い項目には「中身と位置から決まる id」(<code>i</code> + SHA-1 の先頭8桁)を、読むたびに同じ値で付ける</li>' +
+          '<li><code>kindOf()</code>: 種類を調べる。URL は <code>web</code>(http/https)か <code>link</code>、パスは <code>%VAR%</code> を展開して <code>stat</code> → <code>folder</code> / <code>file</code> / <code>missing</code></li></ol>' +
+          '<div class="gg-note">ネットワークパスで固まらないよう、種類の判定は <b>1.5 秒で打ち切って</b> <code>unknown</code>。結果は 30 秒覚えておき、同じパスを同時に調べるときは 1 回の <code>stat</code> を待ち合わせる(<code>statKind</code> / <code>statOnce</code>)。</div>' +
+          '<p>返す JSON: <code>configPath</code>・<code>error</code>・<code>version</code>・<code>title</code>・<code>tags</code>(色の無いタグにも、ファイルには書かずに色を付けて見せる)・<code>circleColors</code>・<code>idle</code>・<code>columns</code>・<code>circles</code>・<code>items[{id,name,path,tags,emoji,note,kind}]</code>・<code>dryRun</code>。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>buildState</code> / <code>loadConfig</code> / <code>itemIds</code> / <code>kindOf</code> / <code>statKind</code> / <code>viewTags</code></p>'
+      },
+      {
+        title: '3. 画面の中で魔法陣を組み立てる',
+        camera: { pos: [-13, 15, 9], target: [-13, 0, -4] },
+        focus: ['boot', 'a-build-boot', 'fl-build-boot', 'pkt'],
+        update: function (g, t) { g.pulse('boot', t, 0.06); travel(g, t, pts(['build', 'boot']), 2.0, ['state']); },
+        html:
+          '<p>受け取った状態は、画面の中だけで組み立てます(サーバには戻さない)。</p>' +
+          '<ol><li><code>setState(s)</code>: タイトル(DRY RUN なら「· DRY RUN」)と、壊れていれば赤い帯</li>' +
+          '<li><code>buildView(state)</code>: 項目ごとに表示名(空ならホスト名か末尾の名前)・絵文字・検索用の文字列を作り、<b>先頭のタグ</b>でまとめる。タグなしは「タグなし」の仮のタグへ。タグはそのタグの <code>circle</code> の魔法陣へ(空欄は最初の魔法陣)</li>' +
+          '<li>魔法陣の色: 名前のハッシュで 8 色から重ならないように選ぶ(設定で決めた色があればそれ)</li>' +
+          '<li><code>applyFilter()</code> で検索・絞り込みを当て、<code>scene3d.build(view)</code> で 3D を作り直す</li></ol>' +
+          '<p>3D の部品(three.js r128 と <code>magic.js</code>)は、Light 版でないときだけ <code>loadScripts(VENDOR)</code> で順に読み込みます。</p>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>boot</code> / <code>setState</code> / <code>buildView</code> / <code>applyFilter</code> / <code>loadScripts</code></p>'
+      },
+      {
+        title: '4. 円をクリック → /api/open(id だけ)',
+        camera: { pos: [-5, 20, 2], target: [-5, 0, -11] },
+        focus: ['click', 'apiopen', 'resolve', 'json', 'dry-l', 'gate', 'a-click-apiopen', 'a-apiopen-resolve', 'a-json-resolve', 'fl-click-apiopen', 'fl-apiopen-resolve', 'pkt'],
+        show: ['dry-l'],
+        update: function (g, t) { travel(g, t, pts(['click', 'apiopen', 'resolve']), 1.6, ['{ "id": "i0d0c0004" }', '登録済み? 在る?']); },
+        html:
+          '<p>画面から送るのは<b>項目の id だけ</b>です。パスは送りません。サーバは任意のパスを開く口を持たず、<b>設定ファイルに登録済みの id だけ</b>を開きます。</p>' +
+          '<ol><li><code>loadConfig()</code>(壊れていれば 409)→ <code>itemIds()</code> で id を探す。無ければ 404「登録されていない項目です」</li>' +
+          '<li>パスの前後の <code>"</code> を外し、<code>%VAR%</code> を展開</li>' +
+          '<li>URL(「英字 + :」で 2 文字以上。<code>C:</code> はパス)ならそのまま。パスなら、フルパスか確かめて <code>path.normalize</code>、<code>statKind</code> で存在を確かめる(<b>5 秒</b>まで・覚えておかない)</li>' +
+          '<li>無い → 404「見つかりません」、応答なし → 504「応答がありません」</li>' +
+          '<li><code>MAGIC_LAUNCHER_DRY_RUN=1</code> なら、ここで止めて <code>{ opened, dryRun: true }</code> を返す</li></ol>' +
+          '<p>画面は結果をトーストにします(404・504 は理由付き)。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>POST /api/open</code> / <code>stripQuotes</code> / <code>isUrl</code> / <code>statKind</code>、<code>launcher.js</code> の <code>openItem</code></p>'
+      },
+      {
+        title: '5. 開く係 opener.exe → Windows',
+        camera: { pos: [8, 18, 0], target: [8, 0, -12] },
+        focus: ['resolve', 'opener', 'win', 'rund-l', 'a-resolve-opener', 'a-opener-win', 'fl-resolve-opener', 'fl-opener-win', 'pkt'],
+        show: ['rund-l'],
+        update: function (g, t) { travel(g, t, pts(['resolve', 'opener', 'win']), 1.8, ['opener.exe <対象>', 'Process.Start']); },
+        html:
+          '<p>サーバは窓を持たない裏方のプロセスなので、そこから直接開くと Windows のフォアグラウンド制限で、開いた窓がブラウザの<b>後ろに隠れます</b>。そこで小さな WinForms の exe(開く係)を通します。</p>' +
+          '<ol><li>サーバ起動時に <code>buildOpener()</code>: <code>opener.cs</code> の方が新しいときだけ、.NET Framework 付属の <code>csc.exe</code> で <code>%LOCALAPPDATA%\\MagicLauncher\\opener.exe</code> を作る</li>' +
+          '<li><code>openWithOpener(target)</code>: <code>opener.exe &lt;対象&gt;</code> を起動</li>' +
+          '<li>opener: 見えない窓(枠なし・画面の外・透明)を出して手前に持ってくる(<code>SetForegroundWindow</code> → <code>AttachThreadInput</code> → Alt を押した状態で再試行)</li>' +
+          '<li><code>Process.Start</code>(<code>UseShellExecute = true</code>。cmd を通さないので <code>&amp;</code> や <code>%</code> を含むパスもそのまま)→ 標準出力に <code>ok &lt;対象&gt;</code></li>' +
+          '<li>サーバは <code>ok</code> が届いた時点で応答を返す。opener は開いた窓が手前に来るまで最長 3 秒居残ってから終わる</li></ol>' +
+          '<ul><li>15 秒たっても <code>ok</code> が来なければ 504、0 以外で終われば標準エラーの理由で 500</li>' +
+          '<li>ビルドできない PC では <code>rundll32 url.dll,FileProtocolHandler</code> に切り替える(開けるが窓は後ろ。理由は <code>server.log</code>)</li></ul>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>buildOpener</code> / <code>openTarget</code> / <code>openWithOpener</code> / <code>openWithRundll</code>、<code>opener.cs</code> の <code>Main</code> / <code>CreateHiddenForm</code> / <code>BringToFront</code></p>'
+      },
+      {
+        title: '6. 登録・編集・並べ替えを書き込む',
+        camera: { pos: [0, 29, 25], target: [0, 0, 2] },
+        focus: ['dlg', 'apipost', 'mutate', 'json', 'bak', 'a-dlg-apipost', 'a-apipost-mutate', 'a-json-mutate', 'a-mutate-bak', 'a-mutate-json', 'fl-dlg-apipost', 'fl-apipost-mutate', 'fl-mutate-json', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['dlg', 'apipost', 'mutate', 'json', 'mutate', 'bak', 'mutate', 'json']), 1.0, ['POST(差分だけ)', 'mutate()', 'ディスクから読み直す', '差分を当てる', '直前の内容を .bak へ', '', '書く']); },
+        html:
+          '<p>書き込みは全部、サーバの <code>mutate(fn)</code> を通ります。<b>画面が持っている古い一覧で上書きしない</b>のがポイントです。</p>' +
+          '<ol><li>画面は「何を変えるか」だけを送る(<code>/api/item</code>・<code>/api/item/delete</code>・<code>/api/tag</code>・<code>/api/tag/rename</code>・<code>/api/tags/swap</code>・<code>/api/items/swap</code>・<code>/api/circles</code>・<code>/api/circle</code>・<code>/api/circle/rename</code>・<code>/api/layout</code>)</li>' +
+          '<li><code>loadConfig()</code> で<b>ディスクの今の内容を読み直す</b>(ほかの PC の変更も入っている)</li>' +
+          '<li>id の無い項目に、読んだときと同じ id を書き込む(以降は位置が変わっても同じ id)。<code>ensureTags</code> で使われているタグを足し、色の無いタグにパレットの色を付ける</li>' +
+          '<li><code>fn(data)</code> で差分だけ当てる(例: id で探して更新。無ければ 404「ほかの PC で削除されたかも」)</li>' +
+          '<li><code>writeConfig</code>: 直前の内容を <code>launcher.json.bak</code> へコピーしてから、2 字下げの JSON で書く</li></ol>' +
+          '<p>画面は応答のあと <code>reload()</code> で <code>/api/state</code> を取り直します。404・409 のときもトーストを出して読み直します。</p>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>mutate</code> / <code>writeConfig</code> / <code>ensureTags</code> / <code>api</code>、<code>launcher.js</code> の <code>mutate</code></p>'
+      },
+      {
+        title: '7. 壊れた JSON は上書きしない(409)',
+        camera: { pos: [-3, 20, 18], target: [-3, 0, 1] },
+        focus: ['apipost', 'mutate', 'json', 'boot', 'err-l', 'a-apipost-mutate', 'a-json-mutate'],
+        show: ['err-l'],
+        update: function (g, t) { g.pulse('json', t, 0.07); g.pulse('err-l', t, 0.04); },
+        html:
+          '<p><code>loadConfig()</code> は、次のときに <code>error</code> を付けて返します(中身は空の扱い)。</p>' +
+          '<ul><li>読めない(JSON として読めない)</li><li>いちばん外が <code>{}</code> ではない</li><li><code>items</code> があるのに配列ではない</li><li>フォルダが指定されている</li><li>stat できない(<code>ENOENT</code> 以外)</li></ul>' +
+          '<p>このとき <code>mutate()</code> も <code>/api/open</code> も <b>409</b> で断り、ファイルには<b>何も書きません</b>。空の内容で上書きして、ほかの PC の分まで登録を消してしまわないためです。</p>' +
+          '<p>画面は <code>setState</code> で赤い帯(理由と場所)を出します。ファイルを直すと版数が変わるので、次の変更チェックで読み直して帯が消えます。</p>' +
+          '<div class="gg-note">ファイルが<b>まだ無い</b>だけなら壊れていない扱いです(空の状態で表示し、最初に保存したときに作る)。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>loadConfig</code> / <code>mutate</code>、<code>launcher.js</code> の <code>setState</code></p>'
+      },
+      {
+        title: '8. ほかの PC の変更に追いつく(版数)',
+        camera: { pos: [0, 29, 34], target: [0, 0, 7] },
+        focus: ['poll', 'apiver', 'ver', 'json', 'other', 'a-poll-apiver', 'a-apiver-ver', 'a-json-ver', 'a-ver-poll', 'a-other-json', 'fl-poll-apiver', 'fl-apiver-ver', 'fl-other-json', 'pkt'],
+        update: function (g, t) { travel(g, t, pts(['other', 'json', 'ver', 'poll']), 1.6, ['OneDrive が書き換える', '版数が変わる', '違う → reload()']); },
+        html:
+          '<p>設定ファイルを OneDrive などに置くと、ほかの PC で足した項目が同期で書き換わります。画面はそれを<b>版数</b>で見つけます。</p>' +
+          '<ol><li><code>checkVersion()</code>: <b>10 秒ごと</b>と、タブに戻ったとき(<code>visibilitychange</code>)に <code>GET /api/version</code></li>' +
+          '<li>サーバは <code>{ version, configPath }</code> を返す。版数は <code>mtime(ms)-size</code>(中身は読まない)</li>' +
+          '<li>版数か場所が、いま持っている状態と違えば <code>reload()</code>(<code>/api/state</code> を取り直して魔法陣を作り直す)</li></ol>' +
+          '<ul><li>サーバが止まっている間は黙って待つ</li><li>Light 版はこの変更チェックをしない</li>' +
+          '<li>ドラッグ中に作り直しが来たら、離すまで待ってから作り直す</li></ul>' +
+          '<div class="gg-note">書き込みは毎回ディスクを読み直して差分だけ当てる(手順6)ので、ほかの PC の変更を、古い画面の一覧で消してしまうことはありません。</div>' +
+          '<p class="gg-files">📄 <code>launcher.js</code> の <code>checkVersion</code> / <code>reload</code> / <code>build</code>(<code>pendingView</code>)、<code>server.js</code> の <code>GET /api/version</code></p>'
+      },
+      {
+        title: '9. 安全のための検査',
+        camera: { pos: [-16, 20, 14], target: [-10, 0, -1] },
+        focus: ['gate', 'gate-l', 'lo-l', 'click', 'boot', 'dlg', 'poll', 'apiopen', 'apistate', 'apipost', 'apiver'],
+        show: ['lo-l'],
+        update: function (g, t) { g.pulse('gate', t, 0.05); },
+        html:
+          '<table><tr><th>検査</th><th>中身</th></tr>' +
+          '<tr><td>待ち受け</td><td><code>127.0.0.1</code> だけに bind。ほかの PC からはつながらない</td></tr>' +
+          '<tr><td>Host</td><td><code>127.0.0.1:8790</code> / <code>localhost:8790</code> 以外は 403(DNS リバインディング対策)</td></tr>' +
+          '<tr><td>Origin</td><td>GET/HEAD 以外は、<code>Origin</code> が付いていれば自分自身だけ</td></tr>' +
+          '<tr><td><code>X-Launcher: 1</code></td><td>GET/HEAD 以外で必須。よそのページはプリフライトなしにこのヘッダを付けられない</td></tr>' +
+          '<tr><td>開く</td><td>登録済みの <b>id だけ</b>。任意のパスを開く口は作らない</td></tr>' +
+          '<tr><td>静的ファイル</td><td>パスを正規化して <code>public/</code> の外へ出られないようにして配る(<code>\\0</code> も拒否)</td></tr>' +
+          '<tr><td>本文</td><td>POST の本文は 1MB まで(超えたら 413)。JSON でなければ 400</td></tr></table>' +
+          '<div class="gg-note"><code>.exe</code> / <code>.bat</code> などを登録するとクリックで実行されます。設定ファイルを共有フォルダに置くなら、書き込める人に注意してください(登録画面でも注意を出します)。</div>' +
+          '<p class="gg-files">📄 <code>server.js</code> の <code>handle</code> / <code>serveStatic</code> / <code>readBody</code>、<code>launcher.js</code> の <code>api</code>(<code>X-Launcher</code> を付ける)</p>'
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
