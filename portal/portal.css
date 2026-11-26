@@ -152,6 +152,9 @@ body.tp { overflow: hidden; }
   body.side-closed .tp-side li a span:last-child { display: none; }
   body.side-closed .tp-side li a { justify-content: center; padding: 7px 0; font-size: 16px; }
   body.side-closed .tp-side h4 { font-size: 0; justify-content: center; margin: 14px 0 6px; }
+  body.side-closed .tp-side h4.hub::before { display: none; }
+  body.side-closed .tp-side h4.hub a .e { display: inline; font-size: 16px; }
+  body.side-closed .tp-side h4.hub a { padding: 5px 0; justify-content: center; flex: 1; }
 }
 @media (min-width: 821px) {
   body.panel-closed .tp-app { --pw: 40px; }
@@ -165,6 +168,11 @@ body.tp { overflow: hidden; }
 .tp-side .home:hover { background: rgba(120, 60, 180, .3); }
 .tp-side h4 { margin: 16px 6px 6px; font-size: 11px; letter-spacing: .1em; color: var(--c); display: flex; align-items: center; gap: 6px; }
 .tp-side h4::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+/* 見出しそのものがページ(FeasibilityStudy)のとき。押すとそのページへ、開いているときは光る */
+.tp-side h4.hub a { display: flex; align-items: center; color: inherit; text-decoration: none; padding: 3px 8px; margin: -3px 0; border-radius: 7px; border: 1px solid transparent; }
+.tp-side h4.hub a .e { display: none; }
+.tp-side h4.hub a:hover { background: rgba(120, 80, 200, .18); }
+.tp-side h4.hub a.cur { color: #fff; border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 16%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--c) 25%, transparent); }
 .tp-side ul { list-style: none; margin: 0; padding: 0; }
 .tp-side li a { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 8px; color: #d8cff0; text-decoration: none; font-size: 13px; border: 1px solid transparent; }
 .tp-side li a:hover { background: rgba(120, 80, 200, .18); }

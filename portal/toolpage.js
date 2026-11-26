@@ -85,14 +85,26 @@
     // 左メニュー
     var side = $('.tp-side');
     var sh = '<a class="home" href="' + root + 'index.html" title="トップ"><span>🔮</span><span class="t">トップ</span></a>';
+    function sideLink(it, cur) {
+      return '<li><a href="' + root + it.href + '" title="' + esc(it.name) + '"' + (cur ? ' class="cur" aria-current="page"' : '') + '>' +
+        '<span>' + it.emoji + '</span><span>' + esc(it.name) + '</span></a></li>';
+    }
     CAT.groups.forEach(function (g) {
       var its = CAT.items.filter(function (it) { return it.group === g.id; });
       if (!its.length) return;
-      sh += '<h4 style="--c:' + g.color + '">' + esc(g.name) + '</h4><ul style="--c:' + g.color + '">';
-      its.forEach(function (it) {
-        sh += '<li><a href="' + root + it.href + '" title="' + esc(it.name) + '"' + (it.id === item.id ? ' class="cur" aria-current="page"' : '') + '>' +
-          '<span>' + it.emoji + '</span><span>' + esc(it.name) + '</span></a></li>';
-      });
+      // center の付いた項目(FeasibilityStudy)は、それ自体を見出しにして、下に試作ゲーム(GAMES)を並べる
+      var hub = its.filter(function (it) { return it.center; })[0];
+      if (hub) {
+        var isCur = hub.id === item.id;
+        sh += '<h4 class="hub" style="--c:' + g.color + '"><a href="' + root + hub.href + '" title="' + esc(hub.name) + '"' +
+          (isCur ? ' class="cur" aria-current="page"' : '') + '><span class="e">' + hub.emoji + '</span>' + esc(hub.name) + '</a></h4>' +
+          '<ul style="--c:' + g.color + '">';
+        CAT.games.forEach(function (it) { sh += sideLink(it, false); });
+        its.filter(function (it) { return it !== hub; }).forEach(function (it) { sh += sideLink(it, it.id === item.id); });
+      } else {
+        sh += '<h4 style="--c:' + g.color + '">' + esc(g.name) + '</h4><ul style="--c:' + g.color + '">';
+        its.forEach(function (it) { sh += sideLink(it, it.id === item.id); });
+      }
       sh += '</ul>';
     });
     side.innerHTML = sh;
