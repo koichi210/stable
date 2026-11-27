@@ -29,10 +29,11 @@ ToolPage.start({
         '<code>server.ts</code> が1つのポートで画面の配信と LAN 対戦の通信（<code>/ws</code>）をまとめて受け持ち、LAN では<b>ホストのブラウザだけ</b>がルールを動かします。',
   say: ['ひとりで CPU と旅したい', '同じ Wi-Fi の2〜4人で遊びたい', 'ホストだけがルールを動かす LAN 対戦の作りを見たい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/play.png', title: 'ゲーム画面（ショップ）', cap: '実際の画面（CPU 対戦）' },
   nodes: [
     { id: 'p0', type: 'person', label: 'ホスト（1人目）', at: [-8.5, 3.2], desc: '部屋を作った人、または CPU 対戦で遊ぶ人。この人のブラウザでルールが動く。' },
     { id: 'p1', type: 'person', label: 'ほかの人', sub: '人 or CPU', at: [-7.2, -3.2], desc: 'LAN の部屋に入った人。CPU 対戦では、ここに CPU が1〜3人座る。' },
-    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'Phaser のシーン', at: [-4.8, 0],
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'Phaser のシーン', at: [-4.8, 0], img: 'img/play.png',
       desc: '<code>TitleScene</code>（タイトル・部屋）→ <code>GameScene</code>（地図とボタン）→ <code>ResultScene</code>（順位）。描画とボタン受付だけで、ルールは持っていない。' },
     { id: 'server', type: 'code', label: 'server.ts', sub: '画面の配信＋/ws', at: [-1.8, -4.2],
       desc: 'Node.js でそのまま動く .ts。<code>dist/</code> の画面を配り、同じポートの <code>/ws</code> で WebSocket をつなぐ。部屋の管理は <code>src/server/RoomManager.ts</code>。ふだんはポート 5300、<code>--lan</code> では 80（使えなければ 5300）。' },
@@ -48,10 +49,10 @@ ToolPage.start({
   links: [['p0', 'web'], ['p1', 'web'], ['web', 'session', true], ['web', 'server', false], ['server', 'session', true],
     ['session', 'engine', true], ['session', 'cpu', false], ['cpu', 'engine'], ['engine', 'data', true]],
   steps: [
-    { by: 'p0', title: '起動して遊び方を選ぶ', flow: [['p0', 'server'], ['server', 'web'], ['web', 'session']], focus: ['p0', 'server', 'web', 'session'],
+    { by: 'p0', title: '起動して遊び方を選ぶ', shot: 'img/title.png', flow: [['p0', 'server'], ['server', 'web'], ['web', 'session']], focus: ['p0', 'server', 'web', 'session'],
       text: '「ひとりで遊ぶ.bat」で <code>server.ts</code> が起動し、<code>http://localhost:5300/</code> の画面が開く。タイトルで「CPU対戦（1人プレイ）」を押して CPU の人数（1〜3人）を決めると、1人8回ずつ番が回るゲームが始まる。',
       note: 'src/ が dist/ より新しければ、起動したときに自動でビルドし直す' },
-    { by: 'engine', title: 'サイコロ → 分かれ道 → 到着', flow: [['session', 'engine'], ['engine', 'data']],
+    { by: 'engine', title: 'サイコロ → 分かれ道 → 到着', shot: 'img/play.png', flow: [['session', 'engine'], ['engine', 'data']],
       text: 'サイコロ（1〜6）の数だけ1マスずつ進み、となりの県が2つ以上あるところでは止まって行き先を選ぶ。着いたら「兵隊が増えるくじ」と「イベントのくじ」を引き、その県の名産品を買える。大都市では武器・防具も買える。' },
     { by: 'engine', title: '同じマスでぶつかると兵隊バトル', flow: [['engine', 'session'], ['session', 'web']],
       text: '強さ ＝ 兵隊 ＋ 武器 ＋ 防具。負けた人は兵隊・お金の30%・名産品（50%の確率）・領土を失い、勝った人のものになる。バトルのあと、2人の装備はこわれる。' },
@@ -72,7 +73,7 @@ ToolPage.start({
     { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '起動とタイトル画面・サイコロと分かれ道・2つのくじ・名産品と武器防具・兵隊バトル・領土と政策・収入と維持費・LAN 対戦まで（全15ステップ）' },
     { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '47都道府県のつながり、1ターンのフェーズ、くじ・ショップ・すれ違いバトル・領土と政策、プログラムの全体構成と LAN 対戦のしくみまで、立体図で' },
   ],
-  note: 'ソースは非公開の <code>FeasibilityStudy/名産鉄道</code>。仕組み図解は少し前の版を元にしているため、LAN のポート番号や CPU を動かすファイルなど一部が今のソースと違います（このページは今のソースに合わせています）。',
+  note: 'ソースは非公開の <code>FeasibilityStudy/名産鉄道</code>。',
 });
 </script>
 </body>

@@ -45,7 +45,7 @@
   GameGuide.start({
     title: 'スライム建国記',
     back: '../index.html',
-    subtitle: '六角形の地図を交渉と制圧で塗り替える国造りシミュレーション（HTML＋CSS＋JavaScript 1ファイル・サーバー不要）',
+    subtitle: '六角形の地図を交渉と制圧で塗り替える国造りシミュレーション（index.html をダブルクリックで遊べる・サーバー不要）',
     camera: { pos: [0, 12, 11], target: [0, 0, 0] },
 
     build: function (g) {
@@ -126,7 +126,7 @@
 
       // ---------- 勢力AI ----------
       g.arrow(top(7, 0.4), top(1, 0.4), { id: 'arr-ai1', color: COL.obsidian, lift: 1.4, radius: 0.06 });
-      g.arrow(top(1, 0.4), top(0, 0.6), { id: 'arr-ai2', color: COL.obsidian, lift: 1.2, radius: 0.06 });
+      g.arrow(top(1, 0.4), top(6, 0.4), { id: 'arr-ai2', color: COL.obsidian, lift: 1.2, radius: 0.06 });
       g.label('', [0, 0, 0], { id: 'ai-lbl', size: 0.28, bg: '#000000bb', color: '#ffd0b8' });
 
       // ---------- 外交の関係値バー（右手前） ----------
@@ -145,27 +145,39 @@
 
       // ---------- アーキテクチャ図（x=24 付近） ----------
       var A = ARCH;
-      g.plate({ id: 'arch-file', size: [12, 11.5], pos: [A, 0.02, 0], color: '#26223a', opacity: 0.85, label: 'index.html（この1ファイルに全部入り）', labelSize: 0.36, labelOffset: [0, 0.4, -6.2] });
-      g.box({ id: 'arch-css', size: [10.5, 0.4, 1.3], pos: [A, 0.2, -4.6], color: '#7b5cff', label: '<style>  色はCSS変数（--slime など）。ダークモード対応', labelSize: 0.32, labelBg: '#000000aa' });
-      g.box({ id: 'arch-html', size: [10.5, 0.4, 1.3], pos: [A, 0.2, -2.8], color: '#4a6fa5', label: 'HTML  資源バー・地図(SVG)・年代記・外交・施設・仲間の「空の入れ物」', labelSize: 0.32, labelBg: '#000000aa' });
-      g.box({ id: 'arch-data', size: [3.2, 0.6, 1.5], pos: [A - 3.5, 0.3, -0.6], color: '#2b9a6b', label: '定数データ\n領地・勢力・施設・仲間\n進化段階・イベント', labelSize: 0.3, labelBg: '#000000aa' });
-      g.box({ id: 'arch-state', size: [3.0, 0.9, 1.5], pos: [A + 0.2, 0.45, -0.6], color: C.gold, label: 'state\n（ゲームの全部）', labelSize: 0.32, labelBg: '#000000aa' });
-      g.cylinder({ id: 'arch-ls', radius: 0.8, height: 0.9, pos: [A + 4, 0.45, -0.6], color: '#8a6d3b', label: 'localStorage\nslime-nation-save-v3', labelSize: 0.3, labelBg: '#000000aa' });
-      g.box({ id: 'arch-logic', size: [4.4, 0.6, 1.5], pos: [A - 2.4, 0.3, 2.0], color: C.enemy, label: '行動の関数\ndoDiplomacy・doConquest・nextTurn…', labelSize: 0.3, labelBg: '#000000aa' });
-      g.box({ id: 'arch-render', size: [4.0, 0.6, 1.5], pos: [A + 2.8, 0.3, 2.0], color: '#4fa3ff', label: 'render()\n画面を全部作り直す', labelSize: 0.3, labelBg: '#000000aa' });
-      g.box({ id: 'arch-btn', size: [3.6, 0.5, 1.2], pos: [A, 0.25, 4.6], color: '#4a4466', label: 'ボタン・地図のクリック', labelSize: 0.26 });
-      g.flow([A - 1.2, 0.6, 4.1], [A - 2.4, 0.7, 2.7], { id: 'af-click', color: C.data, lift: 0.5, count: 3 });
-      g.flow([A - 2.0, 0.7, 1.3], [A - 0.3, 0.9, -0.1], { id: 'af-mut', color: C.enemy, lift: 0.6, count: 4 });
-      g.flow([A + 0.8, 0.9, -0.1], [A + 2.6, 0.7, 1.3], { id: 'af-read', color: C.gold, lift: 0.6, count: 4 });
-      g.flow([A + 1.7, 0.9, -0.6], [A + 3.2, 0.9, -0.6], { id: 'af-save', color: '#c9955b', lift: 0.5, count: 3 });
-      g.flow([A + 2.8, 0.7, 1.3], [A + 2.8, 0.5, -2.2], { id: 'af-dom', color: '#4fa3ff', lift: 1.4, count: 4 });
-      g.flow([A - 2.0, 0.6, -0.6], [A - 1.3, 0.6, -0.6], { id: 'af-data', color: '#2b9a6b', lift: 0.3, count: 2 });
-      g.label('① 状態を書きかえる', [A - 2.4, 1.6, 0.9], { id: 'al-1', size: 0.24, color: C.enemy, bg: '#00000088' });
-      g.label('② 全部描き直す', [A + 2.2, 1.6, 0.9], { id: 'al-2', size: 0.24, color: '#4fa3ff', bg: '#00000088' });
-      g.label('③ save()', [A + 2.5, 1.5, -1.3], { id: 'al-3', size: 0.24, color: '#e8c48a', bg: '#00000088' });
+      g.plate({ id: 'arch-file', size: [13, 12.6], pos: [A, 0.02, 0], color: '#26223a', opacity: 0.85, label: 'slime-nation フォルダ（index.html をダブルクリック）', labelSize: 0.36, labelOffset: [0, 1.5, -6.5] });
+      // 上半分：ファイルの分け方
+      g.box({ id: 'arch-html', size: [11.5, 0.4, 1.0], pos: [A, 0.2, -5.2], color: '#4a6fa5', label: 'index.html  画面の骨組み（パネルの「空の入れ物」）＋ <script> を5本読む', labelSize: 0.3, labelBg: '#000000aa' });
+      g.box({ id: 'arch-css', size: [11.5, 0.4, 1.0], pos: [A, 0.2, -3.8], color: '#7b5cff', label: 'style.css  見た目（色はCSS変数・ダークモード対応）', labelSize: 0.3, labelBg: '#000000aa' });
+      var JS = [['data', 'data.js\n固定データ', '#2b9a6b'], ['rules', 'rules.js\nルール', C.enemy], ['store', 'store.js\n状態とセーブ', '#c9955b'],
+        ['view', 'view.js\n画面', '#4fa3ff'], ['main', 'main.js\nつなぎ役', C.third]];
+      JS.forEach(function (j, i) {
+        g.box({ id: 'js-' + j[0], size: [2.1, 0.6, 1.2], pos: [A + (i - 2) * 2.4, 0.3, -1.9], color: j[2], label: j[1], labelSize: 0.28, labelBg: '#000000aa' });
+        if (i < 4) g.flow([A + (i - 2) * 2.4 + 1.05, 0.5, -1.9], [A + (i - 1) * 2.4 - 1.05, 0.5, -1.9], { id: 'af-load' + i, color: '#ffffff', lift: 0.3, count: 2 });
+      });
+      g.label('js/ の5本を、この順に ふつうの <script> で読む', [A, 0.3, -0.75], { id: 'lbl-order', size: 0.22, color: '#ffffff', bg: '#00000088' });
+      // 下半分：行動 → commit の流れ（箱の色＝その処理があるファイルの色）
+      g.box({ id: 'arch-btn', size: [2.8, 0.5, 1.0], pos: [A - 4.6, 0.25, 4.9], color: '#4a4466', label: 'ボタン・地図の\nクリック', labelSize: 0.26, labelBg: '#000000aa' });
+      g.box({ id: 'arch-act', size: [2.6, 0.6, 1.2], pos: [A - 4.6, 0.3, 2.2], color: C.third, label: 'act()\n行動を呼ぶ', labelSize: 0.28, labelBg: '#000000aa' });
+      g.box({ id: 'arch-logic', size: [2.8, 0.6, 1.2], pos: [A - 1.5, 0.3, 2.2], color: C.enemy, label: '行動の関数\nstate を書きかえ\n変わったら true', labelSize: 0.28, labelBg: '#000000aa' });
+      g.box({ id: 'arch-state', size: [2.4, 0.9, 1.2], pos: [A + 1.6, 0.45, 2.2], color: C.gold, label: 'state\n（ゲームの全部）', labelSize: 0.3, labelBg: '#000000aa' });
+      g.cylinder({ id: 'arch-ls', radius: 0.8, height: 0.9, pos: [A + 4.6, 0.45, 2.2], color: '#8a6d3b', label: 'localStorage\nslime-nation-save-v3', labelSize: 0.28, labelBg: '#000000aa' });
+      g.plate({ id: 'arch-commit', size: [8.4, 1.9], pos: [A + 1.0, 0.03, 4.9], color: '#3a2f55', opacity: 0.9, label: 'commit()（main.js）：いつもこの順番', labelSize: 0.28, labelOffset: [0, 0.3, 1.3] });
+      g.box({ id: 'arch-settle', size: [2.4, 0.5, 1.1], pos: [A - 1.5, 0.25, 4.9], color: C.enemy, label: '① settle()\n進化・節目', labelSize: 0.26, labelBg: '#000000aa' });
+      g.box({ id: 'arch-render', size: [2.4, 0.5, 1.1], pos: [A + 1.0, 0.25, 4.9], color: '#4fa3ff', label: '② render()\n画面を更新', labelSize: 0.26, labelBg: '#000000aa' });
+      g.box({ id: 'arch-save', size: [2.4, 0.5, 1.1], pos: [A + 3.5, 0.25, 4.9], color: '#c9955b', label: '③ save()\n保存', labelSize: 0.26, labelBg: '#000000aa' });
+      g.flow([A - 4.6, 0.6, 4.4], [A - 4.6, 0.7, 2.8], { id: 'af-click', color: C.data, lift: 0.4, count: 3 });
+      g.flow([A - 3.3, 0.6, 2.2], [A - 2.9, 0.6, 2.2], { id: 'af-mut', color: C.third, lift: 0.4, count: 2 });
+      g.flow([A - 0.1, 0.6, 2.2], [A + 0.4, 0.8, 2.2], { id: 'af-write', color: C.enemy, lift: 0.4, count: 2 });
+      g.flow([A - 1.5, 0.6, 2.8], [A - 1.5, 0.5, 4.35], { id: 'af-commit', color: C.third, lift: 0.4, count: 3 });
+      g.flow([A - 0.3, 0.5, 4.9], [A - 0.2, 0.5, 4.9], { id: 'af-s2r', color: '#ffffff', lift: 0.3, count: 2 });
+      g.flow([A + 2.2, 0.5, 4.9], [A + 2.3, 0.5, 4.9], { id: 'af-r2s', color: '#ffffff', lift: 0.3, count: 2 });
+      g.flow([A + 1.6, 0.9, 2.8], [A + 1.0, 0.5, 4.35], { id: 'af-read', color: C.gold, lift: 0.5, count: 3 });
+      g.flow([A + 3.9, 0.5, 4.35], [A + 4.5, 0.9, 2.9], { id: 'af-save', color: '#c9955b', lift: 0.5, count: 3 });
+      g.label('true のときだけ', [A - 2.6, 0.9, 3.6], { id: 'al-true', size: 0.22, color: '#e2d4ff', bg: '#00000088' });
       // セーブの中身
-      g.group('save-demo', { pos: [A + 8.8, 0, -0.5] });
-      g.label('{\n  turn: 12,\n  resources: {mana, food, wood},\n  exp: 74,\n  territories: [13個],\n  factions: {ironhammer, obsidian},\n  buildings: {...}, companions: {...},\n  milestones: {...}, log: [最大60件]\n}', [0, 1.8, 0], { parent: 'save-demo', size: 0.32, color: '#e8e2c0', bg: '#000000cc', bold: false });
+      g.group('save-demo', { pos: [A + 9.6, 0, 2.2] });
+      g.label('{\n  turn: 12,\n  resources: {mana, food, wood},\n  exp: 74, lastStage: 1,\n  territories: [13個],\n  factions: {ironhammer, obsidian},\n  buildings: {...}, companions: {...},\n  selected: null,\n  milestones: {...}, log: [最大60件]\n}', [0, 1.8, 0], { parent: 'save-demo', size: 0.32, color: '#e8e2c0', bg: '#000000cc', bold: false });
     },
 
     steps: [
@@ -178,7 +190,7 @@
           '<li>「次の日へ」ボタンで1日進むと、資源が増え、まわりの勢力も動く</li>' +
           '<li>資源は <b>魔素・食料・木材</b> の3つ（最初は 40・60・50）</li></ul>' +
           '<p>はっきりした「勝ち・負け」はなく、<b>発展度</b>（領地数×10＋施設Lvの合計×3＋経験）を伸ばしていく遊び。全13マスを取ると年代記にお祝いの一文が出る。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>freshState()</code> / <code>developmentScore()</code></p>',
+          '<p class="gg-files">📄 <code>js/store.js</code> の <code>freshState()</code> ／ <code>js/rules.js</code> の <code>developmentScore()</code></p>',
         camera: { pos: [0, 12, 11], target: [0, 0, 0] },
         focus: ['map', 'slime', 'legend'],
         update: function (g, t) { g.get('slime').scale.set(1 + 0.06 * Math.sin(t * 3), 1 - 0.06 * Math.sin(t * 3), 1 + 0.06 * Math.sin(t * 3)); },
@@ -188,10 +200,11 @@
         html:
           '<p>マスの場所は <b>アキシャル座標 (q, r)</b> という六角形用の座標で決めている。</p>' +
           '<pre><code>となり ＝ (q+1,r) (q+1,r-1) (q,r-1)\n         (q-1,r) (q-1,r+1) (q,r+1)</code></pre>' +
+          '<p>となりの番号は座標から <b>最初に1回だけ</b> 計算して <code>NEIGHBOR_IDS</code> にしまっておく（マスの場所は変わらないので）。</p>' +
           '<p>手を出せるのは <b>自国のどれかと接しているマスだけ</b>（ゲームでは点線で光る）。最初は真ん中のまわり6マスが対象。</p>' +
           '<p>マスごとに <b>勢力の強さ</b>（22〜66）と <b>特産</b>（魔素・食料・木材）がある。いちばん強いのは右上の果て「終焉の荒野」（66）。</p>' +
-          '<p>画面の地図は、この座標を <code>x = 大きさ×√3×(q + r/2)</code>、<code>y = 大きさ×1.5×r</code> でピクセルに直して SVG で描いている。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>AXIAL</code> / <code>neighbors()</code> / <code>isAdjacentToOwned()</code> / <code>axialToPixel()</code></p>',
+          '<p>画面の地図は、この座標を <code>x = 大きさ×√3×(q + r/2)</code>、<code>y = 大きさ×1.5×r</code>（大きさ＝15）でピクセルに直して SVG で描いている。</p>' +
+          '<p class="gg-files">📄 <code>js/data.js</code> の <code>AXIAL</code> / <code>NEIGHBOR_IDS</code> ／ <code>js/rules.js</code> の <code>isAdjacentToOwned()</code> / <code>canTarget()</code> ／ <code>js/view.js</code> の <code>axialToPixel()</code></p>',
         camera: { pos: [0.5, 11, 8], target: [0.5, 0.5, 0] },
         focus: ['map', 'slime', 'legend'],
         update: function (g, t) {
@@ -205,15 +218,16 @@
       {
         title: '「次の日へ」で起きること',
         html:
-          '<p>ボタンを押すと <code>nextTurn()</code> がこの順番で処理する。</p>' +
+          '<p>ボタンを押すと、まず <code>rules.js</code> の <code>nextTurn()</code> が ①〜⑤ を、そのあと <code>main.js</code> の <code>commit()</code> が ⑥〜⑧ をする。</p>' +
           '<ol><li>資源の生産（左の柱が伸びる）</li><li>経験 +1、日付 +1</li>' +
-          '<li>2つの勢力がそれぞれ行動（AI）</li><li>同盟相手からの贈り物（+4）</li>' +
+          '<li>2つの勢力がそれぞれ行動（AI。停戦の残り日数もここで1減る）</li><li>同盟相手からの収入（+4）</li>' +
           '<li><b>30%</b> の確率でランダムイベント（5種類）</li><li>進化したかチェック</li>' +
           '<li>領地数の節目（5・10・13）チェック</li><li>画面を描き直して保存</li></ol>' +
+          '<p>⑥〜⑧ は「次の日へ」だけでなく、交渉・制圧・外交・施設の強化・仲間を鍛えるときにも、<b>同じ順番で</b> 通る。</p>' +
           '<table><tr><th>イベント</th><th>効果</th></tr>' +
           '<tr><td>行商人</td><td>木材 +8</td></tr><tr><td>行き倒れの魔物</td><td>経験 +6</td></tr>' +
           '<tr><td>地割れ</td><td>木材 −6</td></tr><tr><td>豊作</td><td>食料 +10</td></tr><tr><td>怪しい影</td><td>なにも起きない</td></tr></table>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>nextTurn()</code> / <code>EVENTS</code></p>',
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>nextTurn()</code> ／ <code>js/data.js</code> の <code>EVENTS</code> ／ <code>js/main.js</code> の <code>commit()</code></p>',
         camera: { pos: [-3.5, 12, 13], target: [-3.5, 0.8, 0] },
         show: ['phase-lbl', 'event-lbl', 'col-mana', 'col-food', 'col-wood', 'cl-mana', 'cl-food', 'cl-wood'],
         enter: function () { shown['phase-lbl'] = null; shown['event-lbl'] = null; shown['cl-mana'] = shown['cl-food'] = shown['cl-wood'] = null; },
@@ -248,7 +262,7 @@
           '<p>領地のボーナスは <b>2 ＋ 強さ÷12（切り捨て）</b>。強い土地ほどたくさん生む。本拠地はボーナスなし。</p>' +
           '<p>最初の状態だと <b>魔素 +8／食料 +12／木材 +10</b>。集落庁舎はLv1でもう ×1.15 がかかっている。</p>' +
           '<p>例：「陽だまりの畑」（食料・強さ22）を取ると、食料が 5+3+2+<b>3</b>=13 → ×1.15 で <b>+15</b> に増える。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>productionPerTurn()</code></p>',
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>productionPerTurn()</code></p>',
         camera: { pos: [-4.5, 9, 10], target: [-4, 0.8, 0] },
         focus: ['map', 'col-mana', 'col-food', 'col-wood', 'cl-mana', 'cl-food', 'cl-wood', 'f-mana', 'f-food', 'f-wood', 'f-bonus', 'lbl-bonus', 'slime'],
         show: ['f-mana', 'f-food', 'f-wood', 'f-bonus', 'lbl-bonus', 'col-mana', 'col-food', 'col-wood', 'cl-mana', 'cl-food', 'cl-wood'],
@@ -267,12 +281,13 @@
           '<p>となりのマスを選ぶと、2つのやり方が選べる。</p>' +
           '<pre><code>交渉力 = 領地数×3 + 魔導書庫Lv×5\n       + 知恵袋Lv×6 + 進化段階×8\n制圧力 = 領地数×3 + 訓練場Lv×7\n       + 猛将Lv×6 + 進化段階×8\n\n成功率 = 基本 + (力 − 相手の強さ) × 1.2\n         （8%〜92% に収める）\n基本：交渉 52 / 制圧 46</code></pre>' +
           '<table><tr><th></th><th>交渉</th><th>制圧</th></tr>' +
-          '<tr><td>費用</td><td>魔素・食料</td><td>木材・魔素</td></tr>' +
+          '<tr><td>費用</td><td>魔素(15＋強さ×0.3)・食料(10＋強さ×0.2)</td><td>木材(15＋強さ×0.3)・魔素(10＋強さ×0.2)</td></tr>' +
           '<tr><td>成功したら</td><td>経験+10・特産を強さ×0.5</td><td>経験+16・特産を強さ×0.6</td></tr>' +
           '<tr><td>勢力との関係</td><td>成功 −8／失敗 −3</td><td>成功 −25／失敗 −5</td></tr></table>' +
           '<p>最初に「陽だまりの畑」（強さ22）を狙うと、交渉 <b>42%</b>（魔素22・食料14）、制圧 <b>39%</b>（木材22・魔素14）。失敗しても費用は戻らない。</p>' +
           '<p>勢力の土地に交渉するときは、その勢力との <b>関係値×0.25</b> が交渉力に足される。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>chance()</code> / <code>diplomacyPower()</code> / <code>doDiplomacy()</code> / <code>doConquest()</code></p>',
+          '<p>交渉と制圧は流れが同じなので、ちがうところ（費用・確率・経験・関係の変化）だけを <code>TERRITORY_ACTIONS</code> に書き、<code>actOnTerritory()</code> 1つで両方を動かしている。判定は、ボタンに出ていた成功率そのままで行う。</p>' +
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>chance()</code> / <code>diplomacyPower()</code> / <code>conquestPower()</code> / <code>actOnTerritory()</code></p>',
         camera: { pos: [3.8, 10, 12.5], target: [3.8, 0.5, 0.5] },
         focus: ['hex0', 'hex1', 'hl0', 'hl1', 'slime', 'roll', 'arr-take'],
         show: ['roll', 'arr-take'],
@@ -298,9 +313,9 @@
           '<tr><td>集落庁舎</td><td>全生産 ×0.15</td></tr><tr><td>農場</td><td>食料 +3</td></tr><tr><td>工房</td><td>木材 +3</td></tr>' +
           '<tr><td>魔導書庫</td><td>魔素 +3・交渉力 +5</td></tr><tr><td>訓練場</td><td>制圧力 +7（守りにも使われる）</td></tr></table>' +
           '<pre><code>施設の費用 = 基本費用 × 1.55^(Lv−1)\n仲間の費用 = 食料(10＋Lv×8)・木材(6＋Lv×6)</code></pre>' +
-          '<p>施設は Lv が上がるたびに 1.55倍ずつ高くなるので、だんだん重くなる。仲間の名前は自由に書きかえられる（空にすると元の名前に戻る）。</p>' +
-          '<div class="gg-note">ゲーム画面の説明では工房は「木材と魔素の生産量を増やす」とあるけど、コード（<code>productionPerTurn()</code>）で工房が増やすのは <b>木材だけ</b>。</div>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>BUILDINGS_META</code> / <code>buildingCost()</code> / <code>companionCost()</code></p>',
+          '<p>施設は Lv が上がるたびに 1.55倍ずつ高くなるので、だんだん重くなる。仲間の名前は自由に書きかえられる（<b>10文字まで</b>。前後の空白は消え、空にすると元の名前に戻る）。</p>' +
+          '<p>名前の入力中は画面を描き直さず、保存だけする（描き直すと入力中の文字やカーソルが消えてしまうため）。画面に出すときは <code>escapeHtml()</code> を通すので、<code>&lt;</code> などを入れても表示がこわれない。</p>' +
+          '<p class="gg-files">📄 <code>js/data.js</code> の <code>BUILDINGS_META</code> / <code>COMPANION_META</code> ／ <code>js/rules.js</code> の <code>buildingCost()</code> / <code>companionCost()</code> / <code>normalizeName()</code></p>',
         camera: { pos: [0, 9, 25.5], target: [0, 0.8, 10.2] },
         show: ['base'],
         focus: ['base'],
@@ -318,8 +333,9 @@
           '<tr><td>王権を纏う者</td><td>160</td></tr><tr><td>終焉を統べるもの</td><td>280</td></tr></table>' +
           '<p>経験のもらい方：<b>1日 +1</b>、交渉成功 <b>+10</b>、制圧成功 <b>+16</b>、イベントで +6。</p>' +
           '<p>進化するたびに <b>交渉力と制圧力が +8ずつ</b>（段階×8）。制圧力は攻められたときの守りにも使われるので、国全体が強くなる。</p>' +
+          '<p>進化したかどうかは、経験がどこで増えても見のがさないように、<b>行動のたびに</b>（<code>commit()</code> の中で）調べて年代記に書く。</p>' +
           '<p>経験は発展度にもそのまま足される。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>nextTurn()</code> / <code>renderEvolution()</code></p>',
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>checkEvolution()</code> / <code>stageIndexFor()</code> ／ <code>js/view.js</code> の <code>renderEvolution()</code></p>',
         camera: { pos: [0, 12, 1.5], target: [0, 0.8, -9] },
         show: ['evo'],
         focus: ['evo'],
@@ -348,10 +364,12 @@
           '<tr><td>攻撃力</td><td>持ち土地の強さの平均</td><td>平均 ＋12</td></tr></table>' +
           '<ul><li>自分の土地は毎日 50% で強さ +1（最大99）。放っておくと手ごわくなる</li>' +
           '<li>攻めるのは、となりのマスの中で <b>いちばん弱いところ</b>。無所属の村も、もう一方の勢力も、あなたの国も狙う</li>' +
-          '<li>成功率は <code>chance(攻撃力, 守り, 38)</code>。あなたの国を守るのは <b>制圧力</b></li>' +
-          '<li>停戦・同盟中の相手は、あなたの土地を狙わない</li></ul>' +
+          '<li>成功率は <code>chance(攻撃力, 守り, 38)</code>。あなたの国を守るのは <b>制圧力</b>。奪った土地の強さは「攻撃力×0.85」まで上がる</li>' +
+          '<li>停戦・同盟中の相手は、あなたの土地を狙わない</li>' +
+          '<li>領地を全部なくした勢力は <b>滅亡</b>。もう動かず、外交の相手にもならない</li></ul>' +
           '<p>黒曜の残党の攻撃力は (50+48+66)÷3＋12 ≒ 67。強さ22の「陽だまりの畑」なら成功率は上限の <b>92%</b>。早めに取らないと持っていかれる。</p>' +
-          '<div class="gg-note">コードを読むと、本拠地「始まりの森」は特別扱いされていない。しかも強さが <b>0</b> なので、勢力のとなりになると「いちばん弱いマス」として真っ先に狙われる（守りは制圧力で判定）。奪われると何もできなくなる場合があるけど、ゲームオーバーの判定はない。</div>',
+          '<div class="gg-note">本拠地「始まりの森」は強さが <b>0</b>。ねらえると真っ先に奪われて、自国が0マスになり何もできなくなる。だから今のコードでは <b>本拠地は攻撃の対象から外して</b> いる（古いセーブで奪われていた場合も、読み込むときに取り戻す）。</div>' +
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>factionAiTurn()</code> / <code>factionPower()</code> / <code>isFallen()</code></p>',
         camera: { pos: [6, 10, 8], target: [2, 0.8, -0.4] },
         focus: ['map', 'slime', 'arr-ai1', 'arr-ai2', 'ai-lbl'],
         show: ['arr-ai1', 'arr-ai2', 'ai-lbl'],
@@ -362,7 +380,7 @@
           g.get('arr-ai2').visible = k > 4.2;
           if (k >= 2.2) g.setColor('hex1', COL.obsidian);
           if (k >= 2.2 && k < 3.4) g.pulse('hex1', t * 2, 0.08);
-          var lbl = k < 2.2 ? '黒曜の残党：いちばん弱い隣は\n陽だまりの畑（22）→ 92%' : k < 4.2 ? '陽だまりの畑が奪われた\n強さは 攻撃力×0.85 ≒ 57 に' : '本拠地は「強さ0」なので\n次は本拠地が一番弱い標的に';
+          var lbl = k < 2.2 ? '黒曜の残党：いちばん弱い隣は\n陽だまりの畑（22）→ 92%' : k < 4.2 ? '陽だまりの畑が奪われた\n強さは 攻撃力×0.85 ≒ 57 に' : '本拠地（強さ0）はねらわない\n次の標的は 蒼月の丘（24）';
           setL(g, 'ai-lbl', lbl, { size: 0.28, bg: '#000000bb', color: '#ffd0b8' });
           g.get('ai-lbl').position.set(5.2, 4.8, -2.2);
           if (k >= 2.2) setL(g, 'hl1', '陽だまりの畑\n強さ 57', { size: 0.22, color: '#ffffff', bg: '#00000077' });
@@ -376,10 +394,11 @@
           '<table><tr><th>行動</th><th>費用</th><th>効果</th></tr>' +
           '<tr><td>贈り物</td><td>魔素18・食料18・木材12</td><td>関係 +12（必ず成功）</td></tr>' +
           '<tr><td>停戦</td><td>魔素24・食料16</td><td>成功率 35＋関係×0.6。成功で <b>8日間</b> 攻めてこない・関係+8</td></tr>' +
-          '<tr><td>同盟</td><td>魔素55・食料45・木材35</td><td>関係60以上で申し込める。成功率 25＋(関係−60)×1.6。成功で関係100・毎日 +4 の贈り物</td></tr></table>' +
+          '<tr><td>同盟</td><td>魔素55・食料45・木材35</td><td>関係60以上で申し込める。成功率 25＋(関係−60)×1.6。成功で関係100・毎日 +4 の収入</td></tr></table>' +
+          '<p>停戦は敵対中だけ申し込める。失敗したときは、停戦なら関係 +2（気持ちは少し伝わる）、同盟なら関係 −10。成功率は停戦 5〜95%、同盟 10〜95% に収める。</p>' +
           '<p>停戦・同盟中の相手の土地に手を出すと、その約束は <b>自分から破った</b> ことになり、敵対に戻って関係 −25。</p>' +
-          '<p>停戦が切れると敵対に戻り、関係 −10。</p>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>sendGift()</code> / <code>proposeCeasefire()</code> / <code>proposeAlliance()</code> / <code>breakProtectionIfNeeded()</code></p>',
+          '<p>停戦が切れると敵対に戻り、関係 −10。滅亡した勢力には、贈り物も停戦も同盟もできない（同盟の収入も止まる）。</p>' +
+          '<p class="gg-files">📄 <code>js/rules.js</code> の <code>sendGift()</code> / <code>proposeCeasefire()</code> / <code>proposeAlliance()</code> / <code>breakProtectionIfNeeded()</code> ／ <code>js/data.js</code> の <code>GIFT_COST</code> など</p>',
         camera: { pos: [9.5, 8, 12.5], target: [9.5, 0.4, 4.4] },
         show: ['dip'],
         focus: ['dip'],
@@ -388,7 +407,7 @@
           var k = t % 12;
           // 鉄鎚との関係：15 →(贈り物)27 →(停戦成功)35 →(贈り物)47 → 59 → 71 →(同盟)100
           var seq = [[0, 15, 'はじめ：関係 15（敵対中）'], [1.5, 27, '贈り物 → +12'], [3, 35, '停戦成功(51%) → +8\n8日間は攻めてこない'],
-            [4.5, 47, '贈り物 → +12'], [6, 59, '贈り物 → +12'], [7.5, 71, '贈り物 → 71\n60を超えたので同盟を申し込める'], [9, 100, '同盟成功(43%) → 関係100\n毎日 +4 の贈り物']];
+            [4.5, 47, '贈り物 → +12'], [6, 59, '贈り物 → +12'], [7.5, 71, '贈り物 → 71\n60以上なので同盟を申し込める'], [9, 100, '同盟成功(43%) → 関係100\n毎日 +4 の収入']];
           var cur = seq[0];
           seq.forEach(function (s) { if (k >= s[0]) cur = s; });
           var prev = seq[Math.max(0, seq.indexOf(cur) - 1)];
@@ -399,34 +418,60 @@
         },
       },
       {
-        title: 'プログラムの全体構成',
+        title: 'プログラムの全体構成（5つのjs）',
         html:
-          '<p>ゲームは <code>index.html</code> <b>1ファイルだけ</b>。ダブルクリックで開けば遊べて、サーバーもインストールもいらない。</p>' +
-          '<ul><li><code>&lt;style&gt;</code>：見た目。色はCSS変数で、ダークモードにも対応</li>' +
-          '<li>HTML：パネルの「入れ物」だけ。中身はJavaScriptが作る</li>' +
-          '<li><code>&lt;script&gt;</code>：定数データ → <code>state</code> → 行動の関数 → 描画の関数、の順に並んでいる</li></ul>' +
-          '<p>流れはいつも同じ：</p>' +
-          '<ol><li>ボタンを押す → <code>doConquest()</code> などが <b>state を書きかえる</b></li>' +
-          '<li><code>render()</code> が <b>画面を全部作り直す</b>（地図のSVGも、各パネルのHTMLも）</li>' +
-          '<li><code>save()</code> で保存</li></ol>' +
-          '<p>「どこを直せばいいか」を考えなくても、毎回全部描き直すので表示がずれない。小さいゲームならこれで十分速い。</p>',
-        camera: { pos: [ARCH, 12.5, 10], target: [ARCH, 0, 0.3] },
-        focus: ['arch-file', 'arch-css', 'arch-html', 'arch-data', 'arch-state', 'arch-ls', 'arch-logic', 'arch-render', 'arch-btn',
-          'af-click', 'af-mut', 'af-read', 'af-save', 'af-dom', 'af-data', 'al-1', 'al-2', 'al-3'],
+          '<p>ゲームは <code>index.html</code>（骨組み）・<code>style.css</code>（見た目）・<code>js/</code>（処理）に分かれている。<code>index.html</code> をダブルクリックで開けば遊べて、サーバーもインストールもいらない。</p>' +
+          '<table><tr><th>ファイル</th><th>やること</th></tr>' +
+          '<tr><td><code>data.js</code></td><td>変わらない設定値だけ（13の領地・2つの勢力・施設・仲間・進化・イベント・費用）。バランス調整はここ</td></tr>' +
+          '<tr><td><code>rules.js</code></td><td>ルール（成功率・生産・交渉や制圧・外交・勢力AI）。<b>画面にはさわらない</b></td></tr>' +
+          '<tr><td><code>store.js</code></td><td>最初の状態づくりと、セーブ／ロード</td></tr>' +
+          '<tr><td><code>view.js</code></td><td>状態を受け取って画面を描くだけ。<b>ルールは変えない</b></td></tr>' +
+          '<tr><td><code>main.js</code></td><td>つなぎ役。ボタン → ルール → 画面 → 保存 をまとめる</td></tr></table>' +
+          '<p>5本は <b>この順番</b> で、ふつうの <code>&lt;script&gt;</code> として読む。後のファイルが前のファイルの部品を使うので、順番が大事。それぞれが <code>window.SlimeNation</code> に自分の部品（data / rules / store / view）を登録していく。</p>' +
+          '<div class="gg-note"><code>import</code> / <code>export</code>（ES modules）を使わないのは、ダブルクリック（<code>file://</code>）で開いたときに読み込めなくなるのを防ぐため。</div>' +
+          '<p class="gg-files">📄 <code>index.html</code> の最後の <code>&lt;script&gt;</code> 5行 ／ <code>README.md</code> の「中身」</p>',
+        camera: { pos: [ARCH, 10.5, 5.5], target: [ARCH, 0, -2.8] },
+        focus: ['arch-file', 'arch-css', 'arch-html', 'js-data', 'js-rules', 'js-store', 'js-view', 'js-main', 'af-load0', 'af-load1', 'af-load2', 'af-load3', 'lbl-order'],
+        update: function (g, t) { ['data', 'rules', 'store', 'view', 'main'].forEach(function (k, i) { g.pulse('js-' + k, t * 1.5 - i * 0.6, 0.04); }); },
+      },
+      {
+        title: '行動のあとは必ず commit',
+        html:
+          '<p>ボタンの処理は、どれも同じ道を通る。</p>' +
+          '<ol><li>ボタンを押す → <code>main.js</code> の <code>act()</code> が、<code>rules.js</code> の行動（<code>doConquest()</code> など）を呼ぶ</li>' +
+          '<li>行動の関数は <b>state を書きかえ</b>、変わったら <code>true</code> を返す（費用が足りないなど、何もしなかったら <code>false</code>）</li>' +
+          '<li><code>true</code> のときだけ <code>commit()</code>：① 進化・節目のチェック → ② <code>render()</code> で画面を更新 → ③ <code>save()</code> で保存</li></ol>' +
+          '<p>箱の色は、その処理がある <b>ファイルの色</b>（赤＝rules.js・青＝view.js・茶＝store.js・紫＝main.js）。</p>' +
+          '<p><code>render()</code> は各パネルを描き直すけど、地図の六角形は <b>最初に1回だけ作って</b>、あとは色や点線の印だけを書きかえる。年代記も、記録が増えたときだけ描き直す（毎回作り直すと重く、点線のアニメも途切れるため）。</p>' +
+          '<p>ボタンは描き直しても消えないように、外側の箱に1回だけ登録している（イベント委任）。</p>' +
+          '<p class="gg-files">📄 <code>js/main.js</code> の <code>act()</code> / <code>commit()</code> / <code>bindEvents()</code> ／ <code>js/view.js</code> の <code>render()</code> / <code>buildMap()</code></p>',
+        camera: { pos: [ARCH, 10, 13.5], target: [ARCH, 0, 3.4] },
+        focus: ['arch-btn', 'arch-act', 'arch-logic', 'arch-state', 'arch-ls', 'arch-commit', 'arch-settle', 'arch-render', 'arch-save',
+          'af-click', 'af-mut', 'af-write', 'af-commit', 'af-s2r', 'af-r2s', 'af-read', 'af-save', 'al-true'],
+        update: function (g, t) {
+          var seq = ['arch-btn', 'arch-act', 'arch-logic', 'arch-settle', 'arch-render', 'arch-save'], k = Math.floor(t / 0.8) % seq.length;
+          seq.forEach(function (id, i) {
+            var o = g.get(id);
+            if (i === k) g.pulse(o, t * 3, 0.08);
+            else if (o.userData.pulseBase) o.scale.copy(o.userData.pulseBase);
+          });
+        },
       },
       {
         title: 'セーブデータの仕組み',
         html:
-          '<p>ゲームの状態は全部 <code>state</code> という1つのオブジェクトに入っている。それを丸ごとJSONにして、ブラウザの <code>localStorage</code> に保存する。</p>' +
+          '<p>ゲームの状態は全部 <code>state</code> という1つのオブジェクトに入っている。それを丸ごとJSONにして、ブラウザの <code>localStorage</code> に保存する（<code>store.js</code> の仕事）。</p>' +
           '<pre><code>localStorage.setItem("slime-nation-save-v3",\n  JSON.stringify(state));</code></pre>' +
-          '<ul><li>行動するたび・1日進むたびに自動で保存</li>' +
-          '<li>読み込むときは「領地が13個あるか」「2つの勢力のデータがあるか」を確かめて、合わなければ <b>新しいゲーム</b> として始める</li>' +
-          '<li>キーの末尾 <code>v3</code> は形式のバージョン。データの形を大きく変えたときに番号を上げれば、古いセーブで壊れない</li>' +
+          '<ul><li>状態が変わる行動のたびに自動で保存（<code>commit()</code> の ③）。仲間の名前を書きかえたときも保存する</li>' +
+          '<li>開いたときは <code>load()</code> でセーブを読み、なければ <code>freshState()</code> で最初から。開いただけでは保存しない（こわれたセーブをすぐ上書きしないため）</li>' +
+          '<li>読み込むときは <code>restoreState()</code> が中身を1つずつ確かめる。足りない項目やおかしな値は <b>初期値で補って直す</b>。領地が13個そろっていないときだけ、新しいゲームとして始める</li>' +
+          '<li>領地の名前や説明文はセーブからは使わず、いつも <code>data.js</code> のものを使う（セーブから読むのは持ち主と強さなど）</li>' +
+          '<li>キーの末尾 <code>v3</code> は形式のバージョン。名前を変えると今までのセーブが読めなくなる。セーブに項目を足したら <code>restoreState()</code> にも足す</li>' +
           '<li>年代記（ログ）は新しい順に最大60件まで</li></ul>' +
           '<div class="gg-note">保存先はブラウザの中なので、別のブラウザや別のPCではセーブを引き継げない（README にも注意書きあり）。</div>' +
-          '<p class="gg-files">📄 <code>index.html</code> の <code>save()</code> / <code>load()</code> / <code>resetGame()</code></p>',
-        camera: { pos: [ARCH + 5.5, 9, 11], target: [ARCH + 5.5, 1, -0.5] },
-        focus: ['arch-state', 'arch-ls', 'af-save', 'al-3', 'save-demo'],
+          '<p class="gg-files">📄 <code>js/store.js</code> の <code>freshState()</code> / <code>restoreState()</code> / <code>save()</code> / <code>load()</code> ／ <code>js/main.js</code> の <code>resetGame()</code></p>',
+        camera: { pos: [ARCH + 6.5, 9, 12.5], target: [ARCH + 6.5, 1, 2] },
+        focus: ['arch-state', 'arch-ls', 'arch-save', 'af-save', 'js-store', 'save-demo'],
         show: ['save-demo'],
       },
     ],

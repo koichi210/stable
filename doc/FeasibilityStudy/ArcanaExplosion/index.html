@@ -29,10 +29,11 @@ ToolPage.start({
         'CPU 対戦も LAN（スマホもOK）対戦も、同じ部屋の仕組みで動きます。',
   say: ['ひとりで CPU と対戦したい', '同じ Wi-Fi の家族や友だちと対戦したい', 'ルールと画面を分けた作りを見たい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/play.png', title: '対戦画面', cap: '実際の画面（CPU 対戦）' },
   nodes: [
     { id: 'p0', type: 'person', label: 'プレイヤー（席0）', at: [-8.5, 2.6], desc: '部屋を作った人。ブラウザで遊ぶ。' },
     { id: 'p1', type: 'person', label: '相手（席1）', sub: '人 or CPU', at: [-8.5, -2.6], desc: '同じ部屋に入った人。CPU 対戦では、ここに CPU（<code>engine/ai.py</code>）が座る。' },
-    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'web/app.js・js/*.js', at: [-4.2, 0],
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'web/app.js・js/*.js', at: [-4.2, 0], img: 'img/play.png',
       desc: '盤面を描き、押せるボタンを並べる画面。ルールは持っていない。<code>/api/room/state</code> を 1.2 秒ごとに取りに行く（ポーリング）。' },
     { id: 'server', type: 'main', label: 'server/app.py', sub: 'Flask・rooms.py', at: [0, 0],
       desc: 'Flask の入り口。<code>rooms.py</code> が部屋と席を管理し、行動を engine に渡して、席ごとの見え方に直した盤面を返す。' },

@@ -29,10 +29,11 @@ ToolPage.start({
         'LAN 対戦では Node の <code>server.js</code> が2人の操作を中継します。',
   say: ['ひとりで CPU と対戦したい', '同じ Wi-Fi の相手と対戦したい', 'ルール・画面・通信を分けた作りを見たい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/play.png', title: '対戦画面', cap: '実際の画面（CPU 対戦）' },
   nodes: [
     { id: 'p1', type: 'person', label: 'プレイヤー1', sub: '先手', at: [-8.5, 2.6], desc: '盤の上側。CPU 対戦では自分、LAN 対戦では部屋を作った人（ホスト）。' },
     { id: 'p2', type: 'person', label: 'プレイヤー2', sub: '人 or CPU', at: [-8.5, -2.6], desc: '盤の下側。CPU 対戦では CPU（<code>ai.ts</code>）、LAN 対戦では部屋に入った人（ゲスト）。' },
-    { id: 'view', type: 'screen', label: 'ブラウザの画面', sub: 'gameView.ts', at: [-4.6, 0],
+    { id: 'view', type: 'screen', label: 'ブラウザの画面', sub: 'gameView.ts', at: [-4.6, 0], img: 'img/play.png',
       desc: '<code>index.html</code> は画面の部品と見た目（CSS）だけ。盤・手札・ログを描くのは <code>src/ui/gameView.ts</code> で、DOM をさわるのはここだけ。' },
     { id: 'build', type: 'file', label: 'js/game.js', sub: 'npm run build', at: [-3.2, 4.4],
       desc: '<code>src/</code> の TypeScript を Vite で1本にまとめたもの。<code>index.html</code> はこれを読む。src/ を変えたら作り直す。' },
@@ -49,7 +50,7 @@ ToolPage.start({
   ],
   links: [['p1', 'view'], ['p2', 'view'], ['view', 'ctrl', true], ['build', 'view'], ['ctrl', 'build'], ['ctrl', 'state', true], ['ctrl', 'ai'], ['ctrl', 'server'], ['state', 'data']],
   steps: [
-    { by: 'p1', title: 'CPU 対戦か LAN 対戦を選ぶ', flow: [['p1', 'view'], ['view', 'ctrl']],
+    { by: 'p1', title: 'CPU 対戦か LAN 対戦を選ぶ', flow: [['p1', 'view'], ['view', 'ctrl']], shot: 'img/title.png',
       text: '<code>index.html</code> をダブルクリックで開けば CPU 対戦（初級〜鬼級）。LAN 対戦は <code>npm start</code> で server.js を起動して、<code>http://&lt;このPCのIP&gt;:3000</code> を開く。',
       note: 'ダブルクリックで開いたときは LAN 対戦はできない（サーバーが必要）' },
     { by: 'ctrl', title: '駒を選ぶと、動けるマスが光る', flow: [['view', 'ctrl'], ['ctrl', 'state']],
@@ -59,7 +60,7 @@ ToolPage.start({
     { by: 'state', title: '成り・能力・カード', flow: [['state', 'data'], ['state', 'ctrl']],
       text: '敵陣（相手側の3段）に入ると「成る」か選べて、成ると兵数が2倍。駒ごとの能力（突撃・爆撃など）は、使ったら3ターン待つ。手番が回ってくるとアイテムカードを1枚引く。',
       note: 'アイテムカードの効果はまだ作りかけ（使うと手札から消えるだけ）' },
-    { by: 'ai', title: 'CPU の番', flow: [['ctrl', 'ai'], ['ai', 'ctrl'], ['ctrl', 'state']],
+    { by: 'ai', title: 'CPU の番', flow: [['ctrl', 'ai'], ['ai', 'ctrl'], ['ctrl', 'state']], shot: 'img/play.png',
       text: '手番を終えると、controller が少し待ってから ai.ts に手を聞く。初級はランダム、中級は王将に近づく、上級は敵を倒すのを優先、鬼級は大駒や成りを狙う。決まった手は人と同じ道すじで state に入る。' },
     { by: 'server', title: 'LAN：部屋を作って2人をつなぐ', flow: [['ctrl', 'server'], ['server', 'ctrl']], focus: ['server', 'ctrl', 'p1', 'p2'],
       text: 'ホストが部屋を作ると4文字の部屋コードが出る。相手がコードを入れて入ると server.js が2人をつなぎ、ホストが最初の盤面（boardState）を送る。' },
@@ -74,7 +75,7 @@ ToolPage.start({
     { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '駒の種類と兵数・動かし方・正面戦闘のダメージ・兵種の相性・成り・能力・アイテムカード・LAN 対戦の始め方まで（全15ステップ）' },
     { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '盤と駒の初期配置・戦闘・相性・成り・能力・CPU の4つの難易度から、LAN 対戦のしくみ・日本地図の陣取りの構想まで、立体図で' },
   ],
-  note: 'ソースは非公開の <code>FeasibilityStudy/覇権戦国</code>。仕組み図解は、プログラムが1ファイルだったころの構成のまま説明している部分があります（いまは <code>src/</code> の TypeScript に分かれています）。<code>src/main.ts</code>・<code>src/entities/</code> は日本地図版の試作で、今は使われていません。',
+  note: 'ソースは非公開の <code>FeasibilityStudy/覇権戦国</code>。<code>src/main.ts</code>・<code>src/entities/</code> は日本地図版の試作で、今は使われていません。',
 });
 </script>
 </body>

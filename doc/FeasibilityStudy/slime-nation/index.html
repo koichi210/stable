@@ -29,9 +29,10 @@ ToolPage.start({
         'ルール（rules.js）は画面にさわらず、画面（view.js）はルールを変えない。つなぎ役の main.js が「行動 → 画面更新 → 保存」をまとめて回します。',
   say: ['インストールなしでブラウザだけで遊びたい', '確率と資源のやりくりで国を広げたい', 'ルール・画面・保存を分けた小さな作りを見たい'],
   sayTitle: 'こんなときに',
+  shot: { src: 'img/play.png', title: '世界地図', cap: '実際の画面' },
   nodes: [
     { id: 'player', type: 'person', label: 'プレイヤー', sub: 'スライムの国', at: [-8.5, 0], desc: '土地を選んで交渉・制圧し、施設を建て、仲間を鍛え、「次の日へ」で日を進める。' },
-    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'view.js', at: [-4.4, 0],
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'view.js', at: [-4.4, 0], img: 'img/play.png',
       desc: '六角形の地図（SVG の <code>&lt;polygon&gt;</code>）・資源・施設・仲間・年代記を描く。<code>view.js</code> は状態を受け取って描くだけ。' },
     { id: 'main', type: 'main', label: 'main.js', sub: 'つなぎ役（act → commit）', at: [0, 0],
       desc: 'ゲームの状態を 1 か所で持つ。ボタンが押されたら rules.js の行動を呼び、状態が変わったときだけ「後片付け → 画面更新 → 保存」をする。' },
@@ -48,12 +49,12 @@ ToolPage.start({
   ],
   links: [['player', 'web'], ['web', 'main'], ['main', 'rules'], ['rules', 'ai', true], ['rules', 'data'], ['ai', 'data', true], ['main', 'store', true], ['store', 'ls']],
   steps: [
-    { by: 'main', title: '開くと続きから始まる', flow: [['player', 'web'], ['ls', 'store'], ['store', 'main'], ['main', 'web']],
+    { by: 'main', title: '開くと続きから始まる', shot: 'img/title.png', flow: [['player', 'web'], ['ls', 'store'], ['store', 'main'], ['main', 'web']],
       text: '<code>index.html</code> をダブルクリックすると、main.js が <code>store.load()</code> でセーブを読み、無ければ最初の状態を作って画面を描く。',
       note: 'ES modules を使わず普通の &lt;script&gt; で読むのは、ダブルクリック（file://）でも動かすため' },
     { by: 'player', title: 'となりの土地だけねらえる', flow: [['player', 'web'], ['web', 'main'], ['main', 'rules']],
       text: '地図は 13 マスの六角形。自分の土地のとなりにある土地だけが交渉・制圧の相手になる（<code>canTarget()</code>）。' },
-    { by: 'rules', title: '交渉か制圧で迎え入れる', flow: [['main', 'rules'], ['rules', 'data']],
+    { by: 'rules', title: '交渉か制圧で迎え入れる', shot: 'img/play.png', flow: [['main', 'rules'], ['rules', 'data']],
       text: '交渉は魔素と食料、制圧は木材と魔素を払う。成功すればその土地が自分の色になり、経験値と資源がもらえる。失敗すると払った分だけ失う。' },
     { by: 'rules', title: '成功率は「力 − 土地の強さ」', flow: [['rules', 'data']],
       text: '成功率は「基本の値 ＋（自分の力 − 土地の強さ）× 1.2」で、8〜92% に収める。交渉の力は魔導書庫や仲間、制圧の力は訓練場や仲間、どちらも土地の数とスライムの進化で伸びる。' },
@@ -71,7 +72,7 @@ ToolPage.start({
     { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '始め方とセーブ・1日の流れ・3つの資源・交渉と制圧・成功率のしくみ・施設と仲間・進化・2つの勢力と外交・イベントまで（全15ステップ）' },
     { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '六角形の13マスの地図・「次の日へ」で起きること・生産量と成功率の式・勢力AI・外交・プログラムの全体構成とセーブデータまで、立体図で' },
   ],
-  note: 'ソースは非公開の <code>FeasibilityStudy/slime-nation</code>。仲間・領地・勢力の名前はすべてオリジナル。仕組み図解は js が 1 ファイルだったころに作ったもので、今は 5 つのファイルに分かれています。',
+  note: 'ソースは非公開の <code>FeasibilityStudy/slime-nation</code>。仲間・領地・勢力の名前はすべてオリジナル。',
 });
 </script>
 </body>
