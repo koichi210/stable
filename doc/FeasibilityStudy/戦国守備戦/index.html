@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>戦国守備戦 — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'shubi',
+  caption: '県ごとの軍で日本を取り合い、出撃するとじゃんけん合戦で決着する戦略ゲーム',
+  lead: '日本地図の<b>47都道府県</b>を舞台に、自分の県から隣の敵の県へ出撃して領土を広げ、相手の京（拠点）を落としたら勝ちのゲームです。出撃すると<b>歩兵・弓兵・騎兵のじゃんけん合戦</b>で決着し、勝つとアイテムカードが手に入ることも。' +
+        'TypeScript＋Phaser 3 の「シーン」で画面を分けて作り、Node の <code>server.ts</code> 1本が、画面の配信と LAN 対戦の通信を同じポートで受け持ちます。',
+  say: ['ひとりで CPU と国盗りしたい', '同じ Wi-Fi の相手と対戦したい', '2台の盤面をずらさない作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p1', type: 'person', label: 'プレイヤー', at: [-8.5, 2.6], desc: '日本編の CPU 対戦では北海道を京にするプレイヤー1。マウスで出撃先を選ぶ。' },
+    { id: 'p2', type: 'person', label: '相手', sub: '人 or CPU', at: [-8.5, -2.6], desc: '沖縄県を京にするプレイヤー2。CPU 対戦では CPU、LAN 対戦では同じ Wi-Fi の相手。' },
+    { id: 'view', type: 'screen', label: 'ブラウザの画面', sub: 'MapView など', at: [-4.6, 0],
+      desc: '地図の描画とズームは <code>view/MapView.ts</code>、固定表示とボタンは <code>HudScene</code>、メニュー類は <code>scenes/modals/</code> の小窓。Phaser の「シーン」を重ねて描く。' },
+    { id: 'sangoku', type: 'code', label: 'SangokuGameScene', sub: '日本三國', at: [-3.2, 4.6],
+      desc: 'もうひとつのモード「日本三國」の本体。3つの勢力が、残り1勢力になるまで戦う。地図は <code>prefectures-sangoku.json</code>。合戦は同じ JankenBattleScene を使う。' },
+    { id: 'game', type: 'main', label: 'GameScene.ts', sub: '日本編の本体', at: [0, 0],
+      desc: '地図を出し、クリックやボタン操作を受けてゲームを進める。合戦・自動出撃・兵糧と改革・通信は、それぞれ別のファイルに任せている。' },
+    { id: 'server', type: 'service', label: 'server.ts', sub: '配信＋WebSocket', at: [2.2, -4.4],
+      desc: '<code>node server.ts</code> で起動（ふだんはポート 5100、<code>--lan</code> で 80）。画面は <code>dist/</code> から配り、LAN 対戦の通信は同じポートの <code>/ws</code>。src/ が新しければ起動時に自動でビルドし直す。' },
+    { id: 'janken', type: 'code', label: 'JankenBattleScene', sub: '合戦', at: [4.2, 3],
+      desc: '歩兵・弓兵・騎兵の三すくみで合戦をする画面。結果を返すだけで、盤面は動かさない（動かすのは呼んだ側）。' },
+    { id: 'logic', type: 'code', label: 'logic/', sub: 'AutoAttacker ほか', at: [6, -2.8],
+      desc: '<code>AutoAttacker.ts</code> はターンが進むときの自動出撃と CPU の強さ、<code>PlayerState.ts</code> は兵糧・改革・将軍・アイテムカード。' },
+    { id: 'data', type: 'data', label: 'src/data/*.json', sub: '県・カード・将軍', at: [8.6, 1.2],
+      desc: '<code>prefectures.json</code>（47県の座標・持ち主・人口・兵・隣の県）、<code>cards.json</code>（アイテムカード8種）、<code>units.json</code>（将軍）など。' },
+  ],
+  links: [['p1', 'view'], ['p2', 'view'], ['view', 'game', true], ['view', 'sangoku'], ['game', 'janken'], ['sangoku', 'janken'], ['game', 'logic'], ['game', 'data'], ['logic', 'data'], ['game', 'server']],
+  steps: [
+    { by: 'p1', title: 'モードと将軍を選ぶ', flow: [['p1', 'view'], ['view', 'game']],
+      text: 'タイトルで「日本編」（CPU 対戦・初級〜鬼級）、「LAN 対戦」、「日本三國」などを選ぶ。始まったら、出撃に連れて行く将軍を選ぶ。' },
+    { by: 'game', title: '地図は JSON からできている', flow: [['data', 'game'], ['game', 'view']],
+      text: '県の座標・持ち主・人口・兵・隣の県は prefectures.json に書いてある。GameScene がそれを読み、MapView が日本地図として描く。北海道がプレイヤー1、沖縄県がプレイヤー2の京。' },
+    { by: 'p1', title: '出撃：Shift＋左クリック → 右クリック', flow: [['p1', 'view'], ['view', 'game'], ['game', 'janken']],
+      text: '自分の県を Shift＋左クリックで出撃元に選び、隣の敵の県を右クリックすると出撃。出撃の前にアイテムカードを使える。',
+      note: '攻撃は1ターンに2回まで。使い切ると自動でターンが終わる' },
+    { by: 'janken', title: 'じゃんけん合戦', flow: [['game', 'janken'], ['janken', 'game']],
+      text: '攻める側と守る側が、歩兵・弓兵・騎兵から1つずつ出す。歩兵は騎兵に、騎兵は弓兵に、弓兵は歩兵に強く、勝った側の戦力が1.5倍。そのあと兵力をくらべて、大きいほうが勝つ。' },
+    { by: 'logic', title: '勝ったら県を取る・カードが出る', flow: [['janken', 'game'], ['game', 'logic'], ['logic', 'data']],
+      text: '勝てばその県を支配し、30%の確率でアイテムカードを1枚もらえる。負けると出撃した将軍が討ち取られることがある。相手の京を取ったら勝ち、自分の京を取られたら負け。' },
+    { by: 'logic', title: '「次のターン」で起きること', flow: [['game', 'logic'], ['logic', 'game'], ['game', 'view']],
+      text: '人口と兵が増え、兵糧が回復する。そのあと AutoAttacker が、両方の陣営の県から隣の敵の県へ自動で出撃する。出撃する確率は難易度で変わり（30〜90%）、上の難易度ほど弱い県や人口の多い県を狙う。' },
+    { by: 'server', title: 'LAN：動かすのは手番の人だけ', flow: [['game', 'server'], ['server', 'view']], focus: ['server', 'game', 'view', 'p2'],
+      text: '<code>node server.ts --lan</code> で起動すると、同じ Wi-Fi の端末からも遊べる。手番の人だけが盤面を動かし、動かすたびに盤面まるごと（LanSnapshot）を相手に送る。',
+      note: '乱数を振るのはいつも片方だけなので、2台の盤面がずれない' },
+    { by: 'server', title: '合戦の手はサーバーが預かる', flow: [['game', 'server'], ['server', 'game']], focus: ['server', 'game', 'janken', 'p2'],
+      text: '相手の県を攻めると、守る側にも合戦が届き、20秒以内に手を選ぶ。両方の手がそろうまでサーバーが預かってから、同時に公開する（後出しできない）。兵力がぴったり同じときの勝ち負けも、サーバーが決める。',
+      note: '30秒たっても手が来なければ、サーバーがランダムで手を決める' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '将軍選び・出撃のしかた・じゃんけんの相性・合戦の流れ・アイテムカード・政策と改革・日本三國・LAN 対戦の始め方まで（全16ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: 'JSON の座標でできた地図・「次のターン」で起きること・自動出撃と CPU の強さ・じゃんけん合戦と戦力のくらべ方から、LAN 対戦のサーバー・日本三國・ワールド編・全体構成まで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/戦国守備戦</code>。タイトル画面には、世界40カ国を舞台にした「ワールド編」もあります。',
+});
+</script>
+</body>
+</html>

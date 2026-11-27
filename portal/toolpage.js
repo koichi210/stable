@@ -99,7 +99,7 @@
         sh += '<h4 class="hub" style="--c:' + g.color + '"><a href="' + root + hub.href + '" title="' + esc(hub.name) + '"' +
           (isCur ? ' class="cur" aria-current="page"' : '') + '><span class="e">' + hub.emoji + '</span>' + esc(hub.name) + '</a></h4>' +
           '<ul style="--c:' + g.color + '">';
-        CAT.games.forEach(function (it) { sh += sideLink(it, false); });
+        CAT.games.forEach(function (it) { sh += sideLink(it, it.id === item.id); });
         its.filter(function (it) { return it !== hub; }).forEach(function (it) { sh += sideLink(it, it.id === item.id); });
       } else {
         sh += '<h4 style="--c:' + g.color + '">' + esc(g.name) + '</h4><ul style="--c:' + g.color + '">';

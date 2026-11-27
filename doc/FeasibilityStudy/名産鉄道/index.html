@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>名産鉄道 — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'meisan',
+  caption: '47都道府県をサイコロで旅して名産品を集める、兵隊バトル付きのすごろく',
+  lead: 'サイコロで日本中を旅して<b>名産品を買い集め</b>、最後に<b>資産（もちがね＋名産品）がいちばん多い人</b>が勝つすごろくです。同じマスでぶつかると兵隊バトルになります。' +
+        'ルールは <code>src/game/</code> の純粋な TypeScript だけが知っていて、Phaser の画面は描くだけ。' +
+        '<code>server.ts</code> が1つのポートで画面の配信と LAN 対戦の通信（<code>/ws</code>）をまとめて受け持ち、LAN では<b>ホストのブラウザだけ</b>がルールを動かします。',
+  say: ['ひとりで CPU と旅したい', '同じ Wi-Fi の2〜4人で遊びたい', 'ホストだけがルールを動かす LAN 対戦の作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p0', type: 'person', label: 'ホスト（1人目）', at: [-8.5, 3.2], desc: '部屋を作った人、または CPU 対戦で遊ぶ人。この人のブラウザでルールが動く。' },
+    { id: 'p1', type: 'person', label: 'ほかの人', sub: '人 or CPU', at: [-7.2, -3.2], desc: 'LAN の部屋に入った人。CPU 対戦では、ここに CPU が1〜3人座る。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'Phaser のシーン', at: [-4.8, 0],
+      desc: '<code>TitleScene</code>（タイトル・部屋）→ <code>GameScene</code>（地図とボタン）→ <code>ResultScene</code>（順位）。描画とボタン受付だけで、ルールは持っていない。' },
+    { id: 'server', type: 'code', label: 'server.ts', sub: '画面の配信＋/ws', at: [-1.8, -4.2],
+      desc: 'Node.js でそのまま動く .ts。<code>dist/</code> の画面を配り、同じポートの <code>/ws</code> で WebSocket をつなぐ。部屋の管理は <code>src/server/RoomManager.ts</code>。ふだんはポート 5300、<code>--lan</code> では 80（使えなければ 5300）。' },
+    { id: 'session', type: 'main', label: 'GameSession.ts', sub: '進行係', at: [0.4, 0.4],
+      desc: 'だれの操作を受け付けるか（自分の番か・ホストか）、LAN での状態の送り受け、CPU の自動操作を担当する。Phaser は使わない。' },
+    { id: 'engine', type: 'code', label: 'GameEngine.ts', sub: 'ルールだけ', at: [4.6, 0],
+      desc: 'サイコロ・移動・くじ・買い物・バトル・領土・ターンの終わりを処理する純粋な関数の集まり。画面も通信も知らない。' },
+    { id: 'cpu', type: 'code', label: 'cpu.ts', sub: 'CPU の考え方', at: [3.4, 4],
+      desc: '今のフェーズを見て、CPU がする操作を1つ決める（サイコロ・行き先・買い物・おわる）。' },
+    { id: 'data', type: 'data', label: 'prefectures.json', sub: '47県・となり・名産品', at: [8.6, -2],
+      desc: '47都道府県の位置・となりの県・名産品と値段。お金・兵隊・政策・武器と防具などの数字は <code>src/game/data.ts</code>。' },
+  ],
+  links: [['p0', 'web'], ['p1', 'web'], ['web', 'session', true], ['web', 'server', false], ['server', 'session', true],
+    ['session', 'engine', true], ['session', 'cpu', false], ['cpu', 'engine'], ['engine', 'data', true]],
+  steps: [
+    { by: 'p0', title: '起動して遊び方を選ぶ', flow: [['p0', 'server'], ['server', 'web'], ['web', 'session']], focus: ['p0', 'server', 'web', 'session'],
+      text: '「ひとりで遊ぶ.bat」で <code>server.ts</code> が起動し、<code>http://localhost:5300/</code> の画面が開く。タイトルで「CPU対戦（1人プレイ）」を押して CPU の人数（1〜3人）を決めると、1人8回ずつ番が回るゲームが始まる。',
+      note: 'src/ が dist/ より新しければ、起動したときに自動でビルドし直す' },
+    { by: 'engine', title: 'サイコロ → 分かれ道 → 到着', flow: [['session', 'engine'], ['engine', 'data']],
+      text: 'サイコロ（1〜6）の数だけ1マスずつ進み、となりの県が2つ以上あるところでは止まって行き先を選ぶ。着いたら「兵隊が増えるくじ」と「イベントのくじ」を引き、その県の名産品を買える。大都市では武器・防具も買える。' },
+    { by: 'engine', title: '同じマスでぶつかると兵隊バトル', flow: [['engine', 'session'], ['session', 'web']],
+      text: '強さ ＝ 兵隊 ＋ 武器 ＋ 防具。負けた人は兵隊・お金の30%・名産品（50%の確率）・領土を失い、勝った人のものになる。バトルのあと、2人の装備はこわれる。' },
+    { by: 'engine', title: '状態はコピーしてから変える', flow: [['session', 'engine'], ['engine', 'session']],
+      text: 'ルールの関数は、受け取った状態（<code>GameState</code>）を直接書きかえず、<code>cloneState()</code> でコピーしてから変えて返す。今のフェーズでできない操作なら、同じ状態をそのまま返すので何も起きない。' },
+    { by: 'cpu', title: 'CPU は少し待ってから1手ずつ', flow: [['session', 'cpu'], ['cpu', 'engine']],
+      text: 'CPU の番になると、進行係が 650 ミリ秒待ってから <code>cpu.ts</code> に1手だけ決めてもらう。行き先はランダム、買い物は「いちばん安い名産品 → 大都市なら強い武器 → 防具 → なければおわる」の順。' },
+    { by: 'server', title: 'LAN は1つのポートで部屋を作る', flow: [['p1', 'web'], ['web', 'server']], focus: ['p0', 'p1', 'web', 'server'],
+      text: 'ホスト役の PC で「みんなで遊ぶ（LAN対戦）.bat」を開くと、<code>server.ts --lan</code> がポート 80（使えなければ 5300）で画面と <code>/ws</code> をまとめて受け持つ。1人が部屋を作り、英数字5文字の部屋番号でほかの人が入る（最大4人）。',
+      note: '同じネットワーク（Wi-Fi）につないだ端末どうしで遊ぶ。黒い画面は遊んでいるあいだ閉じない' },
+    { by: 'session', title: 'ホストだけがルールを動かす', flow: [['web', 'server'], ['server', 'session'], ['session', 'server'], ['server', 'web']],
+      text: 'ホスト以外のボタンは「この操作をしたい」（<code>request</code>）としてホストへ送られるだけ。ホストの進行係が「その人の番か」を確かめてルールを動かし、新しい <code>GameState</code> を丸ごと全員に配る。サーバーは中身を計算せず、転送するだけ。',
+      note: '途中で抜けた人は CPU が代わりに遊ぶ。ホストが抜けると部屋は閉じる' },
+    { by: 'session', title: '資産がいちばん多い人の勝ち', flow: [['session', 'web']],
+      text: '全員の番が回り終わると <code>ResultScene</code> で順位が出る。資産 ＝ もちがね ＋ 名産品の値段の合計（同じなら名産品が多い人が上）。領土・武器・防具・兵隊は資産に入らない。' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '起動とタイトル画面・サイコロと分かれ道・2つのくじ・名産品と武器防具・兵隊バトル・領土と政策・収入と維持費・LAN 対戦まで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '47都道府県のつながり、1ターンのフェーズ、くじ・ショップ・すれ違いバトル・領土と政策、プログラムの全体構成と LAN 対戦のしくみまで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/名産鉄道</code>。仕組み図解は少し前の版を元にしているため、LAN のポート番号や CPU を動かすファイルなど一部が今のソースと違います（このページは今のソースに合わせています）。',
+});
+</script>
+</body>
+</html>

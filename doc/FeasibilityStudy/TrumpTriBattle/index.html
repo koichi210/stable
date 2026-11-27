@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トランプ三戦場バトル — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'TrumpTriBattle',
+  caption: '3つの戦場に同時に1枚ずつ出して、取ったカードの枚数で競うトランプ対戦',
+  lead: 'トランプ52枚を使い、<b>2人が同時に3枚を選んで3つの戦場に出す</b>対戦ゲームです。数字が大きいほうが両方のカードをもらい、手札＋獲得カードの枚数で相手を上回ったら勝ち。' +
+        'ルールは Python の <code>engine/</code> だけが知っていて、Flask のサーバー（<code>server/</code>）が「部屋」と「席」を管理し、ブラウザ（<code>web/</code>）は届いた盤面を描くだけ。' +
+        'CPU 対戦も LAN 対戦も、同じ部屋の仕組みで動きます。',
+  say: ['ひとりで CPU と勝負したい', '同じ Wi-Fi の相手と対戦したい', '「同時に出す」ゲームの作り方を見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p0', type: 'person', label: 'プレイヤー（席0）', at: [-8.5, 2.6], desc: '部屋を作った人。ブラウザで遊ぶ。' },
+    { id: 'p1', type: 'person', label: '相手（席1）', sub: '人 or CPU', at: [-8.5, -2.6], desc: '同じ部屋に入った人。CPU 対戦では、ここに CPU（<code>engine/ai.py</code>）が座る。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'web/*.js', at: [-4.6, 0],
+      desc: 'トップ画面（<code>index.html</code>＋<code>lobby.js</code>）と対戦画面（<code>game.html</code>＋<code>game.js</code>）。ルールは持っていない。通信は <code>common.js</code> の <code>Api</code> にまとめてある。' },
+    { id: 'session', type: 'store', label: 'sessionStorage', sub: '合言葉', at: [-3.2, 4.4],
+      desc: '部屋に入るときにもらう合言葉（token）と席番号をしまう。タブごとに別なので、同じパソコンの2つのタブで対戦しても混ざらない。localStorage は開き直したとき用の予備。' },
+    { id: 'solo', type: 'screen', label: '1台版', sub: 'サーバーなし', at: [-2.2, -4.2],
+      desc: 'フォルダ直下の <code>index.html</code>・<code>game.js</code>・<code>style.css</code> は、サーバーを使わない古い「1台で交代プレイ」版。サーバーからは使われていない。' },
+    { id: 'server', type: 'main', label: 'server/app.py', sub: 'Flask・rooms.py', at: [0, 0],
+      desc: 'Flask の入り口（<code>py -3 run.py</code> でポート 5000）。<code>rooms.py</code> が部屋と席をロック付きで管理し、選んだカードを engine に渡して、席ごとの見え方に直した盤面を返す。' },
+    { id: 'engine', type: 'code', label: 'engine/game.py', sub: 'ルール・勝敗判定', at: [4.4, 0],
+      desc: 'カードの配り方・戦場ごとの勝ち負け・山札の補充・勝敗判定をする純粋な Python。画面のことは一切知らない。' },
+    { id: 'ai', type: 'code', label: 'engine/ai.py', sub: 'CPU の考え方', at: [7.4, -3.4],
+      desc: '手札を見て、出す3枚の番号を返すだけ。初級はランダム、中級は弱い3枚（温存）、上級はまん中くらいの3枚、鬼級は強い3枚。' },
+    { id: 'cards', type: 'data', label: 'engine/cards.py', sub: '52枚の山札', at: [8.6, 1.8],
+      desc: 'トランプ52枚を作る。強さは数字だけ（2〜10、J=11、Q=12、K=13、A=14）で、スートは関係ない。' },
+  ],
+  links: [['p0', 'web'], ['p1', 'web'], ['web', 'session'], ['p0', 'solo'], ['p1', 'solo'], ['web', 'server', true], ['server', 'engine', true], ['engine', 'ai'], ['engine', 'cards']],
+  steps: [
+    { by: 'p0', title: '部屋を作る・入る', flow: [['p0', 'web'], ['web', 'server']],
+      text: '「CPU 対戦」なら CPU が席1に座る部屋、「LAN 対戦」なら4文字の部屋コードの部屋を作る。相手は「相手を待っている部屋」の一覧から入る。',
+      note: 'LAN 対戦は同じネットワーク（Wi-Fi）につないだ端末どうしで遊ぶ' },
+    { by: 'web', title: '合言葉を覚えておく', flow: [['server', 'web'], ['web', 'session']],
+      text: '部屋に入るとサーバーが席ごとの合言葉（token）をくれる。ブラウザはそれを sessionStorage にしまい、このあとの通信に毎回付ける。サーバーは合言葉で「どの席の人か」を見分ける。' },
+    { by: 'p0', title: '3枚えらんで、3つの戦場へ', flow: [['p0', 'web'], ['web', 'server']],
+      text: '手札6枚から3枚を選ぶ。選んだ順に戦場1・2・3へ出る。ブラウザが送るのは選んだカードの番号だけ（<code>POST /api/room/&lt;code&gt;/select</code>）。' },
+    { by: 'engine', title: '2人そろったらオープン', flow: [['server', 'engine'], ['engine', 'ai']],
+      text: '先に選んだ側は相手を待つ。CPU 対戦では CPU（ai.py）がすぐに3枚選ぶ。2人分そろったら engine が戦場ごとに数字をくらべ、大きいほうが2枚とももらう。同じ数字なら相打ちで、自分のカードだけもらう。' },
+    { by: 'engine', title: '補充して、勝ち負けを決める', flow: [['engine', 'cards'], ['engine', 'server']],
+      text: '手札が6枚より少なければ山札から引く（不公平にならないよう、2人で1枚ずつ交互）。そのあと手札＋獲得カードの枚数で相手を上回ったら勝ち。',
+      note: '同じ枚数のまま、どちらかが3枚出せなくなったら引き分け' },
+    { by: 'server', title: '相手の手札は送らない', flow: [['server', 'web']], focus: ['server', 'web', 'p1'],
+      text: '盤面は席ごとの見え方（<code>view(席)</code>）に直してから返す。相手の手札は枚数だけ、相手が選んだカードも中身は送らない。',
+      note: 'ブラウザで隠しているのではないので、通信をのぞいても中身は分からない' },
+    { by: 'web', title: '1秒ごとに相手の様子を見る', flow: [['web', 'server'], ['server', 'web']],
+      text: 'LAN 対戦では1秒ごとに盤面を取りに行く（ポーリング）。状態が変わるたびに増える番号（rev）で、古い返事を捨てる。CPU 対戦は選んだ返事に結果が入っているので取りに行かない。',
+      note: '15秒アクセスがない席はオフライン扱い。部屋は決着から30分で消える' },
+    { by: 'solo', title: '1台版：交代で遊ぶ', flow: [['p0', 'solo'], ['p1', 'solo']],
+      text: 'サーバーを起動しなくても、フォルダ直下の index.html を開けば1台のパソコンを2人で交代して遊べる。ルールは game.js に入っていて、サーバー版とは別のプログラム。' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: 'カードの強さ・3つの戦場への出し方・相打ち・勝ち負けの決まり方・1台版とサーバー版・CPU の4つの難易度・LAN 対戦の始め方まで（全14ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '戦場での勝ち負けと判定のタイミングから、CPU の性格・プログラムの全体構成・部屋コードと token・相手の手札を送らない仕組みまで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/TrumpTriBattle</code>。サーバー版（<code>web/</code>＋<code>server/</code>＋<code>engine/</code>）が本番で、フォルダ直下の1台版は古い版として残してあります。',
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>そだてもん — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'sodatemon',
+  caption: '勉強の4択クイズに答えてキャラを育て、日本統一を目指す学習ゲーム',
+  lead: '4択クイズに正解すると<b>コインと経験値</b>がもらえ、ガチャで集めたキャラが育ちます。日本統一マップのバトルも、中身はクイズ。<b>どこへ行っても問題を解く</b>作りです。' +
+        'プログラムは <code>sodatemon-magna.html</code> の<b>HTML 1ファイル</b>だけ。サーバーもライブラリも使わず、状態は <code>window.gameState</code> という1つのオブジェクトにまとめて、ブラウザの <code>localStorage</code> に保存します。',
+  say: ['勉強を少しゲームっぽくしたい', 'ダブルクリックだけで遊びたい', 'HTML 1ファイルで作るゲームの作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'you', type: 'person', label: 'プレイヤー', at: [-8.5, 0], desc: 'クイズに答え、ガチャを引き、キャラを育てて日本統一を目指す。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: '6つのメニュー', at: [-5, 0],
+      desc: 'ラーニング・ガチャ・編成・バトル・キャラ・オプションの6つの <code>section</code>。メニューのボタンで <code>active</code> を付け替えて切り替える。' },
+    { id: 'state', type: 'data', label: 'window.gameState', sub: '状態まるごと', at: [-2, -4.2],
+      desc: 'コイン・XP・キャラ・装備・編成・領土・兵糧など、ゲームの状態は全部この1つのオブジェクトにある。関数が書き換えて、<code>updateStats()</code> などで画面を描き直す。' },
+    { id: 'main', type: 'main', label: 'sodatemon-magna.html', sub: 'HTML 1ファイル', at: [0, 0.4],
+      desc: '<code>&lt;style&gt;</code>・HTML・データ表・関数が全部この1ファイルに入っている。関数は <code>window.answerQuestion = function…</code> の形で、ボタンの <code>onclick</code> から直接呼ぶ。' },
+    { id: 'learn', type: 'code', label: 'answerQuestion()', sub: 'ラーニング', at: [3.4, -3.8],
+      desc: '4択クイズの答え合わせ。正解するとコインと XP が増え、選んだキャラのレベルが上がる。' },
+    { id: 'gacha', type: 'code', label: 'doGacha()', sub: 'ガチャ・覚醒・合成', at: [4.8, 0],
+      desc: 'コインでキャラや装備を引く。同じキャラを重ねる覚醒（<code>evolveCharacter()</code>）と合成（<code>synthesisCharacter()</code>）もここの仲間。' },
+    { id: 'battle', type: 'code', label: '日本統一バトル', sub: 'startConquestBattle()', at: [3.4, 4],
+      desc: '日本統一マップでとなりの領土を選ぶと、4×4 の戦場でクイズのバトルが始まる。' },
+    { id: 'tables', type: 'data', label: 'データ表', sub: '問題・領土（const）', at: [8.4, -2],
+      desc: '問題（小6〜中3）、領土ととなりの領土、敵の勢力、キャラ表、レア度を <code>const</code> で直書きしている。' },
+    { id: 'store', type: 'store', label: 'localStorage', sub: 'sodatemon_magna_save', at: [6.8, 3.8],
+      desc: '<code>gameState</code> まるごとを JSON にして、ブラウザの中に保存する。' },
+  ],
+  links: [['you', 'web'], ['web', 'main', true], ['main', 'state', false], ['main', 'learn', true], ['main', 'gacha'], ['main', 'battle', false],
+    ['learn', 'tables', true], ['battle', 'tables'], ['main', 'store', false]],
+  steps: [
+    { by: 'you', title: 'HTML をダブルクリック', flow: [['you', 'web'], ['web', 'main'], ['store', 'main']],
+      text: '<code>sodatemon-magna.html</code> をダブルクリックすると、ブラウザでゲームが始まる。インストールもサーバーもいらない。開いたときに、前にセーブしたデータを <code>localStorage</code> から自動で読みこむ。',
+      note: 'フォルダにはほかに HTML が11個あるが、古い版や機能のお試し版。遊ぶのは magna だけでOK' },
+    { by: 'learn', title: 'ラーニング：4択クイズに答える', flow: [['web', 'main'], ['main', 'learn'], ['learn', 'tables']],
+      text: '学年（小6〜中3）を選ぶと、<code>LEARNING_DATA</code> から問題が出る。正解するとコイン +10・XP +2、育てるキャラに選んだキャラには +100 XP（100 たまると1レベル上がる）。' },
+    { by: 'gacha', title: 'ガチャでキャラと装備を集める', flow: [['main', 'gacha'], ['main', 'state']],
+      text: 'キャラガチャは1回200コイン（10回1800）、装備ガチャは1回100コイン（10回800）。レア度は6段階で、どれも同じ確率で出る。引いたキャラは Lv1・最大Lv100・兵数1000 から始まる。' },
+    { by: 'gacha', title: '覚醒と合成で強くする', flow: [['main', 'gacha'], ['gacha', 'main']],
+      text: '同じキャラを重ねると<b>覚醒</b>（最大レベル +20、兵数 +3000）。同じキャラで同じレベルどうしなら<b>合成</b>（兵数 +20000）。編成には別々のキャラを5体まで入れられる。' },
+    { by: 'battle', title: '日本統一マップ：となりにだけ攻めこむ', flow: [['main', 'battle'], ['battle', 'tables']],
+      text: 'はじめは沖縄だけが自分の領土。<code>TERRITORIES</code> の「となり」の情報を使って、自分の領土のとなりにある領土にだけ攻めこめる。' },
+    { by: 'battle', title: 'バトル：正解すると兵を置ける', flow: [['battle', 'learn'], ['battle', 'main']], focus: ['battle', 'learn', 'main', 'state'],
+      text: '4×4 のマスで戦う。クイズに正解すると10部隊を好きなマスに置け、まちがえると兵糧が減る。「次ターン」で置いた部隊の数だけ敵の兵糧（1000）を削る。敵の兵糧が0になれば勝ちで、その領土と XP +100 がもらえる。',
+      note: '今の版では敵は部隊を置かず、キャラの兵数や編成もバトルには使われていない' },
+    { by: 'store', title: 'セーブはボタンを押したときだけ', flow: [['main', 'state'], ['main', 'store']], focus: ['main', 'state', 'store'],
+      text: 'オプションの「💾 セーブ」で、<code>gameState</code> まるごとを JSON にして保存する。自動では保存されない。古いセーブに新しい項目が無ければ、読みこむときに初期値で埋める。',
+      note: '保存はそのPC・そのブラウザの中だけ。やめる前にセーブを押す' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '始め方・画面の見方・4択クイズ・ガチャ・キャラの育て方・覚醒と合成・編成・日本統一マップのバトル・セーブのしかたまで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '初代のたまごの育成から、ラーニング・ガチャ・覚醒と合成・日本統一マップと4×4の戦場、HTML 1ファイルの構成とセーブ、12個の HTML の関係まで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/sodatemon</code>。このページは、いちばん新しくて全部入りの <code>sodatemon-magna.html</code> の説明です。ゲームの中のキャラ名は、このページには載せていません。',
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcanaExplosion — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'ArcanaExplosion',
+  caption: 'トランプ52枚がキャラクターとアイテムに化ける、2人対戦のカードバトル',
+  lead: 'トランプの<b>数字札がキャラクター</b>、<b>絵札とジョーカーがアイテム</b>になるカードバトルです。' +
+        'ルールは Python の <code>engine/</code> だけが知っていて、Flask のサーバーが「部屋」と「席」を管理し、ブラウザは届いた盤面を描くだけ。' +
+        'CPU 対戦も LAN（スマホもOK）対戦も、同じ部屋の仕組みで動きます。',
+  say: ['ひとりで CPU と対戦したい', '同じ Wi-Fi の家族や友だちと対戦したい', 'ルールと画面を分けた作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p0', type: 'person', label: 'プレイヤー（席0）', at: [-8.5, 2.6], desc: '部屋を作った人。ブラウザで遊ぶ。' },
+    { id: 'p1', type: 'person', label: '相手（席1）', sub: '人 or CPU', at: [-8.5, -2.6], desc: '同じ部屋に入った人。CPU 対戦では、ここに CPU（<code>engine/ai.py</code>）が座る。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'web/app.js・js/*.js', at: [-4.2, 0],
+      desc: '盤面を描き、押せるボタンを並べる画面。ルールは持っていない。<code>/api/room/state</code> を 1.2 秒ごとに取りに行く（ポーリング）。' },
+    { id: 'server', type: 'main', label: 'server/app.py', sub: 'Flask・rooms.py', at: [0, 0],
+      desc: 'Flask の入り口。<code>rooms.py</code> が部屋と席を管理し、行動を engine に渡して、席ごとの見え方に直した盤面を返す。' },
+    { id: 'engine', type: 'code', label: 'engine/', sub: 'game.py・combat.py・ai.py', at: [4.4, 0],
+      desc: 'ターン進行・戦闘・勝敗判定をする純粋な Python。画面のことは一切知らない。' },
+    { id: 'balance', type: 'data', label: 'balance.json', sub: '数値', at: [8.4, -3.2], desc: 'HP・ダメージ・手札上限などの数字はここだけ。調整に Python を読まなくていい。' },
+    { id: 'skins', type: 'data', label: 'skins/*.json', sub: 'カード名・技名', at: [8.4, 0.4], desc: '同じルールのまま、カード名や技名の見た目だけを着せ替える。' },
+    { id: 'sim', type: 'code', label: 'simulate.py', sub: 'CPU 同士で数百戦', at: [8.4, 4], desc: 'engine が画面を知らないので、CPU 同士を何百戦も自動対戦させてバランス（先攻の勝率など）を測れる。' },
+  ],
+  links: [['p0', 'web'], ['p1', 'web'], ['web', 'server', true], ['server', 'engine', true], ['engine', 'balance'], ['engine', 'skins'], ['sim', 'engine']],
+  steps: [
+    { by: 'p0', title: '部屋を作る・入る', flow: [['p0', 'web'], ['web', 'server']],
+      text: '「ひとりで遊ぶ」なら CPU が相手の席に座る部屋、「みんなで遊ぶ」なら LAN の部屋を作る。相手は部屋一覧から入る。',
+      note: 'LAN 対戦は同じネットワーク（Wi-Fi）につないだ端末どうしで遊ぶ' },
+    { by: 'web', title: '行動だけを送る', flow: [['web', 'server']],
+      text: 'ブラウザが送るのは「攻撃する」「交代する」のような行動だけ（<code>POST /api/room/action</code>）。カードの計算はしない。' },
+    { by: 'engine', title: 'ルールは engine が決める', flow: [['server', 'engine'], ['engine', 'balance']],
+      text: '1 ターンに 1 枚引く、攻撃とダメージ、疲労と強制退場、第三勢力の乱入などを engine が処理する。数値は balance.json から読む。' },
+    { by: 'server', title: '次に選べる行動も一緒に返す', flow: [['engine', 'server'], ['server', 'web']],
+      text: 'サーバーは処理後の盤面と「次に選べる行動の一覧（actions）」を返す。ブラウザはそれをボタンに変えるだけなので、ルールを変えても画面を直さなくていい。' },
+    { by: 'server', title: '相手の手札は送る前に消す', flow: [['server', 'web']], focus: ['server', 'web', 'p1'],
+      text: '相手の手札やベンチの中身は、席ごとの見え方（<code>room.view(席)</code>）に直してから返す。自分あてには中身、相手あてには枚数だけ。',
+      note: 'ブラウザで隠しているのではないので、通信をのぞいても中身は分からない' },
+    { by: 'web', title: '1.2 秒ごとに盤面を取りに行く', flow: [['web', 'server'], ['server', 'web']],
+      text: 'ターン制なので WebSocket は使わず、ポーリングで相手の動きを受け取る。' },
+    { by: 'sim', title: 'CPU 同士でバランスを測る', flow: [['sim', 'engine'], ['engine', 'balance']],
+      text: '<code>py -3 simulate.py --games 400</code> のように CPU 同士を自動対戦させて、先攻の勝率や試合の長さを数字で確かめながら調整する。' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: 'カードの強さ・攻撃とダメージ・疲労と退場・技とアイテム・第三勢力の乱入・ネットワーク対戦まで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: 'トランプがキャラクターになる計算式から、サーバーとブラウザの分担・カンニング対策・バランス調整まで、立体図で' },
+    { href: 'design.html', icon: '📐', title: '設計図', desc: 'アーキテクチャ・シーケンス図・ステートマシン図・ER図（Mermaid）。部屋・通信・ターン進行・データモデルの内部設計' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/ArcanaExplosion</code>。カード名・技名はスキン（着せ替え）によって変わるため、このページには載せていません。',
+});
+</script>
+</body>
+</html>

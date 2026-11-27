@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スライム建国記 — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'slime-nation',
+  caption: '六角形の地図を、交渉と制圧で自分の色に塗り替えていく国造りシミュレーション',
+  lead: '小さなスライムが目覚めた森を本拠地に、となりの土地を<b>交渉</b>か<b>制圧</b>で従えていく国造りゲームです。' +
+        '<code>index.html</code> をダブルクリックするだけで動き、処理は <code>data.js → rules.js → store.js → view.js → main.js</code> の 5 つに分かれています。' +
+        'ルール（rules.js）は画面にさわらず、画面（view.js）はルールを変えない。つなぎ役の main.js が「行動 → 画面更新 → 保存」をまとめて回します。',
+  say: ['インストールなしでブラウザだけで遊びたい', '確率と資源のやりくりで国を広げたい', 'ルール・画面・保存を分けた小さな作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'player', type: 'person', label: 'プレイヤー', sub: 'スライムの国', at: [-8.5, 0], desc: '土地を選んで交渉・制圧し、施設を建て、仲間を鍛え、「次の日へ」で日を進める。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'view.js', at: [-4.4, 0],
+      desc: '六角形の地図（SVG の <code>&lt;polygon&gt;</code>）・資源・施設・仲間・年代記を描く。<code>view.js</code> は状態を受け取って描くだけ。' },
+    { id: 'main', type: 'main', label: 'main.js', sub: 'つなぎ役（act → commit）', at: [0, 0],
+      desc: 'ゲームの状態を 1 か所で持つ。ボタンが押されたら rules.js の行動を呼び、状態が変わったときだけ「後片付け → 画面更新 → 保存」をする。' },
+    { id: 'rules', type: 'code', label: 'rules.js', sub: '成功率・生産・行動', at: [4.6, 0],
+      desc: '成功率・生産量・交渉や制圧・外交・施設・仲間の育成など、ルールのすべて。画面にはさわらない。' },
+    { id: 'ai', type: 'code', label: '周辺勢力の AI', sub: 'factionAiTurn()', at: [5.8, -3.8],
+      desc: 'まわりの 2 つの勢力の動き（rules.js の中）。毎日、自分の土地を少しずつ強くし、ときどき隣の土地を攻める。好戦的な勢力ほどよく動く。' },
+    { id: 'data', type: 'data', label: 'data.js', sub: '領地・施設・イベント', at: [8.6, 0],
+      desc: '13 の領地・2 つの勢力・5 つの施設・4 人の仲間・進化の段階・イベント・費用など、変わらない設定値だけ。バランス調整はここ。' },
+    { id: 'store', type: 'code', label: 'store.js', sub: 'セーブ／ロード・修復', at: [0, 3.8],
+      desc: '最初の状態を作り（<code>freshState()</code>）、セーブを読み書きする。読み込むときは <code>restoreState()</code> が足りない項目や壊れた値を直す。' },
+    { id: 'ls', type: 'store', label: 'localStorage', sub: 'slime-nation-save-v3', at: [7.2, 4],
+      desc: 'ブラウザの中のセーブ。別のブラウザ・別の PC には引き継がれない。保存名を変えると今までのセーブが読めなくなる。' },
+  ],
+  links: [['player', 'web'], ['web', 'main'], ['main', 'rules'], ['rules', 'ai', true], ['rules', 'data'], ['ai', 'data', true], ['main', 'store', true], ['store', 'ls']],
+  steps: [
+    { by: 'main', title: '開くと続きから始まる', flow: [['player', 'web'], ['ls', 'store'], ['store', 'main'], ['main', 'web']],
+      text: '<code>index.html</code> をダブルクリックすると、main.js が <code>store.load()</code> でセーブを読み、無ければ最初の状態を作って画面を描く。',
+      note: 'ES modules を使わず普通の &lt;script&gt; で読むのは、ダブルクリック（file://）でも動かすため' },
+    { by: 'player', title: 'となりの土地だけねらえる', flow: [['player', 'web'], ['web', 'main'], ['main', 'rules']],
+      text: '地図は 13 マスの六角形。自分の土地のとなりにある土地だけが交渉・制圧の相手になる（<code>canTarget()</code>）。' },
+    { by: 'rules', title: '交渉か制圧で迎え入れる', flow: [['main', 'rules'], ['rules', 'data']],
+      text: '交渉は魔素と食料、制圧は木材と魔素を払う。成功すればその土地が自分の色になり、経験値と資源がもらえる。失敗すると払った分だけ失う。' },
+    { by: 'rules', title: '成功率は「力 − 土地の強さ」', flow: [['rules', 'data']],
+      text: '成功率は「基本の値 ＋（自分の力 − 土地の強さ）× 1.2」で、8〜92% に収める。交渉の力は魔導書庫や仲間、制圧の力は訓練場や仲間、どちらも土地の数とスライムの進化で伸びる。' },
+    { by: 'main', title: '行動のあとは必ず commit', flow: [['rules', 'main'], ['main', 'web'], ['main', 'store'], ['store', 'ls']],
+      text: '状態が変わった行動のあとは、進化と節目のチェック → 画面を描き直す → localStorage に保存、を必ず同じ順でする（<code>commit()</code>）。' },
+    { by: 'rules', title: '「次の日へ」で起きること', flow: [['main', 'rules'], ['rules', 'data'], ['rules', 'ai']],
+      text: '施設・仲間・持っている土地の分だけ魔素・食料・木材が増え、まわりの 2 つの勢力が動き、同盟相手から収入が入る。30% の確率でランダムなイベントも起きる。' },
+    { by: 'ai', title: 'まわりの勢力も動く', flow: [['rules', 'ai'], ['ai', 'data']], focus: ['ai', 'rules', 'web'],
+      text: '勢力は毎日自分の土地を少し強くし、ときどき隣のいちばん弱い土地を攻める。好戦的な勢力は 35%、交易を重んじる勢力は 18% の確率で動く。',
+      note: '停戦・同盟中は自分の土地をねらわれない。本拠地もねらわれない' },
+    { by: 'player', title: '外交：贈り物・停戦・同盟', flow: [['web', 'main'], ['main', 'rules']],
+      text: '贈り物で関係を良くし、停戦（8 日間）や同盟を申し込める。同盟は関係が 60 以上で申し込めて、毎日収入が入る。自分から手を出すと停戦・同盟は破れる。' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '始め方とセーブ・1日の流れ・3つの資源・交渉と制圧・成功率のしくみ・施設と仲間・進化・2つの勢力と外交・イベントまで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '六角形の13マスの地図・「次の日へ」で起きること・生産量と成功率の式・勢力AI・外交・プログラムの全体構成とセーブデータまで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/slime-nation</code>。仲間・領地・勢力の名前はすべてオリジナル。仕組み図解は js が 1 ファイルだったころに作ったもので、今は 5 つのファイルに分かれています。',
+});
+</script>
+</body>
+</html>

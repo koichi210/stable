@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>太平洋海戦 — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'pacific',
+  caption: '六角形のマスで海軍・空軍・陸軍を動かし、相手の王都を落とすターン制ストラテジー',
+  lead: '六角形のマスの海と陸で<b>艦艇・航空機・陸軍</b>を動かし、前線基地を崩して相手の<b>王都</b>を落とすゲームです。' +
+        'ルールは Phaser に依存しない <code>src/logic/</code>（<code>GameState.ts</code> など）にまとめ、<code>GameScene.ts</code> が画面の入力とルールをつなぎます。' +
+        '<code>server.ts</code> 1 本が画面の配信と LAN 対戦の通信（<code>/ws</code>）を同じポートで受け持ちます。',
+  say: ['ひとりで CPU と戦略バトルをしたい', '同じ Wi-Fi の相手と 2 人で対戦したい', 'ルールと画面を分けた Phaser の作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p1', type: 'person', label: 'プレイヤー', sub: 'ホスト', at: [-8.5, 2.6], desc: 'あそぶ.bat で起動して遊ぶ人。LAN 対戦ではルームを作る側（ホスト）。' },
+    { id: 'p2', type: 'person', label: '相手', sub: 'CPU or LAN の相手', at: [-8.5, -2.6], desc: 'ひとりで遊ぶときは CPU（<code>logic/cpu.ts</code>）。LAN 対戦では、ルームに参加した人が自分のブラウザで遊ぶ。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: 'Phaser', at: [-4.4, 0],
+      desc: 'Phaser 3 の画面。マップは <code>HexMapView.ts</code>、コマは <code>FleetView.ts</code>、ターン・資源・建造ボタンは <code>HudScene.ts</code>。描くだけで判定はしない。' },
+    { id: 'main', type: 'main', label: 'GameScene.ts', sub: 'つなぎ役', at: [0, 0],
+      desc: 'クリックを受けて GameState に「動かす・攻撃する・建造する」を頼み、結果を画面に反映するコントローラー役。HudScene とはイベント（<code>hud-*</code>）でやりとりする。' },
+    { id: 'server', type: 'code', label: 'server.ts', sub: '配信＋/ws', at: [-2.4, -4.2],
+      desc: '画面（<code>dist/</code>）の配信と LAN 対戦の WebSocket（<code>/ws</code>）を 1 つのポートで担当。ふだんは 5200 番、<code>--lan</code> なら 80 番。ゲームのルールは知らず、メッセージを転送するだけ。' },
+    { id: 'state', type: 'code', label: 'GameState.ts', sub: 'combat.ts・hexGrid.ts', at: [4.4, 0],
+      desc: 'ゲームの状態（ユニット・資源・領土・ターン）とルール。Phaser に依存しない。ダメージは <code>combat.ts</code>、マスの距離や行けるマスは <code>hexGrid.ts</code>。' },
+    { id: 'world', type: 'code', label: 'WorldGameState.ts', sub: '世界編', at: [6.6, -4],
+      desc: '世界編のゲーム状態。仕組みは GameState とほぼ同じで、3 つの陣営が順番にターンを回す。画面は <code>WorldGameScene.ts</code>。' },
+    { id: 'cpu', type: 'code', label: 'cpu.ts', sub: 'CPU の思考', at: [2.4, 4],
+      desc: 'いちばん近い相手（敵のユニット、または攻撃してよい基地・王都）をねらい、射程内なら攻撃、外なら近づく貪欲法。毎ターン、買える中からランダムに 1 体建造する。' },
+    { id: 'data', type: 'data', label: 'data/units.json', sub: 'countries.json', at: [8.6, 0],
+      desc: 'ユニット 7 種の HP・移動力・射程・攻撃力・建造コスト。<code>countries.json</code> は国ごとの名前と色（見た目だけで強さは変わらない）。' },
+  ],
+  links: [['p1', 'web'], ['p2', 'web'], ['web', 'main'], ['web', 'server', true], ['main', 'state'], ['main', 'world', true], ['main', 'cpu', true], ['state', 'data'], ['world', 'data', true]],
+  steps: [
+    { by: 'server', title: 'bat で起動すると画面が届く', flow: [['p1', 'web'], ['server', 'web']],
+      text: '<code>あそぶ.bat</code> が同梱の Node で <code>server.ts</code> を動かし、<code>http://localhost:5200/</code> を開く。<code>src/</code> が <code>dist/</code> より新しければ、起動時に Vite で自動ビルドし直す。',
+      note: 'Node 24 は .ts をそのまま動かせるので、server.ts 自体はビルドしない' },
+    { by: 'p1', title: '戦域と国を選ぶ', flow: [['p1', 'web'], ['web', 'main'], ['state', 'data']],
+      text: 'タイトルで太平洋編・アジア編・ヨーロッパ編・世界編を選ぶ。戦域によって海と陸の配置が変わる。国は色と名前だけのスキンで、ユニットの強さは同じ。' },
+    { by: 'main', title: '動かす：海・空・陸の 3 つの層', flow: [['web', 'main'], ['main', 'state']],
+      text: 'コマを押すと <code>hexGrid.ts</code> が移動力の範囲で行けるマスを探す。艦艇は海だけ、陸軍は陸だけ、航空機はどこでも飛べる。同じマスに艦艇と航空機は重なれる。' },
+    { by: 'state', title: '攻撃とダメージ', flow: [['main', 'state'], ['state', 'data']],
+      text: '射程内の敵を押すと攻撃。ダメージは <code>combat.ts</code> が「攻撃力 ± 2 のばらつき」で決め、最低でも 1。1 体が 1 ターンに攻撃できるのは 1 回。' },
+    { by: 'state', title: '資源で建造し、領土で稼ぐ', flow: [['web', 'main'], ['main', 'state']],
+      text: '資源 40 から始まり、ターン終了ごとに +10、持っている資源マス 1 つにつき +5、陸地マス 1 つにつき +8。艦艇・航空機は王都か生きている前線基地から、陸軍は王都から 5 マス以内の陸地に出す。' },
+    { by: 'cpu', title: 'CPU の番', flow: [['main', 'cpu'], ['cpu', 'main'], ['main', 'state']],
+      text: '「ターン終了」で CPU の番。<code>cpu.ts</code> が 1 体ずつ「いちばん近い相手を撃つか、近づくか」を決め、資源があれば 1 体建造する。' },
+    { by: 'state', title: '前線基地を崩して王都を落とす', flow: [['main', 'state']], focus: ['state', 'main', 'web'],
+      text: '王都（HP 60）のまわりを前線基地 6 つ（各 HP 30）が囲む。隣り合う 2 つを落とすと王都を攻撃できる。王都の HP が 0 になると負けで、領土と資源は勝った側に移る。',
+      note: '世界編は 3 勢力。王都が落ちた陣営はその場で脱落する' },
+    { by: 'server', title: 'LAN 対戦：盤面まるごとを中継', flow: [['web', 'server'], ['server', 'web']], focus: ['server', 'web', 'p1', 'p2'],
+      text: '<code>みんなで遊ぶ（LAN対戦）.bat</code> は 80 番で起動（使えなければ 5200 番）。4 桁のルームで 2 人をつなぎ、操作した人が盤面まるごと（<code>toSnapshot()</code>）を送り、相手はそれで置き換える。',
+      note: 'サーバーは中身を見ない。盤面の改ざんチェックや対戦中の再接続はなく、信頼できる相手どうしで遊ぶ前提' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '始め方・戦域と国・マスの種類・1ターンの流れ・攻撃とダメージ・海空陸のユニット・資源と建造・領土・前線基地と王都・世界編・LAN対戦まで（全15ステップ）' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/太平洋海戦</code>。仕組み図解はまだ無いので、このページの図はソースから起こしました。セーブ機能はありません。',
+});
+</script>
+</body>
+</html>

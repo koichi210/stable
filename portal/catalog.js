@@ -8,7 +8,7 @@
  *
  * トップは魔法陣が2つ。左＝stable（ITEMS のうち center の付いていないもの）、
  * 右＝中心に FeasibilityStudy（center: true）を置き、周りに GAMES（試作ゲーム）をジャンル（GENRES）ごとに並べる。
- * ゲームを足すときは GAMES に1件（href は図解ページ。図解が無ければ遊び方ページ）。
+ * ゲームを足すときは GAMES に1件（href は説明ページ doc/FeasibilityStudy/<フォルダ>/ = index.html）。
  */
 (function () {
   'use strict';
@@ -106,40 +106,43 @@
   ];
   var FS = 'doc/FeasibilityStudy/';
   var GAMES = [
-    { id: 'ArcanaExplosion', name: 'ArcanaExplosion', emoji: '🃏', genre: 'card', href: FS + 'ArcanaExplosion/game-guide.html',
+    { id: 'ArcanaExplosion', name: 'ArcanaExplosion', emoji: '🃏', genre: 'card', href: FS + 'ArcanaExplosion/',
       tech: 'カードバトル / Python + Flask + HTML/JS',
       summary: 'トランプ52枚がキャラクターとアイテムに化けるカードバトル。仕組み図解・設計図・遊び方がある。' },
-    { id: 'TrumpTriBattle', name: 'トランプ三戦場バトル', emoji: '♠️', genre: 'card', href: FS + 'TrumpTriBattle/game-guide.html',
+    { id: 'TrumpTriBattle', name: 'トランプ三戦場バトル', emoji: '♠️', genre: 'card', href: FS + 'TrumpTriBattle/',
       tech: 'トランプ対戦 / HTML/JS（1台版）+ Python・Flask（CPU/LAN版）',
       summary: '3つの戦場に同時に1枚ずつ出して、取った枚数で競うトランプ対戦。' },
-    { id: 'haken', name: '覇権戦国', emoji: '⚔️', genre: 'board', href: FS + '覇権戦国/game-guide.html',
-      tech: '駒の戦国バトル / HTML + JavaScript + Node(Express/ws)',
+    { id: 'haken', name: '覇権戦国', emoji: '⚔️', genre: 'board', href: FS + '覇権戦国/',
+      tech: '駒の戦国バトル / TypeScript + Vite + Node(Express/ws)',
       summary: '兵数を持った駒で戦う「将棋版」の戦国バトル（開発初期）。' },
-    { id: 'shubi', name: '戦国守備戦', emoji: '🗾', genre: 'board', href: FS + '戦国守備戦/game-guide.html',
+    { id: 'shubi', name: '戦国守備戦', emoji: '🗾', genre: 'board', href: FS + '戦国守備戦/',
       tech: '戦略ゲーム / TypeScript + Phaser 3 + Vite',
       summary: '県ごとの軍で日本を取り合い、出撃するとじゃんけん合戦で決着する戦略ゲーム。' },
-    { id: 'kingdom-game', name: '陣形と城壁（仮）', emoji: '🏯', genre: 'board', href: FS + 'kingdom-game/game-guide.html',
+    { id: 'kingdom-game', name: '陣形と城壁（仮）', emoji: '🏯', genre: 'board', href: FS + 'kingdom-game/',
       tech: '陣形バトル / 素の HTML/CSS/JavaScript',
       summary: '兵種の三すくみ×地形で戦う陣形バトルに、攻城戦と国盗りが付く。' },
-    { id: 'slime-nation', name: 'スライム建国記', emoji: '🟢', genre: 'hex', href: FS + 'slime-nation/game-guide.html',
-      tech: '国造りシミュレーション / HTML + CSS + JavaScript 1ファイル',
+    { id: 'slime-nation', name: 'スライム建国記', emoji: '🟢', genre: 'hex', href: FS + 'slime-nation/',
+      tech: '国造りシミュレーション / HTML + CSS + JavaScript（サーバー不要）',
       summary: '六角形の地図を、交渉と制圧で塗り替える国造りシミュレーション。' },
-    { id: 'pacific', name: '太平洋海戦', emoji: '⚓', genre: 'hex', href: FS + '太平洋海戦/tutorial.html', go: '遊び方を開く →',
+    { id: 'pacific', name: '太平洋海戦', emoji: '⚓', genre: 'hex', href: FS + '太平洋海戦/',
       tech: 'ターン制ストラテジー / TypeScript + Phaser + Vite',
-      summary: '六角形のマスで海軍・空軍・陸軍を動かし、相手の王都を落とす。仕組み図解はまだ無く、遊び方だけ。' },
-    { id: 'BrawlArena', name: 'BrawlArena', emoji: '💥', genre: 'action', href: FS + 'BrawlArena/game-guide.html',
+      summary: '六角形のマスで海軍・空軍・陸軍を動かし、相手の王都を落とすターン制ストラテジー。' },
+    { id: 'BrawlArena', name: 'BrawlArena', emoji: '💥', genre: 'action', href: FS + 'BrawlArena/',
       tech: 'アリーナバトル / TypeScript + Phaser 3 + Vite',
       summary: '見下ろし視点で撃ち合う1対1のアリーナバトル。' },
-    { id: 'meisan', name: '名産鉄道', emoji: '🚃', genre: 'travel', href: FS + '名産鉄道/game-guide.html',
+    { id: 'meisan', name: '名産鉄道', emoji: '🚃', genre: 'travel', href: FS + '名産鉄道/',
       tech: 'すごろく / TypeScript + Phaser 3 + Vite（LAN は Node + ws）',
       summary: '47都道府県をサイコロで旅して名産品を集めるすごろくに、兵隊バトルが付く。' },
-    { id: 'sodatemon', name: 'そだてもん', emoji: '🌱', genre: 'travel', href: FS + 'sodatemon/game-guide.html',
+    { id: 'sodatemon', name: 'そだてもん', emoji: '🌱', genre: 'travel', href: FS + 'sodatemon/',
       tech: '学習ゲーム / HTML 1ファイル + JavaScript',
       summary: '勉強クイズに答えてキャラを育て、日本統一を目指す学習ゲーム。' },
   ];
 
+  // 試作ゲームも説明ページ(ToolPage)の id で引けるように、グループは「試作ゲーム」にする
+  GAMES.forEach(function (g) { g.group = 'fs'; });
+
   var byId = {};
-  ITEMS.forEach(function (it) { byId[it.id] = it; });
+  ITEMS.concat(GAMES).forEach(function (it) { byId[it.id] = it; });
   var groupById = {};
   GROUPS.forEach(function (g) { groupById[g.id] = g; });
 

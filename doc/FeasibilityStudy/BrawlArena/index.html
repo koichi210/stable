@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrawlArena — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'BrawlArena',
+  caption: '見下ろし視点のアリーナで、ボットと1対1で撃ち合うアクションバトル',
+  lead: '上から見下ろした草原のアリーナで、<b>あなた1人とボット1体</b>が2分間撃ち合い、キル数で勝ち負けを決めるゲームです。' +
+        'ゲームエンジンは Phaser 3。<code>GameScene.ts</code> は「組み立て」と「毎フレームの呼び出し順」だけを持ち、ダメージ・マップ・時間などの中身はそれぞれの担当クラスに分けてあります。' +
+        'キャラの強さや試合のルールの数字は、すべて <code>src/data/*.json</code> にあります。',
+  say: ['ひとりでサクッと撃ち合いたい', '試合を重ねてキャラを育てたい', '人とボットを同じ部品で動かす作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'you', type: 'person', label: 'プレイヤー（あなた）', at: [-8.5, 0], desc: 'キーボードの WASD で移動、マウスで照準、左クリックで攻撃、Shift で必殺技。' },
+    { id: 'web', type: 'screen', label: 'ブラウザの画面', sub: '選択・試合表示', at: [-5, 0],
+      desc: 'キャラ選択画面（<code>SelectScene</code>）と、試合中の HP・ゲージ・残り時間の表示（<code>ui/Hud.ts</code>）。<code>play.html</code> をダブルクリックで開ける。' },
+    { id: 'game', type: 'main', label: 'GameScene.ts', sub: '1試合の進行役', at: [0, 0],
+      desc: '1試合ぶんの組み立てと、毎フレームの呼び出し順だけを持つ。時間切れと勝ち負けは <code>MatchClock.ts</code> にまかせる。' },
+    { id: 'ctrl', type: 'code', label: 'IController', sub: 'Input（人）／AI（ボット）', at: [-2, -4],
+      desc: '操作の窓口。人間用の <code>InputController.ts</code> とボット用の <code>AIController.ts</code> を差し替えるだけで、同じキャラが動く。ボット専用のクラスは無い。' },
+    { id: 'player', type: 'code', label: 'Player.ts', sub: '人もボットも同じ', at: [3.2, -3.6],
+      desc: 'キャラ本体。HP・弾の数・必殺技ゲージ・見た目を持つ。弾は <code>ProjectilePool.ts</code> で使い回す。' },
+    { id: 'combat', type: 'code', label: 'CombatSystem.ts', sub: 'ダメージ・ゲージ・必殺技', at: [4.6, 0.2],
+      desc: 'ダメージの計算、必殺技ゲージのため方、近接攻撃の扇形の当たり判定、必殺技の3タイプを担当する。' },
+    { id: 'arena', type: 'code', label: 'Arena.ts', sub: '壁・茂み', at: [3.4, 4],
+      desc: 'マップを組み立てる。壁は弾をさえぎり、茂みの中のキャラは近づかないと相手から見えない（<code>isHiddenFrom()</code>）。' },
+    { id: 'data', type: 'data', label: 'src/data/*.json', sub: '数字はここだけ', at: [8.6, -2],
+      desc: 'キャラ性能（<code>characters.json</code>）、試合のルール（<code>rules.json</code>）、マップ（<code>maps.json</code>）、成長（<code>progression.json</code>）。コードに数字を直書きしない。' },
+    { id: 'store', type: 'store', label: 'localStorage', sub: 'ProgressionStore.ts', at: [6.6, 3.8],
+      desc: '通貨（魔素）・プレイヤーLv・キャラLv・解放済みキャラを、ブラウザの中に保存する（キー <code>brawlarena_save_v1</code>）。' },
+  ],
+  links: [['you', 'web'], ['web', 'game', true], ['web', 'ctrl', false], ['ctrl', 'player', true], ['game', 'player', true], ['game', 'combat'],
+    ['game', 'arena', false], ['combat', 'data', true], ['game', 'store', false]],
+  steps: [
+    { by: 'you', title: 'play.html を開いてキャラを選ぶ', flow: [['you', 'web'], ['web', 'game']],
+      text: '<code>play.html</code> をダブルクリックすると、キャラ選択画面が出る。キャラは全部で13体、最初に使えるのは3体。丸をクリックすると、選んだキャラの id（<code>characterId</code>）が <code>GameScene</code> に渡されて試合が始まる。',
+      note: 'Phaser をネットから読みこむので、インターネットが必要。LAN 対戦や2人プレイはまだ無い' },
+    { by: 'game', title: '試合ごとに全部を作り直す', flow: [['game', 'arena'], ['game', 'player']],
+      text: '<code>create()</code> の中で、マップ（<code>Arena</code>）・弾の置き場・あなたとボットの <code>Player</code>・表示（<code>Hud</code>）を毎回新しく作る。ボットのキャラは、残りのキャラからランダムに選ばれる。',
+      note: 'Phaser はシーンを再スタートしても同じインスタンスを使い回すので、試合の状態は必ず create() で作り直す' },
+    { by: 'ctrl', title: '人もボットも同じ窓口で動く', flow: [['web', 'ctrl'], ['ctrl', 'player']],
+      text: '<code>InputController</code> はキーとマウスを読み、<code>AIController</code> は相手との距離（<code>rules.json</code> の 350）を保ちながら撃つ。どちらも「どっちへ動く」「どこを狙う」「撃つか」を同じ形で答えるので、<code>Player</code> はだれが動かしているかを知らない。' },
+    { by: 'combat', title: '撃つ・当たる・ゲージがたまる', flow: [['player', 'combat'], ['combat', 'data']],
+      text: '遠距離キャラは弾の数に限りがあり、時間でチャージされる。近接キャラは扇形の範囲に当たる。ダメージを与えると1につき +1、受けると +0.5 ゲージがたまり、1000 で満タンになると Shift で必殺技を出せる。' },
+    { by: 'arena', title: '壁にかくれる・茂みにひそむ', flow: [['arena', 'ctrl']], focus: ['arena', 'ctrl', 'player'],
+      text: '壁は弾をさえぎる。茂みの中にいるキャラは、110 より近づかないと相手から見えない。ボットも茂みの中のあなたを見失う。' },
+    { by: 'game', title: '2分たったらキル数で勝ち負け', flow: [['game', 'web']],
+      text: 'やられても3秒で復活し、復活直後の1.5秒は無敵。制限時間120秒が終わった時点でキル数の多いほうが勝ち。同じ数なら、次に1キルしたほうが勝ちのサドンデスになる。' },
+    { by: 'store', title: '魔素でキャラを育てる・増やす', flow: [['game', 'store'], ['store', 'web']],
+      text: '試合が終わると魔素（勝ち80／負け30 ＋ キル数×8）とプレイヤーXP がもらえ、<code>localStorage</code> に保存される。キャラ選択画面で魔素を使ってキャラLv を上げたり（Lv5 と Lv10 で進化）、新しいキャラを解放したりできる。',
+      note: 'ボットは育成の影響を受けない素の強さのまま。保存はそのブラウザの中だけ' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '始め方・画面の見方・操作方法・遠距離と近接攻撃・壁と茂み・必殺技ゲージと3タイプ・勝ち負け・魔素でキャラを育てるまで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: 'アリーナの広さ、弾数とチャージ、扇形の当たり判定、ゲージの計算、茂みのステルスとボットAI、プログラムの全体構成と成長システムまで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/BrawlArena</code>。ゲームの中ではキャラごとに名前と技名がついていますが、このページには載せていません。',
+});
+</script>
+</body>
+</html>

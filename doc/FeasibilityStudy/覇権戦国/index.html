@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>覇権戦国 — stable</title>
+<meta name="theme-color" content="#07040f">
+<link rel="stylesheet" href="../../../portal/portal.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="../../../portal/catalog.js"></script>
+<script src="../../../portal/magic.js"></script>
+<script src="../../../portal/toolpage.js"></script>
+</head>
+<body>
+<script>
+ToolPage.start({
+  root: '../../../',
+  id: 'haken',
+  caption: '兵数を持った駒で戦う、9×9の盤の「将棋版」戦国バトル（開発初期）',
+  lead: '将棋のような9×9の盤で、<b>兵数を持った駒</b>を動かし、相手の王将を倒したら勝ちの戦国バトルです。いま遊べるのはこの「将棋版」で、日本地図の陣取り（Phaser 版）は準備中。' +
+        'ルールは TypeScript の <code>src/game/</code> にまとまっていて、Vite で1本にした <code>js/game.js</code> を <code>index.html</code> が読むだけなので、CPU 対戦はダブルクリックで遊べます。' +
+        'LAN 対戦では Node の <code>server.js</code> が2人の操作を中継します。',
+  say: ['ひとりで CPU と対戦したい', '同じ Wi-Fi の相手と対戦したい', 'ルール・画面・通信を分けた作りを見たい'],
+  sayTitle: 'こんなときに',
+  nodes: [
+    { id: 'p1', type: 'person', label: 'プレイヤー1', sub: '先手', at: [-8.5, 2.6], desc: '盤の上側。CPU 対戦では自分、LAN 対戦では部屋を作った人（ホスト）。' },
+    { id: 'p2', type: 'person', label: 'プレイヤー2', sub: '人 or CPU', at: [-8.5, -2.6], desc: '盤の下側。CPU 対戦では CPU（<code>ai.ts</code>）、LAN 対戦では部屋に入った人（ゲスト）。' },
+    { id: 'view', type: 'screen', label: 'ブラウザの画面', sub: 'gameView.ts', at: [-4.6, 0],
+      desc: '<code>index.html</code> は画面の部品と見た目（CSS）だけ。盤・手札・ログを描くのは <code>src/ui/gameView.ts</code> で、DOM をさわるのはここだけ。' },
+    { id: 'build', type: 'file', label: 'js/game.js', sub: 'npm run build', at: [-3.2, 4.4],
+      desc: '<code>src/</code> の TypeScript を Vite で1本にまとめたもの。<code>index.html</code> はこれを読む。src/ を変えたら作り直す。' },
+    { id: 'ctrl', type: 'main', label: 'controller.ts', sub: 'src/game/ の進行役', at: [0, 0],
+      desc: 'クリック・CPU の番・LAN の相手の操作を、ゲームの状態（<code>GameState</code>）につなぐ進行役。スタート地点は <code>src/app.ts</code>（画面の切りかえとボタン登録）。' },
+    { id: 'server', type: 'service', label: 'server.js', sub: 'Express＋ws', at: [2.2, -4.2],
+      desc: '<code>npm start</code> で起動。部屋を作り（<code>POST /api/room/create</code>）、WebSocket（<code>/ws</code>）で2人のメッセージを中継する。ルールは持っていない。' },
+    { id: 'state', type: 'code', label: 'state.ts・rules.ts', sub: '盤・手番・戦闘の計算', at: [4.4, 0],
+      desc: '<code>state.ts</code> が盤・手番・手札・山札を持ち、<code>rules.ts</code> が移動・戦闘・成りを計算する。どちらも画面や通信には関係しない。' },
+    { id: 'ai', type: 'code', label: 'ai.ts', sub: 'CPU の考え方', at: [7.2, -3.6],
+      desc: 'どの駒をどこへ動かすかを決めるだけで、盤は変えない。初級・中級・上級・鬼級の4段階。' },
+    { id: 'data', type: 'data', label: 'config.ts・data/', sub: '数値・駒・カード', at: [8.4, 2],
+      desc: '<code>config.ts</code> に盤の大きさ・最低ダメージ・CPU の待ち時間などの数字、<code>data/</code> に駒と初期配置（<code>pieces.ts</code>）・カード40枚（<code>cards.ts</code>）・能力（<code>abilities.ts</code>）。' },
+  ],
+  links: [['p1', 'view'], ['p2', 'view'], ['view', 'ctrl', true], ['build', 'view'], ['ctrl', 'build'], ['ctrl', 'state', true], ['ctrl', 'ai'], ['ctrl', 'server'], ['state', 'data']],
+  steps: [
+    { by: 'p1', title: 'CPU 対戦か LAN 対戦を選ぶ', flow: [['p1', 'view'], ['view', 'ctrl']],
+      text: '<code>index.html</code> をダブルクリックで開けば CPU 対戦（初級〜鬼級）。LAN 対戦は <code>npm start</code> で server.js を起動して、<code>http://&lt;このPCのIP&gt;:3000</code> を開く。',
+      note: 'ダブルクリックで開いたときは LAN 対戦はできない（サーバーが必要）' },
+    { by: 'ctrl', title: '駒を選ぶと、動けるマスが光る', flow: [['view', 'ctrl'], ['ctrl', 'state']],
+      text: '自分の駒をクリックすると、controller が state に動けるマスを聞いて光らせる。王将と兵はまわり1マス、飛車は縦横、角はななめに、ぶつかるまで何マスでも進める。' },
+    { by: 'state', title: '攻めた側が必ずマスを取る', flow: [['ctrl', 'state'], ['state', 'data']],
+      text: '敵の駒がいるマスへ動くと戦闘。守った駒は盤から消え、攻めた側の兵数が減る。前から攻めたら兵数の差でダメージ、後ろや横からの奇襲なら最低ダメージ（250）だけ。兵種の相性で有利なら1.3倍。相手の王将を倒したら、その場で勝ち。' },
+    { by: 'state', title: '成り・能力・カード', flow: [['state', 'data'], ['state', 'ctrl']],
+      text: '敵陣（相手側の3段）に入ると「成る」か選べて、成ると兵数が2倍。駒ごとの能力（突撃・爆撃など）は、使ったら3ターン待つ。手番が回ってくるとアイテムカードを1枚引く。',
+      note: 'アイテムカードの効果はまだ作りかけ（使うと手札から消えるだけ）' },
+    { by: 'ai', title: 'CPU の番', flow: [['ctrl', 'ai'], ['ai', 'ctrl'], ['ctrl', 'state']],
+      text: '手番を終えると、controller が少し待ってから ai.ts に手を聞く。初級はランダム、中級は王将に近づく、上級は敵を倒すのを優先、鬼級は大駒や成りを狙う。決まった手は人と同じ道すじで state に入る。' },
+    { by: 'server', title: 'LAN：部屋を作って2人をつなぐ', flow: [['ctrl', 'server'], ['server', 'ctrl']], focus: ['server', 'ctrl', 'p1', 'p2'],
+      text: 'ホストが部屋を作ると4文字の部屋コードが出る。相手がコードを入れて入ると server.js が2人をつなぎ、ホストが最初の盤面（boardState）を送る。' },
+    { by: 'ctrl', title: '操作だけを送り、両方で同じ計算', flow: [['ctrl', 'server'], ['server', 'ctrl'], ['ctrl', 'state']],
+      text: '動かした・能力を使った・カードを使った・ターン終了の4つを相手に送る（move / ability / card / endTurn）。server.js は中身を見ずに中継し、受け取った側も自分の state で同じ計算をする。',
+      note: '正しくない移動が届いたら無視して「盤面がずれた可能性」と出す' },
+    { by: 'build', title: 'src/ を直したら js/game.js を作り直す', flow: [['ctrl', 'build'], ['build', 'view']],
+      text: '<code>npm run build</code>（Vite）で src/ の TypeScript を js/game.js 1本にまとめる。ダブルクリックでも npm start でも、動くのはこの1本。<code>npm run dev</code> なら保存するとすぐ反映される。',
+      note: 'npm run dev の開発用サーバーでは LAN 対戦はできない' },
+  ],
+  pages: [
+    { href: 'tutorial.html', icon: '🎓', title: '遊び方チュートリアル', desc: '駒の種類と兵数・動かし方・正面戦闘のダメージ・兵種の相性・成り・能力・アイテムカード・LAN 対戦の始め方まで（全15ステップ）' },
+    { href: 'game-guide.html', icon: '🧩', title: '仕組み図解', desc: '盤と駒の初期配置・戦闘・相性・成り・能力・CPU の4つの難易度から、LAN 対戦のしくみ・日本地図の陣取りの構想まで、立体図で' },
+  ],
+  note: 'ソースは非公開の <code>FeasibilityStudy/覇権戦国</code>。仕組み図解は、プログラムが1ファイルだったころの構成のまま説明している部分があります（いまは <code>src/</code> の TypeScript に分かれています）。<code>src/main.ts</code>・<code>src/entities/</code> は日本地図版の試作で、今は使われていません。',
+});
+</script>
+</body>
+</html>
