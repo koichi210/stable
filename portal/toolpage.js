@@ -137,6 +137,22 @@
       if (f[0] === 'panel') panel.addEventListener('click', function () { if (document.body.classList.contains(cls)) btn.click(); });
     });
 
+    // 左メニューのスクロール位置は、ページを移っても同じ所に戻す(下のほうの項目を選ぶと一番上に戻ってしまうため)。
+    // タブごとに覚える(sessionStorage)。覚えていなければ(トップから来たときなど)、今のページの項目が見える位置へ。
+    // 開き閉じ(上のボタン)を反映したあと・最初に描かれる前に戻すので、ガクッと動かない
+    var sideKey = 'stable.tp.sideScroll';
+    var savedTop = null;
+    try { savedTop = sessionStorage.getItem(sideKey); } catch (e) {}
+    if (savedTop !== null && !isNaN(+savedTop)) side.scrollTop = +savedTop;
+    var curLink = side.querySelector('a.cur');
+    if (curLink) { // 戻した位置で今のページの項目が隠れていたら(トップから来たときなど)、真ん中あたりへ
+      var sr = side.getBoundingClientRect(), cr = curLink.getBoundingClientRect();
+      if (cr.top < sr.top || cr.bottom > sr.bottom) side.scrollTop += cr.top - sr.top - (side.clientHeight - cr.height) / 2;
+    }
+    function saveSideScroll() { try { sessionStorage.setItem(sideKey, String(side.scrollTop)); } catch (e) {} }
+    side.addEventListener('click', function (e) { if (e.target.closest('a')) saveSideScroll(); });
+    window.addEventListener('pagehide', saveSideScroll);
+
     // 凡例（使っている種類だけ）
     var used = {};
     nodesCfg.forEach(function (n) { used[n.type] = n.color; });
