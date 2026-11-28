@@ -586,23 +586,29 @@
     if (e.pointerType !== 'mouse' || e.buttons) return;
     setHover(pick(e)); // カーソルは小さな円の上だけ指の形（アップ・全体に戻る所はふつうの矢印のまま）
   });
-  // 2本指（つまんで拡大・縮小）の操作は、指を離したときにタップとして数えない
-  var touching = 0, multi = false;
+  // 2本指（つまんで拡大・縮小）の操作は、指を離したときにタップとして数えない。
+  // 触れている指は ID で覚え、1本目が触れたとき（isPrimary）に毎回リセットする（指を離した合図を取りこぼしても、次のタップで元に戻る）
+  var fingers = {}, multi = false;
+  function fingerCount() { return Object.keys(fingers).length; }
   st.renderer.domElement.addEventListener('pointerdown', function (e) {
     down = { x: e.clientX, y: e.clientY };
-    if (e.pointerType !== 'mouse') { touching++; if (touching > 1) multi = true; }
+    if (e.pointerType === 'mouse') return;
+    if (e.isPrimary) { fingers = {}; multi = false; }
+    fingers[e.pointerId] = true;
+    if (fingerCount() > 1) multi = true;
   });
-  function endTouch(e) {
+  function endTouch(e) { // 戻り値: この指が2本指操作の一部だったか
     if (e.pointerType === 'mouse') return false;
-    touching = Math.max(0, touching - 1);
+    delete fingers[e.pointerId];
     var wasMulti = multi;
-    if (!touching) multi = false;
+    if (!fingerCount()) multi = false;
     return wasMulti;
   }
   st.renderer.domElement.addEventListener('pointercancel', function (e) { endTouch(e); down = null; });
   st.renderer.domElement.addEventListener('pointerup', function (e) {
     var wasMulti = endTouch(e);
-    if (wasMulti || !down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) { down = null; return; }
+    var slop = e.pointerType === 'mouse' ? 6 : 10; // 指のタップは少しぶれるので大きめに許す
+    if (wasMulti || !down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > slop) { down = null; return; }
     down = null;
     if (e.pointerType === 'mouse' && e.button !== 0) return; // 右ボタンは移動用
     var n = pick(e);
