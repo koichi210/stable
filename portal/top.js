@@ -80,6 +80,8 @@
   // LABEL_DY: 円の下端からラベルの上端までのすきま。ラベルは CSS(.mg-node-label.below) で上端をここに合わせるので、ズームしても円に食い込まない
   // PX_PER_UNIT はアップ表示（魔法陣1つを画面いっぱい）での縮尺の目安。全体表示は縮尺が小さいので、狭い画面では多少近づく
   var PX_PER_UNIT = 30, LABEL_DY = 0.08, LABEL_H = 0.85;
+  // 回路の線で使う8方向（routeAll() が使う。これも buildCircle より前に）
+  var OCT = [[1, 0], [-1, 0], [0, 1], [0, -1]].concat([[1, 1], [1, -1], [-1, 1], [-1, -1]].map(function (d) { return [d[0] / Math.SQRT2, d[1] / Math.SQRT2]; }));
   CIRCLES.forEach(buildCircle);
 
   function buildCircle(c) {
@@ -218,7 +220,9 @@
   }
 
   // ---- 回路の線どうしが重ならないよう、1本ずつ形を選ぶ
-  // 候補は「斜め→まっすぐ」「まっすぐ→斜め」「直線」。ほかの線と並んで走る・交わる・ほかの円の下をくぐる数が一番少ないものにする
+  // 候補は 直線・1回曲がる（斜め→まっすぐ / まっすぐ→斜め）・2回曲がる（最後に円の外から中心へまっすぐ入る）。曲線は使わない。
+  // 「最後の1本は円のふちより外で曲がり、中心へ向かって入る」を必ず守る（曲がり角が円の中だと、線が中心からずれた所に刺さって見える）。
+  // そのうえで、ほかの線と並んで走る・交わる・ほかの円の下をくぐる数が少ないものを、好みの順（base）で選ぶ
   function routeAll(c, slots) {
     var placed = []; // 置き終わった線分 { a, b }（円の中に隠れる部分は除く）
     slots.forEach(function (sl) { // 中心 → 分岐点 の幹
@@ -227,20 +231,56 @@
     // 中心に近い円から順に決める（外側の線ほど回り道の余地がある）
     slots.slice().sort(function (p, q) { return p.dist - q.dist; }).forEach(function (sl) {
       var from = sl.useJunction ? sl.J : [Math.cos(sl.a) * c.hubR, Math.sin(sl.a) * c.hubR];
-      var pref = sl.i % 2 === 1;
-      var cands = [M.octi(from, sl.P, pref), M.octi(from, sl.P, !pref), [from, sl.P]];
-      var best = null, bestScore = Infinity;
-      cands.forEach(function (pts) {
-        var segs = visibleSegs(pts, sl.R), score = 0;
-        segs.forEach(function (sg) {
-          placed.forEach(function (q) { if (segClash(sg, q)) score++; });
-          slots.forEach(function (o) { if (o !== sl && segDist(o.P, sg.a, sg.b) < o.R + 0.15) score++; });
+      var P = sl.P, R = sl.R, pref = sl.i % 2 === 1;
+      // base: 好みの順（いつもの1回曲がり → 曲がる順を入れ替え → 直線 → 2回曲がり）。重ならない形の中からこの順で選ぶ
+      var cands = [{ pts: M.octi(from, P, pref), base: 0 }, { pts: M.octi(from, P, !pref), base: 0.2 }, { pts: [from, P], base: 0.3 }];
+      // 2回曲がる形：円の外の点 m（中心から octilinear の向きに R+L）までを1回曲がりで行き、m から中心へまっすぐ入る
+      var back = [from[0] - P[0], from[1] - P[1]], bl = Math.hypot(back[0], back[1]) || 1;
+      OCT.slice().sort(function (d, e) { return (e[0] * back[0] + e[1] * back[1]) - (d[0] * back[0] + d[1] * back[1]); }).slice(0, 3).forEach(function (d) {
+        [0.9, 1.6].forEach(function (L) {
+          var m = [P[0] + d[0] * (R + L), P[1] + d[1] * (R + L)];
+          [pref, !pref].forEach(function (f) { cands.push({ pts: M.octi(from, m, f).concat([P]), base: 0.6 + L * 0.1 }); });
         });
-        if (score < bestScore) { best = pts; bestScore = score; }
+      });
+      var best = null, bestScore = Infinity;
+      cands.forEach(function (cd) {
+        var pts = simplify(cd.pts), bends = pts.length - 2;
+        var last = Math.hypot(P[0] - pts[pts.length - 2][0], P[1] - pts[pts.length - 2][1]);
+        var score = cd.base;
+        if (bends > 2) score += 100;
+        if (last < R + 0.35) score += 100; // 曲がり角が円の中（中心に向かって入らない）
+        var clash = 0;
+        for (var k = 0; k < pts.length - 1; k++) {
+          var a = pts[k], b = pts[k + 1];
+          if (k > 0 && segDist([0, 0], a, b) < c.hubR) clash++;            // 中心の魔法陣の上を横切る
+          if (k < pts.length - 2 && segDist(P, a, b) < R + 0.1) clash++;    // 自分の円の上を通ってから戻る
+        }
+        visibleSegs(pts, R).forEach(function (sg) {
+          placed.forEach(function (q) { if (segClash(sg, q)) clash++; });
+          slots.forEach(function (o) { if (o !== sl && segDist(o.P, sg.a, sg.b) < o.R + 0.15) clash++; });
+        });
+        score += clash * 10;
+        if (score < bestScore - 1e-9) { best = pts; bestScore = score; }
       });
       sl.route = best;
-      visibleSegs(best, sl.R).forEach(function (sg) { placed.push(sg); });
+      visibleSegs(best, R).forEach(function (sg) { placed.push(sg); });
     });
+  }
+  // 折れ線から、重なった点と、まっすぐ続いている途中の点を取り除く（曲がる回数を正しく数えるため）
+  function simplify(pts) {
+    var out = [pts[0]];
+    for (var k = 1; k < pts.length; k++) {
+      var p = pts[k], q = out[out.length - 1];
+      if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-3) continue;
+      if (out.length >= 2) {
+        var o = out[out.length - 2];
+        var c1 = (q[0] - o[0]) * (p[1] - q[1]) - (q[1] - o[1]) * (p[0] - q[0]);
+        var dot = (q[0] - o[0]) * (p[0] - q[0]) + (q[1] - o[1]) * (p[1] - q[1]);
+        if (Math.abs(c1) < 1e-6 && dot > 0) { out[out.length - 1] = p; continue; }
+      }
+      out.push(p);
+    }
+    return out;
   }
   function xy(p) { return [p.x, p.y]; }
   // 折れ線を線分に分け、最後の線分は円のふちで切る（円の中は隠れて見えないので重なりに数えない）。長さ0の線分は捨てる
