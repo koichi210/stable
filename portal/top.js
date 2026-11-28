@@ -564,7 +564,7 @@
     t.sub(panOver); camera.position.sub(panOver);
   }
   home(true);
-  document.getElementById('mg-home').addEventListener('click', function () { home(false); });
+  // 「全体表示」ボタンは置かない（魔法陣の外側をクリック／タップ、または Esc で全体表示に戻る）
   // クリックした所がどの魔法陣（外枠の内側）か。外側なら null
   var plane = new T.Plane(new T.Vector3(0, 0, 1), 0), onPlane = new T.Vector3();
   function circleAt() { // 直前の pick() で向けた ray を使う
@@ -643,7 +643,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (listPanel.classList.contains('open')) listPanel.classList.remove('open');
-    else if (focused) home(false);
+    else home(false); // アップ中でも、指やホイールで拡大・移動したあとでも、全体表示に戻る
   });
 
   // ---------------------------------------------------------------- ふよふよ（PC だけ。MagicLauncher の「ふわふわ漂う」と同じ動き）
@@ -673,7 +673,8 @@
     idle.on = true;
     if (idle.blend <= 0) {
       idle.t = 0;
-      CIRCLES.forEach(function (c, i) { c.fl = { x: c.base.x, y: c.base.y, a: M.rng(c.seed + '#dir')() * Math.PI * 2, seed: i * 1.7 + M.rng(c.seed + '#seed')() * 10 }; });
+      // 向き・曲がり方のクセ・速さは動き出すたびに本物の乱数で決める（名前から決まる乱数だと、毎回同じ軌道をなぞってしまう）
+      CIRCLES.forEach(function (c) { c.fl = { x: c.base.x, y: c.base.y, a: Math.random() * Math.PI * 2, seed: Math.random() * 100, sp: 0.8 + Math.random() * 0.4 }; });
     }
     setHover(null);
     home(false); // アップや拡大をしていたら全体表示へ
@@ -703,8 +704,8 @@
       CIRCLES.forEach(function (c) {
         var f = c.fl, ext = c.frameR + 0.45;
         f.a += (Math.sin(idle.t * 0.37 + f.seed) * 0.6 + Math.sin(idle.t * 0.13 + f.seed * 3) * 0.4) * dt * 0.9;
-        f.x += Math.cos(f.a) * idle.speed * dt;
-        f.y += Math.sin(f.a) * idle.speed * dt;
+        f.x += Math.cos(f.a) * idle.speed * f.sp * dt;
+        f.y += Math.sin(f.a) * idle.speed * f.sp * dt;
         var wave = Math.sin(idle.t * 0.29 + f.seed * 1.3) * 0.6 + Math.sin(idle.t * 0.47 + f.seed * 2.9) * 0.4; // -1〜1
         f.sc = Math.min(1 + FLOAT_SCALE * wave, Math.min(r.hw, r.hh) / ext);
         var e = ext * f.sc, lx = Math.max(0, r.hw - e), ly = Math.max(0, r.hh - e);
