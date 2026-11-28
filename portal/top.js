@@ -3,7 +3,8 @@
  * 魔法陣は3つ。上の真ん中＝Windows ツール、左下＝常駐・Web ／ LINE ボット、右下＝FeasibilityStudy（試作ゲーム）。
  * それぞれ 中心の結晶 → グループの分岐点 → 円 を回路っぽい折れ線でつなぎ、光の粒を流す。
  * 横長の画面では三角に、縦長の画面（スマホ縦）では上から縦に並べる。
- * 円をクリックするとその説明ページへ移る。右下の中心（FeasibilityStudy）もクリックで一覧ページへ。データは portal/catalog.js。
+ * 真正面から見た2D表示で、角度は変えない（ドラッグは移動）。魔法陣の空いた所をクリックするとその魔法陣をアップに、アップ中にその外側をクリックすると全体表示に戻る。
+ * 小さな円をクリックするとその説明ページへ移る。右下の中心（FeasibilityStudy）もクリックで一覧ページへ。データは portal/catalog.js。
  */
 (function () {
   'use strict';
@@ -21,10 +22,11 @@
 
   var controls = new T.OrbitControls(camera, st.renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.screenSpacePanning = true; // 右ドラッグ・2本指で移動（説明ページと同じ操作）
-  controls.minAzimuthAngle = -0.6; controls.maxAzimuthAngle = 0.6;
-  controls.minPolarAngle = Math.PI / 2 - 0.6; controls.maxPolarAngle = Math.PI / 2 + 0.45;
-  controls.rotateSpeed = 0.5;
+  // トップは真正面から見た2D表示に固定（角度は変えない）。ドラッグ＝移動、ホイール・2本指＝ズーム
+  controls.screenSpacePanning = true;
+  controls.enableRotate = false;
+  controls.mouseButtons = { LEFT: T.MOUSE.PAN, MIDDLE: T.MOUSE.DOLLY, RIGHT: T.MOUSE.PAN };
+  controls.touches = { ONE: T.TOUCH.PAN, TWO: T.TOUCH.DOLLY_PAN };
 
   // ---------------------------------------------------------------- 背景
   var smoke = M.smoke(90, 90, '#2c0f40'); smoke.position.z = -6; smoke.renderOrder = -2; scene.add(smoke);
@@ -73,6 +75,8 @@
   var occMat = new T.MeshBasicMaterial({ color: '#07040f', transparent: true, opacity: 1, depthWrite: false });
   var hitMat = new T.MeshBasicMaterial({ visible: false });
   var labels = new M.Labels(root);
+  // 名前ラベルの見積もり用（relax() が使う）。buildCircle より前に決めておくこと
+  var PX_PER_UNIT = 24, LABEL_DY = 0.55, LABEL_H = 0.95;
   CIRCLES.forEach(buildCircle);
 
   function buildCircle(c) {
@@ -129,10 +133,14 @@
     c.groups.forEach(function (g) { total += g.items.length + GAP; });
     var unit = (Math.PI * 2) / total;
     var used = 0, n0 = c.groups[0].items.length, idx = 0;
+    // 左右・上下で対称に見えないよう、魔法陣ごとに全体を少し回し、円ごとに角度と距離を少しずらす（乱数は名前から決まるので毎回同じ形）
+    var turn = (M.rng(c.seed + '-turn')() - 0.5) * 0.7;
+
+    var slots = []; // 小さな円の置き場（角度 a・中心からの距離 dist）。先に全部決めてから、名前どうしがぶつからないよう押し離す
 
     c.groups.forEach(function (g) {
-      // 最初のグループの真ん中を真上に置き、そこから時計回りにグループを並べる
-      var mid = Math.PI / 2 - (used + g.items.length / 2 - n0 / 2) * unit;
+      // 最初のグループの真ん中を（ほぼ）真上に置き、そこから時計回りにグループを並べる
+      var mid = Math.PI / 2 + turn - (used + g.items.length / 2 - n0 / 2) * unit;
       used += g.items.length + GAP;
       var start = mid + (g.items.length / 2) * unit; // グループ内は時計回り
       var col = new T.Color(g.color);
@@ -153,45 +161,101 @@
 
       g.items.forEach(function (it, i) {
         // 1グループだけのときは真上から時計回りに等間隔。真上・真下に外側の円が来るよう alt: 1 にしておくと、
-        // 内側と外側の円が同じ高さに並ばず、名前のラベルどうしが横にぶつからない
-        var a = single ? Math.PI / 2 - i * unit : start - (i + 0.5) * unit;
+        // 内側と外側の円が同じ高さに並ばず、名前のラベルどうしが横にぶつかりにくい
+        var a = single ? Math.PI / 2 + turn - i * unit : start - (i + 0.5) * unit;
         var dist = useJunction || single ? c.nodeR[(c.alt + idx++) % 2] : c.nodeR[0];
-        var R = 0.88 + M.rng(it.id + '-size')() * 0.34; // 大小を少しばらつかせる
-        var P = [Math.cos(a) * dist, Math.sin(a) * dist];
-
-        var s = M.sigil(it.id, { radius: R, color: col, detail: false });
-        s.position.set(P[0], P[1], 0.02); order(s, 3);
-        var occ = occluder(R * 1.02); occ.position.set(P[0], P[1], 0.01);
-        cg.add(occ, s);
-        var halo = M.glow(col, R * 4.2, 0.0); halo.position.set(P[0], P[1], -0.05); cg.add(halo);
-
-        // 分岐点 → 円（斜め → まっすぐ の回路線）
-        var from = useJunction ? J : [Math.cos(a) * c.hubR, Math.sin(a) * c.hubR];
-        var route = M.octi(from, P, i % 2 === 1).map(v);
-        var branch = addTrace(cg, route, col, 0.5, 0.06, g, it.id);
-        var full = (trunkPts ? trunkPts.slice(0, 1) : []).concat(route);
-        var path = new M.Path(full);
-        var stream = flow.add(path, col, { count: 2, speed: 2.4 + Math.random(), size: 0.42 });
-        var hot = flow.add(path, '#ffffff', { count: 4, speed: 5.5, size: 0.5, on: false });
-
-        // 当たり判定（見えない円）
-        var hit = hitCircle(R * 1.15);
-        hit.position.set(P[0], P[1], 0.05); cg.add(hit);
-
-        var el = document.createElement('a');
-        el.className = 'mg-node-label';
-        el.href = it.href;
-        el.style.setProperty('--c', g.color);
-        el.innerHTML = '<span class="e">' + it.emoji + '</span><span class="n">' + M.esc(it.name) + '</span>';
-        labels.add(el, anchor(cg, [P[0], P[1] - R - 0.55]));
-
-        var node = { it: it, g: g, circle: c, sigil: s, halo: halo, pos: P, R: R, branch: branch, stream: stream, hot: hot,
-          label: el, hover: 0, appear: 0, delay: c.delay + 0.35 + dist * 0.06 + i * 0.04, hay: hay(it, g.name) };
-        hit.userData.node = node;
-        bindLabel(el, node);
-        nodes.push(node); hitList.push(hit);
+        var jr = M.rng(it.id + '-pos');
+        a += (jr() - 0.5) * 0.5 * unit;
+        dist += (jr() - 0.5) * 1.2;
+        slots.push({ it: it, g: g, i: i, a: a, dist: dist, col: col, J: J, trunkPts: trunkPts, useJunction: useJunction,
+          R: 0.88 + M.rng(it.id + '-size')() * 0.34, // 大小を少しばらつかせる
+          lw: labelWidth(it.name) });
       });
     });
+
+    relax(c, slots);
+
+    slots.forEach(function (sl) {
+      var it = sl.it, g = sl.g, col = sl.col, R = sl.R, a = sl.a, dist = sl.dist, J = sl.J, i = sl.i;
+      var P = [Math.cos(a) * dist, Math.sin(a) * dist];
+
+      var s = M.sigil(it.id, { radius: R, color: col, detail: false });
+      s.position.set(P[0], P[1], 0.02); order(s, 3);
+      var occ = occluder(R * 1.02); occ.position.set(P[0], P[1], 0.01);
+      cg.add(occ, s);
+      var halo = M.glow(col, R * 4.2, 0.0); halo.position.set(P[0], P[1], -0.05); cg.add(halo);
+
+      // 分岐点 → 円（斜め → まっすぐ の回路線）
+      var from = sl.useJunction ? J : [Math.cos(a) * c.hubR, Math.sin(a) * c.hubR];
+      var route = M.octi(from, P, i % 2 === 1).map(v);
+      var branch = addTrace(cg, route, col, 0.5, 0.06, g, it.id);
+      var full = (sl.trunkPts ? sl.trunkPts.slice(0, 1) : []).concat(route);
+      var path = new M.Path(full);
+      var stream = flow.add(path, col, { count: 2, speed: 2.4 + Math.random(), size: 0.42 });
+      var hot = flow.add(path, '#ffffff', { count: 4, speed: 5.5, size: 0.5, on: false });
+
+      // 当たり判定（見えない円）
+      var hit = hitCircle(R * 1.15);
+      hit.position.set(P[0], P[1], 0.05); cg.add(hit);
+
+      var el = document.createElement('a');
+      el.className = 'mg-node-label';
+      el.href = it.href;
+      el.style.setProperty('--c', g.color);
+      el.innerHTML = '<span class="e">' + it.emoji + '</span><span class="n">' + M.esc(it.name) + '</span>';
+      labels.add(el, anchor(cg, [P[0], P[1] - R - LABEL_DY]));
+
+      var node = { it: it, g: g, circle: c, sigil: s, halo: halo, pos: P, R: R, branch: branch, stream: stream, hot: hot,
+        label: el, hover: 0, appear: 0, delay: c.delay + 0.35 + dist * 0.06 + i * 0.04, hay: hay(it, g.name) };
+      hit.userData.node = node;
+      bindLabel(el, node);
+      nodes.push(node); hitList.push(hit);
+    });
+  }
+
+  // ---- 小さな円と名前のラベルがぶつからないよう、少しずつ押し離す
+  // ラベルは画面上で決まった大きさ(px)なので、PC 全体表示のときの縮尺（1 単位 ≒ PX_PER_UNIT px）で大きさを見積もる
+  function labelWidth(name) {
+    var px = 40; // 絵文字・余白・枠
+    for (var k = 0; k < name.length; k++) px += name.charCodeAt(k) > 0xff ? 13.5 : 8;
+    return px / PX_PER_UNIT;
+  }
+  function rectsOf(sl) {
+    var x = Math.cos(sl.a) * sl.dist, y = Math.sin(sl.a) * sl.dist, R = sl.R;
+    return [
+      { x: x, y: y, w: R + 0.15, h: R + 0.15 },                                   // 円
+      { x: x, y: y - R - LABEL_DY, w: sl.lw / 2 + 0.15, h: LABEL_H / 2 + 0.05 }, // 名前
+    ];
+  }
+  function overlap(A, B) {
+    for (var p = 0; p < A.length; p++) for (var q = 0; q < B.length; q++) {
+      if (Math.abs(A[p].x - B[q].x) < A[p].w + B[q].w && Math.abs(A[p].y - B[q].y) < A[p].h + B[q].h) return true;
+    }
+    return false;
+  }
+  function relax(c, slots) {
+    // 中心の魔法陣と、その下の名前（タイトル）にもかぶらないようにする
+    var hubRects = [{ x: 0, y: 0, w: c.hubR + 0.3, h: c.hubR + 0.3 },
+      { x: 0, y: -c.hubR - 0.75 - 0.3, w: (c.title.length * 17 + 30) / PX_PER_UNIT / 2, h: 0.75 }];
+    var minD = c.hubR + 2.2, maxD = c.nodeR[1] + 0.4;
+    for (var iter = 0; iter < 240; iter++) {
+      var moved = false;
+      var rs = slots.map(rectsOf);
+      for (var i = 0; i < slots.length; i++) {
+        if (overlap(rs[i], hubRects)) { slots[i].dist += 0.05; moved = true; }
+        for (var j = i + 1; j < slots.length; j++) {
+          if (!overlap(rs[i], rs[j])) continue;
+          moved = true;
+          var d = Math.atan2(Math.sin(slots[j].a - slots[i].a), Math.cos(slots[j].a - slots[i].a));
+          var sgn = d >= 0 ? 1 : -1;
+          slots[i].a -= sgn * 0.008; slots[j].a += sgn * 0.008;
+          var inner = slots[i].dist <= slots[j].dist ? slots[i] : slots[j], outer = inner === slots[i] ? slots[j] : slots[i];
+          inner.dist -= 0.03; outer.dist += 0.03;
+        }
+      }
+      slots.forEach(function (sl) { sl.dist = Math.max(minD, Math.min(maxD, sl.dist)); });
+      if (!moved) break;
+    }
   }
 
   // 検索の対象にする文字（名前・ID・技術・説明・グループ名）。全角半角・大文字小文字は区別しない
@@ -337,18 +401,32 @@
   }
 
   var fly = null; // { from, to, t } クリック時に円へ寄る
+  var focused = null; // アップで見ている魔法陣（null＝全体表示）
+  function moveCamera(x, y, d, instant, dur) {
+    if (instant) { camera.position.set(x, y, d); controls.target.set(x, y, 0); controls.update(); return; }
+    fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(x, y, d), toT: new T.Vector3(x, y, 0), t: 0, dur: dur };
+  }
   function home(instant) {
+    focused = null;
     var d = applyLayout();
     // 三角の配置で上が詰まる画面では、上の真ん中の検索窓に外枠がかぶらないよう少し引いて下げる
     var ox = 0, oy = 0;
     if (layout === 'tri' && st.w > 760) { d *= 1.06; oy = box.h * 0.05; }
     // スマホ縦（縦並び）は、上の見出し・検索窓と下の凡例に隠れないよう、引いて少し下げる
     if (layout === 'col' && st.w <= 760) { d *= 1.24; oy = box.h * 0.03; }
-    if (instant) { camera.position.set(ox, oy - d * 0.05, d); controls.target.set(ox, oy, 0); controls.update(); return; }
-    fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(ox, oy - d * 0.05, d), toT: new T.Vector3(ox, oy, 0), t: 0, dur: 0.9 };
+    moveCamera(ox, oy, d, instant, 0.9);
+  }
+  // 魔法陣を1つ選んで、外枠がちょうど画面に収まるまで寄る
+  function focusOn(c, instant) {
+    applyLayout();
+    focused = c;
+    var R = c.frameR + 0.45, t = Math.tan((camera.fov * Math.PI / 180) / 2), aspect = st.w / st.h;
+    var d = Math.max(R / t, R / (t * aspect)) * (st.w <= 760 ? 1.18 : 1.06); // スマホは上の検索窓・下の凡例のぶん少し引く
+    var p = c.obj.position;
+    moveCamera(p.x, p.y, d, instant, 0.7);
   }
   controls.minDistance = 6; controls.maxDistance = 160;
-  // 移動しすぎて魔法陣を見失わないよう、注視点を2つの外枠の箱の内側に留める（カメラも同じだけ戻す）
+  // 移動しすぎて魔法陣を見失わないよう、注視点を外枠全体の箱の内側に留める（カメラも同じだけ戻す）
   var panOver = new T.Vector3();
   function clampPan() {
     var t = controls.target;
@@ -359,6 +437,16 @@
   }
   home(true);
   document.getElementById('mg-home').addEventListener('click', function () { home(false); });
+  // クリックした所がどの魔法陣（外枠の内側）か。外側なら null
+  var plane = new T.Plane(new T.Vector3(0, 0, 1), 0), onPlane = new T.Vector3();
+  function circleAt() { // 直前の pick() で向けた ray を使う
+    if (!ray.ray.intersectPlane(plane, onPlane)) return null;
+    for (var i = 0; i < CIRCLES.length; i++) {
+      var c = CIRCLES[i], p = c.obj.position;
+      if (Math.hypot(onPlane.x - p.x, onPlane.y - p.y) <= c.frameR + 0.45) return c;
+    }
+    return null;
+  }
 
   function open(n) {
     if (fly && fly.leaving) return;
@@ -378,7 +466,13 @@
     return hit ? hit.object.userData.node : null;
   }
   st.renderer.domElement.addEventListener('pointermove', function (e) {
-    if (e.pointerType === 'mouse' && !e.buttons) setHover(pick(e));
+    if (e.pointerType !== 'mouse' || e.buttons) return;
+    var n = pick(e);
+    setHover(n);
+    if (n) return;
+    // 魔法陣の上＝クリックでアップ、アップ中の外側＝クリックで全体に戻る
+    var c = circleAt();
+    root.style.cursor = focused ? (c === focused ? '' : 'zoom-out') : (c ? 'zoom-in' : '');
   });
   st.renderer.domElement.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY }; });
   st.renderer.domElement.addEventListener('pointerup', function (e) {
@@ -386,7 +480,14 @@
     down = null;
     if (e.pointerType === 'mouse' && e.button !== 0) return; // 右ボタンは移動用
     var n = pick(e);
-    if (!n) { if (e.pointerType !== 'mouse') setHover(null); return; }
+    if (!n) {
+      if (e.pointerType !== 'mouse') setHover(null);
+      if (fly && fly.leaving) return;
+      var c = circleAt();
+      if (!focused) { if (c) focusOn(c, false); }  // 全体表示で魔法陣を選んだ → アップ
+      else if (c !== focused) home(false);          // アップ中に、その魔法陣の外側（隣の魔法陣も含む）→ 全体表示に戻る
+      return;
+    }
     // タッチは1回目で情報を出し、同じ円をもう一度タップで開く
     if (e.pointerType !== 'mouse' && hover !== n) { setHover(n); return; }
     open(n);
@@ -396,18 +497,21 @@
   document.getElementById('mg-list-toggle').addEventListener('click', function () {
     listPanel.classList.toggle('open');
   });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') listPanel.classList.remove('open'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (listPanel.classList.contains('open')) listPanel.classList.remove('open');
+    else if (focused) home(false);
+  });
 
   // ---------------------------------------------------------------- ループ
   var clock = new T.Clock(), time = 0;
   function frameLoop() {
     var raw = clock.getDelta(), dt = Math.min(raw, 0.05); time = clock.elapsedTime; // 登場アニメは実時間（遅い端末でも長引かない）
-    if (st.size()) { if (!fly) home(true); else applyLayout(); }
+    if (st.size()) { if (fly) applyLayout(); else if (focused) focusOn(focused, true); else home(true); }
 
     smoke.userData.uniforms.uTime.value = time; smoke2.userData.uniforms.uTime.value = time * 0.8;
     smoke3.userData.uniforms.uTime.value = time * 0.7;
     starField.rotation.z += dt * 0.004;
-    board.rotation.x = Math.sin(time * 0.17) * 0.035; board.rotation.y = Math.sin(time * 0.11) * 0.045;
     var traceIn = M.ease((time - 0.25) / 0.9);
 
     CIRCLES.forEach(function (c, i) {
