@@ -178,10 +178,11 @@
     });
 
     relax(c, slots);
+    slots.forEach(function (sl) { sl.P = [Math.cos(sl.a) * sl.dist, Math.sin(sl.a) * sl.dist]; });
+    routeAll(c, slots);
 
     slots.forEach(function (sl) {
-      var it = sl.it, g = sl.g, col = sl.col, R = sl.R, a = sl.a, dist = sl.dist, J = sl.J, i = sl.i;
-      var P = [Math.cos(a) * dist, Math.sin(a) * dist];
+      var it = sl.it, g = sl.g, col = sl.col, R = sl.R, dist = sl.dist, i = sl.i, P = sl.P;
 
       var s = M.sigil(it.id, { radius: R, color: col, detail: false });
       s.position.set(P[0], P[1], 0.02); order(s, 3);
@@ -189,9 +190,8 @@
       cg.add(occ, s);
       var halo = M.glow(col, R * 4.2, 0.0); halo.position.set(P[0], P[1], -0.05); cg.add(halo);
 
-      // 分岐点 → 円（斜め → まっすぐ の回路線）
-      var from = sl.useJunction ? J : [Math.cos(a) * c.hubR, Math.sin(a) * c.hubR];
-      var route = M.octi(from, P, i % 2 === 1).map(v);
+      // 分岐点（または中心）→ 円の回路線。形は routeAll() がほかの線と重ならないものを選んである
+      var route = sl.route.map(v);
       var branch = addTrace(cg, route, col, 0.5, 0.06, g, it.id);
       var full = (sl.trunkPts ? sl.trunkPts.slice(0, 1) : []).concat(route);
       var path = new M.Path(full);
@@ -215,6 +215,69 @@
       bindLabel(el, node);
       nodes.push(node); hitList.push(hit);
     });
+  }
+
+  // ---- 回路の線どうしが重ならないよう、1本ずつ形を選ぶ
+  // 候補は「斜め→まっすぐ」「まっすぐ→斜め」「直線」。ほかの線と並んで走る・交わる・ほかの円の下をくぐる数が一番少ないものにする
+  function routeAll(c, slots) {
+    var placed = []; // 置き終わった線分 { a, b }（円の中に隠れる部分は除く）
+    slots.forEach(function (sl) { // 中心 → 分岐点 の幹
+      if (sl.trunkPts && !sl.trunkPts.done) { sl.trunkPts.done = true; placed.push({ a: xy(sl.trunkPts[0]), b: xy(sl.trunkPts[1]) }); }
+    });
+    // 中心に近い円から順に決める（外側の線ほど回り道の余地がある）
+    slots.slice().sort(function (p, q) { return p.dist - q.dist; }).forEach(function (sl) {
+      var from = sl.useJunction ? sl.J : [Math.cos(sl.a) * c.hubR, Math.sin(sl.a) * c.hubR];
+      var pref = sl.i % 2 === 1;
+      var cands = [M.octi(from, sl.P, pref), M.octi(from, sl.P, !pref), [from, sl.P]];
+      var best = null, bestScore = Infinity;
+      cands.forEach(function (pts) {
+        var segs = visibleSegs(pts, sl.R), score = 0;
+        segs.forEach(function (sg) {
+          placed.forEach(function (q) { if (segClash(sg, q)) score++; });
+          slots.forEach(function (o) { if (o !== sl && segDist(o.P, sg.a, sg.b) < o.R + 0.15) score++; });
+        });
+        if (score < bestScore) { best = pts; bestScore = score; }
+      });
+      sl.route = best;
+      visibleSegs(best, sl.R).forEach(function (sg) { placed.push(sg); });
+    });
+  }
+  function xy(p) { return [p.x, p.y]; }
+  // 折れ線を線分に分け、最後の線分は円のふちで切る（円の中は隠れて見えないので重なりに数えない）。長さ0の線分は捨てる
+  function visibleSegs(pts, R) {
+    var out = [];
+    for (var k = 0; k < pts.length - 1; k++) {
+      var a = pts[k], b = pts[k + 1], dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+      if (k === pts.length - 2) { if (len <= R) continue; b = [b[0] - dx / len * R, b[1] - dy / len * R]; len -= R; }
+      if (len > 1e-4) out.push({ a: a, b: b });
+    }
+    return out;
+  }
+  function segDist(p, a, b) { // 点 p と線分 ab の距離
+    var dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy;
+    var t = L ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L)) : 0;
+    return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+  }
+  function near(p, q) { return Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.05; }
+  // 2本の線分が「並んで走る」か「交わる」か。同じ点（分岐点・幹の先）から出ている線どうしは、その点のそばでは数えない
+  function segClash(s1, s2) {
+    var shared = near(s1.a, s2.a) || near(s1.a, s2.b) || near(s1.b, s2.a) || near(s1.b, s2.b);
+    var d1 = [s1.b[0] - s1.a[0], s1.b[1] - s1.a[1]], d2 = [s2.b[0] - s2.a[0], s2.b[1] - s2.a[1]];
+    var l1 = Math.hypot(d1[0], d1[1]), l2 = Math.hypot(d2[0], d2[1]);
+    var cross = (d1[0] * d2[1] - d1[1] * d2[0]) / (l1 * l2);
+    if (Math.abs(cross) < 0.05) { // ほぼ平行：近くを並んで走っていて、走る区間がかぶっていれば重なり
+      if (segDist(s2.a, s1.a, s1.b) > 0.4 && segDist(s2.b, s1.a, s1.b) > 0.4 && segDist(s1.a, s2.a, s2.b) > 0.4 && segDist(s1.b, s2.a, s2.b) > 0.4) return false;
+      var u = [d1[0] / l1, d1[1] / l1];
+      var p0 = 0, p1 = l1, q0 = (s2.a[0] - s1.a[0]) * u[0] + (s2.a[1] - s1.a[1]) * u[1], q1 = (s2.b[0] - s1.a[0]) * u[0] + (s2.b[1] - s1.a[1]) * u[1];
+      var lap = Math.min(p1, Math.max(q0, q1)) - Math.max(p0, Math.min(q0, q1));
+      return lap > (shared ? 0.45 : 0.15);
+    }
+    // 交わる：交点がどちらの線分の内側にもあるか（同じ点から出ている線どうしの、その点での接触は除く）
+    var den = d1[0] * d2[1] - d1[1] * d2[0];
+    var t = ((s2.a[0] - s1.a[0]) * d2[1] - (s2.a[1] - s1.a[1]) * d2[0]) / den;
+    var w = ((s2.a[0] - s1.a[0]) * d1[1] - (s2.a[1] - s1.a[1]) * d1[0]) / den;
+    var e = shared ? 0.02 : -1e-6;
+    return t > e && t < 1 - e && w > e && w < 1 - e;
   }
 
   // ---- 小さな円と名前のラベルがぶつからないよう、少しずつ押し離す
