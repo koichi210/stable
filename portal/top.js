@@ -77,7 +77,9 @@
   var hitMat = new T.MeshBasicMaterial({ visible: false });
   var labels = new M.Labels(root);
   // 名前ラベルの見積もり用（relax() が使う）。buildCircle より前に決めておくこと
-  var PX_PER_UNIT = 24, LABEL_DY = 0.55, LABEL_H = 0.95;
+  // LABEL_DY: 円の下端からラベルの上端までのすきま。ラベルは CSS(.mg-node-label.below) で上端をここに合わせるので、ズームしても円に食い込まない
+  // PX_PER_UNIT はアップ表示（魔法陣1つを画面いっぱい）での縮尺の目安。全体表示は縮尺が小さいので、狭い画面では多少近づく
+  var PX_PER_UNIT = 30, LABEL_DY = 0.08, LABEL_H = 0.85;
   CIRCLES.forEach(buildCircle);
 
   function buildCircle(c) {
@@ -201,7 +203,7 @@
       hit.position.set(P[0], P[1], 0.05); cg.add(hit);
 
       var el = document.createElement('a');
-      el.className = 'mg-node-label';
+      el.className = 'mg-node-label below';
       el.href = it.href;
       el.style.setProperty('--c', g.color);
       el.innerHTML = '<span class="e">' + it.emoji + '</span><span class="n">' + M.esc(it.name) + '</span>';
@@ -217,16 +219,17 @@
 
   // ---- 小さな円と名前のラベルがぶつからないよう、少しずつ押し離す
   // ラベルは画面上で決まった大きさ(px)なので、PC 全体表示のときの縮尺（1 単位 ≒ PX_PER_UNIT px）で大きさを見積もる
-  function labelWidth(name) {
-    var px = 40; // 絵文字・余白・枠
-    for (var k = 0; k < name.length; k++) px += name.charCodeAt(k) > 0xff ? 13.5 : 8;
-    return px / PX_PER_UNIT;
+  function textPx(str, ascii, wide) { // 文字列の幅(px)の見積もり。ascii: 半角1文字、wide: 全角1文字
+    var px = 0;
+    for (var k = 0; k < str.length; k++) px += str.charCodeAt(k) > 0xff ? wide : ascii;
+    return px;
   }
+  function labelWidth(name) { return (40 + textPx(name, 8, 13.5)) / PX_PER_UNIT; } // 40: 絵文字・余白・枠
   function rectsOf(sl) {
     var x = Math.cos(sl.a) * sl.dist, y = Math.sin(sl.a) * sl.dist, R = sl.R;
     return [
       { x: x, y: y, w: R + 0.15, h: R + 0.15 },                                   // 円
-      { x: x, y: y - R - LABEL_DY, w: sl.lw / 2 + 0.15, h: LABEL_H / 2 + 0.05 }, // 名前
+      { x: x, y: y - R - LABEL_DY - LABEL_H / 2, w: sl.lw / 2 + 0.15, h: LABEL_H / 2 + 0.05 }, // 名前
     ];
   }
   function overlap(A, B) {
@@ -238,8 +241,10 @@
   function relax(c, slots) {
     // 中心の魔法陣と、その下の名前（タイトル）にもかぶらないようにする
     var hubRects = [{ x: 0, y: 0, w: c.hubR + 0.3, h: c.hubR + 0.3 },
-      { x: 0, y: -c.hubR - 0.75 - 0.3, w: (c.title.length * 17 + 30) / PX_PER_UNIT / 2, h: 0.75 }];
-    var minD = c.hubR + 2.2, maxD = c.nodeR[1] + 0.4;
+      // 名前は2行（タイトル＋小さい説明）で、高さ約 42px。中心は -hubR-0.75
+      { x: 0, y: -c.hubR - 0.75, w: Math.max(textPx(c.title, 12, 18), textPx(c.sub, 6.5, 11)) / PX_PER_UNIT / 2 + 0.3, h: 42 / PX_PER_UNIT / 2 + 0.15 }];
+    var minD = c.hubR + 2.2;
+    var lim = c.frameR * 0.9 - 0.3; // 外枠の細い円（frameRing2）。円も名前もこの内側に収める
     for (var iter = 0; iter < 240; iter++) {
       var moved = false;
       var rs = slots.map(rectsOf);
@@ -255,7 +260,14 @@
           inner.dist -= 0.03; outer.dist += 0.03;
         }
       }
-      slots.forEach(function (sl) { sl.dist = Math.max(minD, Math.min(maxD, sl.dist)); });
+      rs = slots.map(rectsOf);
+      slots.forEach(function (sl, k) {
+        if (sl.dist + sl.R > lim + 1e-6) { sl.dist = lim - sl.R; moved = true; } // ちょうど境目に置く（> lim のままだと誤差で動き続ける）
+        var L = rs[k][1]; // 名前の四隅のうち、いちばん外の角が外枠の細い円の線より外なら内へ寄せる（名前は線の上までは許す）
+        var far = Math.hypot(Math.abs(L.x) + L.w, Math.max(Math.abs(L.y - L.h), Math.abs(L.y + L.h)));
+        if (far > lim + 0.3) { sl.dist -= 0.05; moved = true; }
+        sl.dist = Math.max(minD, sl.dist);
+      });
       if (!moved) break;
     }
   }
@@ -501,7 +513,7 @@
   });
 
   // ---------------------------------------------------------------- ループ
-  var clock = new T.Clock(), time = 0;
+  var clock = new T.Clock(), time = 0, labScale = null;
   function frameLoop() {
     var raw = clock.getDelta(), dt = Math.min(raw, 0.05); time = clock.elapsedTime; // 登場アニメは実時間（遅い端末でも長引かない）
     if (st.size()) { if (fly) applyLayout(); else if (focused) focusOn(focused, true); else home(true); }
@@ -574,6 +586,10 @@
     }
     controls.update();
     clampPan();
+    // 魔法陣が小さく映っているときは名前のラベルも小さくする（PX_PER_UNIT の縮尺でラベルどうしがぶつからないよう並べてあるので、それより小さく映る分だけ縮める。最小 0.72 倍）
+    var ppu = st.h / (2 * camera.position.distanceTo(controls.target) * Math.tan((camera.fov * Math.PI / 180) / 2));
+    var lab = Math.max(0.72, Math.min(1, ppu / PX_PER_UNIT)).toFixed(2);
+    if (lab !== labScale) { labScale = lab; root.style.setProperty('--lab', lab); }
     labels.update(camera, st.w, st.h);
     st.render();
     requestAnimationFrame(frameLoop);

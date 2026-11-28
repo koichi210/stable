@@ -82,6 +82,9 @@ body.no-webgl .mg-search { display: none; }
   box-shadow: 0 0 10px color-mix(in srgb, var(--c) 25%, transparent); transition: background .15s, box-shadow .15s;
 }
 .mg-node-label.big { font-size: 14px; padding: 4px 12px 4px 8px; }
+/* トップの円の名前: 上端を円の下端に合わせる（中心合わせの translate(-50%,-50%) から高さの半分ぶん下げる） */
+/* --lab: 魔法陣が小さく映っているときの縮小率（top.js が毎フレーム決める。0.72〜1） */
+.mg-node-label.below { font-size: calc(12.5px * var(--lab, 1)); margin-top: calc(12px * var(--lab, 1)); }
 .mg-node-label .e { font-size: 1.05em; }
 .mg-node-label.on, .mg-node-label:focus-visible {
   background: color-mix(in srgb, var(--c) 30%, rgba(10, 6, 22, 0.9)); outline: none;
@@ -140,6 +143,7 @@ body.no-webgl .mg-hint, body.no-webgl #mg-legend { display: none; }
   .mg-hint { display: none; }
   /* スマホは円が小さいので、名前を隠して絵文字のバッジだけにする（タップした円だけ名前を出す） */
   .mg-node-label { font-size: 13px; padding: 2px 4px; border-radius: 50%; gap: 3px; }
+  .mg-node-label.below { --lab: 1; font-size: 13px; } /* バッジはタップしやすい大きさのまま（縮めない） */
   .mg-node-label .n { display: none; }
   .mg-node-label.on { border-radius: 7px; padding: 2px 8px 2px 5px; font-size: 12px; }
   .mg-node-label.on .n { display: inline; }
