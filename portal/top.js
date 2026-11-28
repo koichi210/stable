@@ -48,9 +48,10 @@
   function countOf(groups) { return groups.reduce(function (s, g) { return s + g.items.length; }, 0); }
   var deskGroups = toolGroups(['desk']), sideGroups = toolGroups(['side', 'line']);
   // 並び順＝ [上の真ん中, 左下, 右下]（縦に並べるときは上から）。alt: 最初の円を内側(0)・外側(1)のどちらに置くか（あとは交互）
+  // hubSpin: 中心の魔法陣の部品をそろえて回す向き（1＝反時計回り、-1＝時計回り、無し＝部品ごとにばらばら）
   var CIRCLES = [
     { seed: 'stable', title: 'Windows ツール', sub: 'デスクトップで使うツール ' + countOf(deskGroups) + '本',
-      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0, alt: 1,
+      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0, alt: 1, hubSpin: 1,
       hubColor: '#ff86e0', glyphColor: '#ffc4f0', frameColor: '#c9539f', coreColor: '#ffe2f8',
       groups: deskGroups },
     { seed: 'stable-side', title: '常駐・Web・LINE', sub: '常駐ツール・Web・LINE ボット ' + countOf(sideGroups) + '本',
@@ -105,6 +106,7 @@
     c.hubGlyph.position.z = 0.01; cg.add(c.hubGlyph);
     c.core = M.crystal(c.coreColor, c.hubR * 0.32); c.core.position.z = 0.6; cg.add(c.core);
     hub.position.z = 0.02; order(hub, 3);
+    if (c.hubSpin) hub.userData.spin.forEach(function (sp) { sp.speed = Math.abs(sp.speed) * c.hubSpin; }); // rotation.z が増える＝画面では反時計回り
 
     var hubLabel = document.createElement(c.center ? 'a' : 'div');
     hubLabel.className = 'mg-hub-label' + (c.center ? ' link' : '');
