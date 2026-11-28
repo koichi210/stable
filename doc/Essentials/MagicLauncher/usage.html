@@ -32,8 +32,8 @@
       // ステップごとに出す注目枠・輪・吹き出し（座標は撮影した画面 1200×720 の上のピクセル）
       // 1. 画面の見かた
       ML.hl(g, 'h-title', 'main', 8, 8, 245, 48);
-      ML.hl(g, 'h-search', 'main', 252, 8, 724, 46, C.data);
-      ML.hl(g, 'h-btns', 'main', 736, 9, 1188, 45, C.good);
+      ML.hl(g, 'h-search', 'main', 270, 8, 918, 46, C.data);
+      ML.hl(g, 'h-btns', 'main', 947, 9, 1190, 45, C.good);
       ML.hl(g, 'h-legend', 'main', 8, 51, 520, 78, C.third);
       ML.hl(g, 'h-hint', 'main', 100, 697, 1196, 717);
       // 2. 魔法陣の見かた
@@ -64,14 +64,14 @@
       ML.note(g, 'n-d-hole', 'drag', '持ち上げた跡(穴)', 459, 540, C.third);
       // 7. タグで絞り込み
       ML.hl(g, 'h-t-chip', 'tag', 188, 51, 259, 78);
-      ML.hl(g, 'h-t-count', 'tag', 632, 14, 692, 40, C.data);
+      ML.hl(g, 'h-t-count', 'tag', 824, 13, 880, 38, C.data);
       ML.ring(g, 'r-t-junc', 'tag', 556, 479, 20, C.third);
       ML.ring(g, 'r-t-item', 'tag', 792, 176, 36, C.data);
       ML.note(g, 'n-t-dash', 'tag', '2つ目のタグの点線', 430, 330, C.third);
       // 8. 検索
-      ML.hl(g, 'h-s-q', 'search', 252, 8, 724, 46, C.data);
-      ML.hl(g, 'h-s-drop', 'search', 252, 52, 724, 194);
-      ML.hl(g, 'h-s-sel', 'search', 258, 101, 718, 144, C.good);
+      ML.hl(g, 'h-s-q', 'search', 270, 8, 918, 46, C.data);
+      ML.hl(g, 'h-s-drop', 'search', 270, 52, 918, 194);
+      ML.hl(g, 'h-s-sel', 'search', 278, 101, 910, 144, C.good);
       // 9. 名前の変更・魔法陣を分ける
       ML.hl(g, 'h-r-form', 'rename', 360, 273, 840, 448);
       ML.hl(g, 'h-r-circ', 'settings2', 632, 372, 941, 617, C.good);
@@ -82,8 +82,8 @@
       ML.hl(g, 'h-st-color', 'settings', 258, 485, 942, 603, C.third);
       // 12. 一覧と Light
       ML.hl(g, 'h-l-panel', 'list', 810, 86, 1190, 694, C.data);
-      ML.hl(g, 'h-l-btn', 'list', 919, 9, 995, 45);
-      ML.hl(g, 'h-lt-btn', 'lite', 1072, 9, 1188, 45, C.good);
+      ML.hl(g, 'h-l-btn', 'list', 947, 9, 1026, 45);
+      ML.hl(g, 'h-lt-btn', 'lite', 1100, 7, 1190, 47, C.good);
       ML.hl(g, 'h-lt-list', 'lite', 14, 104, 1186, 716, C.data);
       // 13. 壊れたとき
       ML.hl(g, 'h-b-banner', 'broken', 298, 60, 902, 143, C.enemy);
@@ -112,7 +112,7 @@
           '<table><tr><th>場所</th><th>役割</th></tr>' +
           '<tr><td>左上(黄)</td><td>タイトル(設定ファイルの <code>title</code>)</td></tr>' +
           '<tr><td>検索欄(水色)</td><td>キーを打つとここに入る(手順8)。絞り込み中は「4 / 15 件」と「×」</td></tr>' +
-          '<tr><td>ボタン(緑)</td><td>＋ 追加 / ⟲ 全体表示 / ☰ 一覧 / ⚙ 設定 / 🍃 Light</td></tr>' +
+          '<tr><td>ボタン(緑)</td><td>☰ 一覧 / ⚙ 設定 / 🍃 Light(オンのときはボタン全体が緑に光る)。登録は右クリック、全体表示は魔法陣の外のクリックでするので、そのためのボタンは置いていない</td></tr>' +
           '<tr><td>2段目(紫)</td><td>凡例。魔法陣の名前ごとに、タグと件数が並ぶ。クリックで絞り込み</td></tr>' +
           '<tr><td>いちばん下</td><td>操作のヒント(クリック・右クリック・ドラッグ・ホイール)</td></tr></table>' +
           '<p class="gg-files">📄 <code>public/index.html</code>、<code>launcher.js</code> の <code>boot</code> / <code>setState</code> / <code>renderLegend</code></p>',
@@ -169,7 +169,7 @@
         show: ['h-a-path', 'h-a-warn', 'h-a-name', 'h-a-tags'],
         html:
           '<p>「登録」を開く方法:</p>' +
-          '<ul><li>右上の「<b>＋ 追加</b>」</li><li>魔法陣の<b>何もない所を右クリック</b></li><li>上の凡例のタグを右クリック(そのタグを最初から付ける)</li><li>分岐点のタグを右クリック →「<b>＋ このタグで追加</b>」</li></ul>' +
+          '<ul><li>魔法陣の<b>何もない所を右クリック</b>(Light 版は一覧の何もない所を右クリック)</li><li>上の凡例のタグを右クリック(そのタグを最初から付ける)</li><li>分岐点のタグを右クリック →「<b>＋ このタグで追加</b>」</li></ul>' +
           '<p>タグで絞り込んでいるときは、そのタグが最初から付きます。保存すると設定ファイルの <code>items</code> の末尾に入り、新しいタグには 12 色のパレットからまだ使っていない色を順に割り当てます。</p>' +
           '<div class="gg-note"><code>.exe</code> / <code>.bat</code> / <code>.cmd</code> / <code>.ps1</code> / <code>.lnk</code> などを登録すると、クリックで<b>実行</b>されます。そのときは赤枠のような注意が出ます(設定ファイルを共有フォルダに置くなら、書き込める人に注意)。</div>' +
           '<p>写真はパスに <code>%USERPROFILE%\\Tools\\setup.bat</code> を入れて、タグ「ツール」を足したところ。名前の欄の透かし文字(緑)が <code>setup.bat</code> になっています。</p>' +
@@ -204,12 +204,12 @@
           '<li>検索欄の右に「4 / 15 件」、中心の下に「4 / 9 件」と、合う件数が出る</li>' +
           '<li>2つ目以降のタグの線は、そのタグを選んだときだけ点線で光る(写真: 先頭タグが「資料」の「週報」へ、「開発」の分岐点から点線)</li>' +
           '<li><b>Esc</b> か検索欄の「×」で解除</li></ul>' +
-          '<p>魔法陣の中の空き(中心も)を左クリックすると、その魔法陣が画面に収まるところまで寄ります。外をクリックするか「⟲ 全体表示」で全体へ戻ります。</p>' +
+          '<p>魔法陣の中の空き(中心も)を左クリックすると、その魔法陣が画面に収まるところまで寄ります。魔法陣の外をクリックすると全体へ戻ります。</p>' +
           '<p class="gg-files">📄 <code>launcher.js</code> の <code>toggleTag</code> / <code>applyFilter</code> / <code>onFilter</code> / <code>focusNodes</code> / <code>focusCircle</code> / <code>buildSecondary</code></p>',
       },
       {
         title: '8. キーを打って検索',
-        camera: ML.cam('search', 520, 200, 6.8),
+        camera: ML.cam('search', 594, 200, 6.8),
         focus: ['p-search'],
         show: ['h-s-q', 'h-s-drop', 'h-s-sel'],
         html:
@@ -276,7 +276,7 @@
         html:
           '<p><b>☰ 一覧</b>(左の写真)は、魔法陣の横に文字の一覧を出します。魔法陣 → タグ → 項目の順で、クリックで開く・右クリックで編集。絞り込み中は合うものだけ出します。</p>' +
           '<p><b>🍃 Light</b>(右の写真)は、three.js を読み込まない<b>文字の一覧と検索だけ</b>の版です。</p>' +
-          '<ul><li>登録・編集・設定・開くはそのまま使える。「⟲ 全体表示」は「⟲ 先頭へ」になり、☰ 一覧は使えない</li>' +
+          '<ul><li>登録・編集・設定・開くはそのまま使える(登録は一覧の何もない所を右クリック)。☰ 一覧は使えない</li><li>オンのときは 🍃 Light のボタン全体が緑に光る</li>' +
           '<li>オン/オフは、ブラウザの <code>localStorage</code>(<code>magic-launcher-lite</code>)に覚える。設定ファイルには書かない。切り替えるとページを読み直す</li>' +
           '<li>Light 版では 10 秒ごとの変更チェックはしない</li>' +
           '<li>WebGL が使えない環境では、Light でなくても同じ一覧で表示する(「WebGL が使えないため、一覧で表示しています」)</li></ul>' +
