@@ -467,12 +467,7 @@
   }
   st.renderer.domElement.addEventListener('pointermove', function (e) {
     if (e.pointerType !== 'mouse' || e.buttons) return;
-    var n = pick(e);
-    setHover(n);
-    if (n) return;
-    // 魔法陣の上＝クリックでアップ、アップ中の外側＝クリックで全体に戻る
-    var c = circleAt();
-    root.style.cursor = focused ? (c === focused ? '' : 'zoom-out') : (c ? 'zoom-in' : '');
+    setHover(pick(e)); // カーソルは小さな円の上だけ指の形（アップ・全体に戻る所はふつうの矢印のまま）
   });
   st.renderer.domElement.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY }; });
   st.renderer.domElement.addEventListener('pointerup', function (e) {
