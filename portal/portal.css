@@ -34,6 +34,9 @@ button { font-family: inherit; }
   color: var(--text); font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; gap: 6px; align-items: center;
 }
 .mg-btn:hover, .mg-btn:focus-visible { border-color: #c79bff; background: rgba(60, 30, 90, 0.85); outline: none; }
+.mg-btn[hidden] { display: none; }
+/* 押している間（固定中）は光らせる */
+.mg-btn[aria-pressed="true"] { border-color: #ffc94d; background: rgba(90, 60, 20, 0.85); box-shadow: 0 0 12px rgba(255, 201, 77, 0.45); }
 .mg-veil { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; transition: opacity .4s ease; z-index: 9999; }
 .mg-veil.on { opacity: 1; }
 
@@ -83,7 +86,7 @@ body.no-webgl .mg-search { display: none; }
 }
 .mg-node-label.big { font-size: 14px; padding: 4px 12px 4px 8px; }
 /* トップの円の名前: 上端を円の下端に合わせる（中心合わせの translate(-50%,-50%) から高さの半分ぶん下げる） */
-/* --lab: 魔法陣が小さく映っているときの縮小率（top.js が毎フレーム決める。0.72〜1） */
+/* --lab: 魔法陣が小さく映っているときの縮小率（top.js が魔法陣ごとに各ラベルへ書き込む。0.6〜1） */
 .mg-node-label.below { font-size: calc(12.5px * var(--lab, 1)); margin-top: calc(12px * var(--lab, 1)); }
 .mg-node-label .e { font-size: 1.05em; }
 .mg-node-label.on, .mg-node-label:focus-visible {
@@ -148,7 +151,7 @@ body.no-webgl .mg-hint, body.no-webgl #mg-legend { display: none; }
   .mg-hint { display: none; }
   /* スマホは円が小さいので、名前を隠して絵文字のバッジだけにする（タップした円だけ名前を出す） */
   .mg-node-label { font-size: 13px; padding: 2px 4px; border-radius: 50%; gap: 3px; }
-  .mg-node-label.below { --lab: 1; font-size: 13px; } /* バッジはタップしやすい大きさのまま（縮めない） */
+  .mg-node-label.below { font-size: 13px; margin-top: 12px; } /* バッジはタップしやすい大きさのまま（縮めない。--lab は top.js が各ラベルに直接書くので、ここでは大きさを固定する） */
   .mg-node-label .n { display: none; }
   .mg-node-label.on { border-radius: 7px; padding: 2px 8px 2px 5px; font-size: 12px; }
   .mg-node-label.on .n { display: inline; }

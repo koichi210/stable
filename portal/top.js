@@ -4,6 +4,7 @@
  * それぞれ 中心の結晶 → グループの分岐点 → 円 を回路っぽい折れ線でつなぎ、光の粒を流す。
  * 横長の画面では三角に、縦長の画面（スマホ縦）では上から縦に並べる。
  * 真正面から見た2D表示で、角度は変えない（ドラッグは移動）。魔法陣の空いた所をクリックするとその魔法陣をアップに、アップ中にその外側をクリックすると全体表示に戻る。
+ * PC だけ、マウスがウィンドウの外に出ると魔法陣がふよふよ漂い（大きさも変わる）、戻るといつもの並びに戻って止まる。右上の「固定する」で止めたままにできる。スマホはずっと止まったまま。
  * 小さな円をクリックするとその説明ページへ移る。右下の中心（FeasibilityStudy）もクリックで一覧ページへ。データは portal/catalog.js。
  */
 (function () {
@@ -210,6 +211,7 @@
       el.style.setProperty('--c', g.color);
       el.innerHTML = '<span class="e">' + it.emoji + '</span><span class="n">' + M.esc(it.name) + '</span>';
       labels.add(el, anchor(cg, [P[0], P[1] - R - LABEL_DY]));
+      (c.nodeLabels = c.nodeLabels || []).push(el);
 
       var node = { it: it, g: g, circle: c, sigil: s, halo: halo, pos: P, R: R, branch: branch, stream: stream, hot: hot,
         label: el, hover: 0, appear: 0, delay: c.delay + 0.35 + dist * 0.06 + i * 0.04, hay: hay(it, g.name) };
@@ -511,7 +513,10 @@
   function applyLayout() {
     var best = null, bestD = Infinity;
     arrangements().forEach(function (ar) { var d = distanceFor(ar); if (d < bestD - 1e-6) { best = ar; bestD = d; } });
-    CIRCLES.forEach(function (c, i) { c.obj.position.set(best.p[i][0], best.p[i][1], 0); });
+    CIRCLES.forEach(function (c, i) {
+      c.base = { x: best.p[i][0], y: best.p[i][1] }; // いつもの並び（ふよふよ中はここから離れ、止まると戻る）
+      if (idle.blend <= 0) c.obj.position.set(c.base.x, c.base.y, 0);
+    });
     box.w = best.w; box.h = best.h; layout = best.mode;
     document.body.dataset.layout = best.mode;
     return bestD;
@@ -519,19 +524,26 @@
 
   var fly = null; // { from, to, t } クリック時に円へ寄る
   var focused = null; // アップで見ている魔法陣（null＝全体表示）
+  // ふよふよ（PC だけ）：マウスがウィンドウの外に出て 1 秒たつと、魔法陣が画面の中を漂い、大きさも変わる。マウスが戻ると、いつもの並びに戻って止まる
+  // blend: 0＝いつもの並び 〜 1＝漂っている位置（1 秒かけて行き来する）
+  var idle = { on: false, blend: 0, t: 0, applied: false, rect: null, speed: 0 };
   function moveCamera(x, y, d, instant, dur) {
     if (instant) { camera.position.set(x, y, d); controls.target.set(x, y, 0); controls.update(); return; }
     fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(x, y, d), toT: new T.Vector3(x, y, 0), t: 0, dur: dur };
   }
-  function home(instant) {
-    focused = null;
+  function homeView() { // 全体表示のカメラ位置 { x, y, d }
     var d = applyLayout();
     // 三角の配置で上が詰まる画面では、上の真ん中の検索窓に外枠がかぶらないよう少し引いて下げる
     var ox = 0, oy = 0;
     if (layout === 'tri' && st.w > 760) { d *= 1.06; oy = box.h * 0.05; }
     // スマホ縦（縦並び）は、上の見出し・検索窓と下の凡例に隠れないよう、引いて少し下げる
     if (layout === 'col' && st.w <= 760) { d *= 1.24; oy = box.h * 0.03; }
-    moveCamera(ox, oy, d, instant, 0.9);
+    return { x: ox, y: oy, d: d };
+  }
+  function home(instant) {
+    focused = null;
+    var hv = homeView();
+    moveCamera(hv.x, hv.y, hv.d, instant, 0.9);
   }
   // 魔法陣を1つ選んで、外枠がちょうど画面に収まるまで寄る
   function focusOn(c, instant) {
@@ -539,8 +551,7 @@
     focused = c;
     var R = c.frameR + 0.45, t = Math.tan((camera.fov * Math.PI / 180) / 2), aspect = st.w / st.h;
     var d = Math.max(R / t, R / (t * aspect)) * (st.w <= 760 ? 1.18 : 1.06); // スマホは上の検索窓・下の凡例のぶん少し引く
-    var p = c.obj.position;
-    moveCamera(p.x, p.y, d, instant, 0.7);
+    moveCamera(c.base.x, c.base.y, d, instant, 0.7);
   }
   controls.minDistance = 6; controls.maxDistance = 160;
   // 移動しすぎて魔法陣を見失わないよう、注視点を外枠全体の箱の内側に留める（カメラも同じだけ戻す）
@@ -560,7 +571,7 @@
     if (!ray.ray.intersectPlane(plane, onPlane)) return null;
     for (var i = 0; i < CIRCLES.length; i++) {
       var c = CIRCLES[i], p = c.obj.position;
-      if (Math.hypot(onPlane.x - p.x, onPlane.y - p.y) <= c.frameR + 0.45) return c;
+      if (Math.hypot(onPlane.x - p.x, onPlane.y - p.y) <= (c.frameR + 0.45) * c.obj.scale.x) return c;
     }
     return null;
   }
@@ -635,11 +646,91 @@
     else if (focused) home(false);
   });
 
+  // ---------------------------------------------------------------- ふよふよ（PC だけ。MagicLauncher の「ふわふわ漂う」と同じ動き）
+  var canFloat = matchMedia('(hover: hover) and (pointer: fine)').matches; // マウスのある PC だけ。スマホ・タブレットはずっと止まったまま
+  var FLOAT_SCALE = 0.3; // 大きさの揺れ幅（×0.7〜×1.3）
+  var pinned = false;    // 「固定する」を押すと、いつもの並びで止まったまま
+  var mouseOut = false, mouseOutAt = 0;
+  document.addEventListener('mouseout', function (e) { if (!e.relatedTarget) { mouseOut = true; mouseOutAt = performance.now(); } });
+  document.addEventListener('mousemove', function () { mouseOut = false; });
+  document.addEventListener('mouseover', function () { mouseOut = false; });
+  var pinBtn = document.getElementById('mg-pin');
+  if (!canFloat) pinBtn.hidden = true;
+  pinBtn.addEventListener('click', function () {
+    pinned = !pinned;
+    pinBtn.setAttribute('aria-pressed', String(pinned));
+    pinBtn.textContent = pinned ? '📌 固定を外す' : '📌 固定する';
+    pinBtn.title = pinned ? '固定を外す（マウスが外に出ると、また漂う）' : 'いつもの並びで止める（マウスが外に出ても漂わない）';
+  });
+
+  function idleRect() { // 漂える範囲＝全体表示で画面に映る範囲
+    var hv = homeView();
+    var halfH = hv.d * Math.tan((camera.fov * Math.PI / 180) / 2), halfW = halfH * (st.w / st.h);
+    idle.rect = { cx: hv.x, cy: hv.y, hw: halfW * 0.98, hh: halfH * 0.98 };
+    idle.speed = 0.07 * Math.min(halfW, halfH);
+  }
+  function startIdle() {
+    idle.on = true;
+    if (idle.blend <= 0) {
+      idle.t = 0;
+      CIRCLES.forEach(function (c, i) { c.fl = { x: c.base.x, y: c.base.y, a: M.rng(c.seed + '#dir')() * Math.PI * 2, seed: i * 1.7 + M.rng(c.seed + '#seed')() * 10 }; });
+    }
+    setHover(null);
+    home(false); // アップや拡大をしていたら全体表示へ
+    idleRect();
+  }
+  function stopIdle() {
+    idle.on = false;
+    home(false); // いつもの並びの全体表示へ戻る
+  }
+  function updateIdle(dt) {
+    var want = canFloat && !pinned && mouseOut && performance.now() - mouseOutAt > 1000 && !(fly && fly.leaving);
+    if (want && !idle.on) startIdle();
+    else if (!want && idle.on) stopIdle();
+    if (idle.on) idle.t += dt;
+    idle.blend = Math.max(0, Math.min(1, idle.blend + (idle.on ? dt : -dt)));
+    if (idle.blend <= 0) {
+      if (idle.applied) { // 止まった：いつもの並び・大きさに戻す
+        CIRCLES.forEach(function (c) { c.obj.position.set(c.base.x, c.base.y, 0); c.obj.scale.setScalar(1); });
+        idle.applied = false;
+      }
+      return;
+    }
+    idle.applied = true;
+    if (idle.on) {
+      // 向きを不規則に変えながら漂い、画面の端で跳ね返る。大きさも魔法陣ごとに不規則に大きく・小さくなる
+      var r = idle.rect;
+      CIRCLES.forEach(function (c) {
+        var f = c.fl, ext = c.frameR + 0.45;
+        f.a += (Math.sin(idle.t * 0.37 + f.seed) * 0.6 + Math.sin(idle.t * 0.13 + f.seed * 3) * 0.4) * dt * 0.9;
+        f.x += Math.cos(f.a) * idle.speed * dt;
+        f.y += Math.sin(f.a) * idle.speed * dt;
+        var wave = Math.sin(idle.t * 0.29 + f.seed * 1.3) * 0.6 + Math.sin(idle.t * 0.47 + f.seed * 2.9) * 0.4; // -1〜1
+        f.sc = Math.min(1 + FLOAT_SCALE * wave, Math.min(r.hw, r.hh) / ext);
+        var e = ext * f.sc, lx = Math.max(0, r.hw - e), ly = Math.max(0, r.hh - e);
+        if (f.x < r.cx - lx) { f.x = r.cx - lx; f.a = Math.PI - f.a; }
+        if (f.x > r.cx + lx) { f.x = r.cx + lx; f.a = Math.PI - f.a; }
+        if (f.y < r.cy - ly) { f.y = r.cy - ly; f.a = -f.a; }
+        if (f.y > r.cy + ly) { f.y = r.cy + ly; f.a = -f.a; }
+      });
+    }
+    var b = M.ease(idle.blend);
+    CIRCLES.forEach(function (c) {
+      var f = c.fl;
+      c.obj.position.set(c.base.x + (f.x - c.base.x) * b, c.base.y + (f.y - c.base.y) * b, 0);
+      c.obj.scale.setScalar(1 + ((f.sc || 1) - 1) * b);
+    });
+  }
+
   // ---------------------------------------------------------------- ループ
-  var clock = new T.Clock(), time = 0, labScale = null;
+  var clock = new T.Clock(), time = 0;
   function frameLoop() {
     var raw = clock.getDelta(), dt = Math.min(raw, 0.05); time = clock.elapsedTime; // 登場アニメは実時間（遅い端末でも長引かない）
-    if (st.size()) { if (fly) applyLayout(); else if (focused) focusOn(focused, true); else home(true); }
+    if (st.size()) {
+      if (fly) applyLayout(); else if (focused) focusOn(focused, true); else home(true);
+      if (idle.on) idleRect();
+    }
+    updateIdle(dt);
 
     smoke.userData.uniforms.uTime.value = time; smoke2.userData.uniforms.uTime.value = time * 0.8;
     smoke3.userData.uniforms.uTime.value = time * 0.7;
@@ -709,10 +800,14 @@
     }
     controls.update();
     clampPan();
-    // 魔法陣が小さく映っているときは名前のラベルも小さくする（PX_PER_UNIT の縮尺でラベルどうしがぶつからないよう並べてあるので、それより小さく映る分だけ縮める。最小 0.72 倍）
+    // 魔法陣が小さく映っているときは名前のラベルも小さくする（PX_PER_UNIT の縮尺でラベルどうしがぶつからないよう並べてあるので、それより小さく映る分だけ縮める）。
+    // 魔法陣ごとに、その魔法陣の大きさ（ふよふよ中の拡大・縮小も込み）で決める。最小 0.72 倍、漂っている間は 0.6 倍まで
     var ppu = st.h / (2 * camera.position.distanceTo(controls.target) * Math.tan((camera.fov * Math.PI / 180) / 2));
-    var lab = Math.max(0.72, Math.min(1, ppu / PX_PER_UNIT)).toFixed(2);
-    if (lab !== labScale) { labScale = lab; root.style.setProperty('--lab', lab); }
+    var labMin = 0.72 - 0.12 * M.ease(idle.blend);
+    CIRCLES.forEach(function (c) {
+      var lab = Math.max(labMin, Math.min(1, ppu * c.obj.scale.x / PX_PER_UNIT)).toFixed(2);
+      if (lab !== c.labScale) { c.labScale = lab; c.nodeLabels.forEach(function (el) { el.style.setProperty('--lab', lab); }); }
+    });
     labels.update(camera, st.w, st.h);
     st.render();
     requestAnimationFrame(frameLoop);
