@@ -229,6 +229,7 @@
           '<tr><td>標準</td><td>on</td><td>60</td><td>on</td><td>high</td><td>off</td></tr>' +
           '<tr><td>軽量</td><td>off</td><td>30</td><td>off</td><td>low</td><td>off</td></tr>' +
           '<tr><td>超軽量</td><td>off</td><td>30</td><td>off</td><td>low</td><td>on</td></tr></table>' +
+          '<p>fps は描く回数の<b>上限</b>です(<code>fpsCap</code>)。3 秒操作が無いと 30 回/秒、ほかのアプリを使っている(窓にフォーカスが無い)ときは 20 回/秒に下げます。操作した直後と、人へ寄るカメラの移動中は設定どおりです。</p>' +
           '<p><code>applyUltra()</code> は、<b>壁・床・時計だけの簡素な部屋</b>(<code>buildUltra</code>。初回だけ作る)を表示し、<code>ctx.root</code> の他の子(部屋の家具や小物)を全部 <code>visible=false</code> にします。人は<b>体を隠して●の玉</b>(<code>a.dot</code>)だけを出し、サブエージェントの小さな人も隠します。吹き出し・名札・右パネルはそのまま使えます。</p>' +
           '<div class="gg-note">どのモードの組み合わせにも当てはまらない設定にすると「カスタム」表示になります(<code>computeMode</code>)。</div>'
       },
