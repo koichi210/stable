@@ -81,6 +81,7 @@
   // LABEL_DY: 円の下端からラベルの上端までのすきま。ラベルは CSS(.mg-node-label.below) で上端をここに合わせるので、ズームしても円に食い込まない
   // PX_PER_UNIT はアップ表示（魔法陣1つを画面いっぱい）での縮尺の目安。全体表示は縮尺が小さいので、狭い画面では多少近づく
   var PX_PER_UNIT = 30, LABEL_DY = 0.08, LABEL_H = 0.85;
+  var MAX_BRANCH = 4; // 中心・分岐点から直接つながる小さな円の数の上限（オグさん指定）
   // 回路の線で使う8方向（routeAll() が使う。これも buildCircle より前に）
   var OCT = [[1, 0], [-1, 0], [0, 1], [0, -1]].concat([[1, 1], [1, -1], [-1, 1], [-1, -1]].map(function (d) { return [d[0] / Math.SQRT2, d[1] / Math.SQRT2]; }));
   CIRCLES.forEach(buildCircle);
@@ -134,26 +135,58 @@
     }
 
     // ---- 配置
-    // グループが1つだけの魔法陣（Windows ツール）は、分岐点を置かずに中心から1本ずつ線を伸ばし、円は内側・外側を交互に置く
-    var single = c.groups.length === 1;
-    var GAP = single ? 0 : 1.1, total = 0;
-    c.groups.forEach(function (g) { total += g.items.length + GAP; });
+    // 中心や分岐点から直接つながる小さな円は MAX_BRANCH 個まで。グループの円が多いときは、MAX_BRANCH 個以下ずつのまとまりに
+    // 均等に分け（12→4・4・4、7→4・3、5→3・2）、まとまりごとに分岐点を置く。色・検索・凡例はグループ単位のまま
+    var branches = [];
+    c.groups.forEach(function (g) {
+      var n = g.items.length, k = Math.ceil(n / MAX_BRANCH), size = Math.floor(n / k), extra = n % k, off = 0;
+      for (var b = 0; b < k; b++) {
+        var m = size + (b < extra ? 1 : 0);
+        branches.push({ g: g, items: g.items.slice(off, off + m) });
+        off += m;
+      }
+    });
+    // まとまりが1つだけの魔法陣は、分岐点を置かずに中心から1本ずつ線を伸ばし、円は内側・外側を交互に置く
+    var single = branches.length === 1;
+    // すき間：違うグループの間は GAP、同じグループを分けたまとまりの間は少し狭く
+    var gapAfter = branches.map(function (br, k) { return single ? 0 : branches[(k + 1) % branches.length].g === br.g ? 0.6 : 1.1; });
+    var total = 0;
+    branches.forEach(function (br, k) { total += br.items.length + gapAfter[k]; });
     var unit = (Math.PI * 2) / total;
-    var used = 0, n0 = c.groups[0].items.length, idx = 0;
+    var used = 0, n0 = branches[0].items.length, idx = 0;
     // 左右・上下で対称に見えないよう、魔法陣ごとに全体を少し回し、円ごとに角度と距離を少しずらす（乱数は名前から決まるので毎回同じ形）
     var turn = (M.rng(c.seed + '-turn')() - 0.5) * 0.7;
+    // 分岐点が中心の下の名前（タイトル＋説明）にかぶる向きなら、かぶらない向きまで全体を少しずつ回す。
+    // 名前は文字の大きさが決まっているので、魔法陣が小さく映る全体表示の縮尺（NAME_PPU）で広さを見積もる
+    var NAME_PPU = 20;
+    var nameBox = { x: 0, y: -c.hubR - 0.75, w: Math.max(textPx(c.title, 12, 18), textPx(c.sub, 6.5, 11)) / NAME_PPU / 2 + 0.6, h: 42 / NAME_PPU / 2 + 0.5 };
+    function junctionsHitName(tn) {
+      var u = 0;
+      return branches.some(function (br, bk) {
+        var md = Math.PI / 2 + tn - (u + br.items.length / 2 - n0 / 2) * unit;
+        u += br.items.length + gapAfter[bk];
+        if (single || br.items.length < 2) return false;
+        var jx = Math.cos(md) * c.juncR, jy = Math.sin(md) * c.juncR;
+        return Math.abs(jx - nameBox.x) < nameBox.w && Math.abs(jy - nameBox.y) < nameBox.h;
+      });
+    }
+    for (var tk = 1; tk <= 126 && junctionsHitName(turn); tk++) {
+      var tryTurn = turn + (tk % 2 ? 1 : -1) * Math.ceil(tk / 2) * 0.05;
+      if (!junctionsHitName(tryTurn)) { turn = tryTurn; break; }
+    }
 
     var slots = []; // 小さな円の置き場（角度 a・中心からの距離 dist）。先に全部決めてから、名前どうしがぶつからないよう押し離す
 
-    c.groups.forEach(function (g) {
-      // 最初のグループの真ん中を（ほぼ）真上に置き、そこから時計回りにグループを並べる
-      var mid = Math.PI / 2 + turn - (used + g.items.length / 2 - n0 / 2) * unit;
-      used += g.items.length + GAP;
-      var start = mid + (g.items.length / 2) * unit; // グループ内は時計回り
+    branches.forEach(function (br, bk) {
+      var g = br.g;
+      // 最初のまとまりの真ん中を（ほぼ）真上に置き、そこから時計回りに並べる
+      var mid = Math.PI / 2 + turn - (used + br.items.length / 2 - n0 / 2) * unit;
+      used += br.items.length + gapAfter[bk];
+      var start = mid + (br.items.length / 2) * unit; // まとまりの中は時計回り
       var col = new T.Color(g.color);
       var J = [Math.cos(mid) * c.juncR, Math.sin(mid) * c.juncR];
       var hubEdge = [Math.cos(mid) * c.hubR, Math.sin(mid) * c.hubR];
-      var useJunction = !single && g.items.length > 1;
+      var useJunction = !single && br.items.length > 1;
       var trunkPts = null;
       if (useJunction) {
         trunkPts = [v(hubEdge), v(J)];
@@ -166,8 +199,8 @@
         var jOcc = occluder(0.4); jOcc.position.set(J[0], J[1], 0.01); cg.add(jOcc);
       }
 
-      g.items.forEach(function (it, i) {
-        // 1グループだけのときは真上から時計回りに等間隔。真上・真下に外側の円が来るよう alt: 1 にしておくと、
+      br.items.forEach(function (it, i) {
+        // まとまりが1つだけのときは真上から時計回りに等間隔。真上・真下に外側の円が来るよう alt: 1 にしておくと、
         // 内側と外側の円が同じ高さに並ばず、名前のラベルどうしが横にぶつかりにくい
         var a = single ? Math.PI / 2 + turn - i * unit : start - (i + 0.5) * unit;
         var dist = useJunction || single ? c.nodeR[(c.alt + idx++) % 2] : c.nodeR[0];
@@ -348,6 +381,11 @@
     var hubRects = [{ x: 0, y: 0, w: c.hubR + 0.3, h: c.hubR + 0.3 },
       // 名前は2行（タイトル＋小さい説明）で、高さ約 42px。中心は -hubR-0.75
       { x: 0, y: -c.hubR - 0.75, w: Math.max(textPx(c.title, 12, 18), textPx(c.sub, 6.5, 11)) / PX_PER_UNIT / 2 + 0.3, h: 42 / PX_PER_UNIT / 2 + 0.15 }];
+    // 分岐点にもかぶらないようにする（円も名前も、分岐点の小さな輪から離す）
+    var juncs = [];
+    slots.forEach(function (sl) {
+      if (sl.useJunction && !juncs.some(function (q) { return q.J === sl.J; })) juncs.push({ J: sl.J, a: Math.atan2(sl.J[1], sl.J[0]), rect: [{ x: sl.J[0], y: sl.J[1], w: 0.6, h: 0.6 }] });
+    });
     var minD = c.hubR + 2.2;
     var lim = c.frameR * 0.9 - 0.3; // 外枠の細い円（frameRing2）。円も名前もこの内側に収める
     for (var iter = 0; iter < 240; iter++) {
@@ -355,6 +393,11 @@
       var rs = slots.map(rectsOf);
       for (var i = 0; i < slots.length; i++) {
         if (overlap(rs[i], hubRects)) { slots[i].dist += 0.05; moved = true; }
+        juncs.forEach(function (q) { // 分岐点から外へ・横へ離す
+          if (!overlap(rs[i], q.rect)) return;
+          var d = Math.atan2(Math.sin(slots[i].a - q.a), Math.cos(slots[i].a - q.a));
+          slots[i].a += (d >= 0 ? 1 : -1) * 0.008; slots[i].dist += 0.03; moved = true;
+        });
         for (var j = i + 1; j < slots.length; j++) {
           if (!overlap(rs[i], rs[j])) continue;
           moved = true;
@@ -650,10 +693,17 @@
   var canFloat = matchMedia('(hover: hover) and (pointer: fine)').matches; // マウスのある PC だけ。スマホ・タブレットはずっと止まったまま
   var FLOAT_SCALE = 0.3; // 大きさの揺れ幅（×0.7〜×1.3）
   var pinned = false;    // 「固定する」を押すと、いつもの並びで止まったまま
-  var mouseOut = false, mouseOutAt = 0;
-  document.addEventListener('mouseout', function (e) { if (!e.relatedTarget) { mouseOut = true; mouseOutAt = performance.now(); } });
-  document.addEventListener('mousemove', function () { mouseOut = false; });
-  document.addEventListener('mouseover', function () { mouseOut = false; });
+  // 開いた直後はマウスがページの外にいる扱い（最初から外にいると「外に出た」合図が来ないので、こうしないと動き出さない）。
+  // ただし開いた時点でマウスがページの上にあれば（:hover で分かる）、マウスのイベントが来る前でも中にいる扱いにする
+  var mouseOut = true, mouseOutAt = performance.now(), mouseKnown = false;
+  function mouseIn() {
+    mouseOut = false; mouseKnown = true;
+    // 漂っている最中にマウスが戻ったら、その場で止め始める（次のフレームまで待つと、戻ってすぐのクリックでアップした分を全体表示で上書きしてしまう）
+    if (idle.on) stopIdle();
+  }
+  document.addEventListener('mouseout', function (e) { if (!e.relatedTarget) { mouseOut = true; mouseOutAt = performance.now(); mouseKnown = true; } });
+  document.addEventListener('mousemove', mouseIn);
+  document.addEventListener('mouseover', mouseIn);
   var pinBtn = document.getElementById('mg-pin');
   if (!canFloat) pinBtn.hidden = true;
   pinBtn.addEventListener('click', function () {
@@ -685,6 +735,7 @@
     home(false); // いつもの並びの全体表示へ戻る
   }
   function updateIdle(dt) {
+    if (!mouseKnown && mouseOut && document.documentElement.matches(':hover')) mouseIn();
     var want = canFloat && !pinned && mouseOut && performance.now() - mouseOutAt > 1000 && !(fly && fly.leaving);
     if (want && !idle.on) startIdle();
     else if (!want && idle.on) stopIdle();
