@@ -586,9 +586,23 @@
     if (e.pointerType !== 'mouse' || e.buttons) return;
     setHover(pick(e)); // カーソルは小さな円の上だけ指の形（アップ・全体に戻る所はふつうの矢印のまま）
   });
-  st.renderer.domElement.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY }; });
+  // 2本指（つまんで拡大・縮小）の操作は、指を離したときにタップとして数えない
+  var touching = 0, multi = false;
+  st.renderer.domElement.addEventListener('pointerdown', function (e) {
+    down = { x: e.clientX, y: e.clientY };
+    if (e.pointerType !== 'mouse') { touching++; if (touching > 1) multi = true; }
+  });
+  function endTouch(e) {
+    if (e.pointerType === 'mouse') return false;
+    touching = Math.max(0, touching - 1);
+    var wasMulti = multi;
+    if (!touching) multi = false;
+    return wasMulti;
+  }
+  st.renderer.domElement.addEventListener('pointercancel', function (e) { endTouch(e); down = null; });
   st.renderer.domElement.addEventListener('pointerup', function (e) {
-    if (!down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) { down = null; return; }
+    var wasMulti = endTouch(e);
+    if (wasMulti || !down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) { down = null; return; }
     down = null;
     if (e.pointerType === 'mouse' && e.button !== 0) return; // 右ボタンは移動用
     var n = pick(e);
@@ -596,8 +610,8 @@
       if (e.pointerType !== 'mouse') setHover(null);
       if (fly && fly.leaving) return;
       var c = circleAt();
-      if (!focused) { if (c) focusOn(c, false); }  // 全体表示で魔法陣を選んだ → アップ
-      else if (c !== focused) home(false);          // アップ中に、その魔法陣の外側（隣の魔法陣も含む）→ 全体表示に戻る
+      if (focused ? c !== focused : !c) home(false); // 魔法陣の外側（アップ中は隣の魔法陣も含む）→ 全体表示に戻る。指で拡大したあとでも同じ
+      else if (!focused) focusOn(c, false);           // 魔法陣を選んだ → アップ
       return;
     }
     // タッチは1回目で情報を出し、同じ円をもう一度タップで開く
