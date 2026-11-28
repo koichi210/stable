@@ -1,9 +1,9 @@
 /*
  * トップページの魔法陣（index.html から読む）。
- * 魔法陣は2つ。左＝stable（ツール）、右＝FeasibilityStudy（試作ゲーム）。
+ * 魔法陣は3つ。上の真ん中＝Windows ツール、左下＝常駐・Web ／ LINE ボット、右下＝FeasibilityStudy（試作ゲーム）。
  * それぞれ 中心の結晶 → グループの分岐点 → 円 を回路っぽい折れ線でつなぎ、光の粒を流す。
- * 横長の画面では左右に、縦長の画面（スマホ縦）では上下に並べる。
- * 円をクリックするとその説明ページへ移る。右の中心（FeasibilityStudy）もクリックで一覧ページへ。データは portal/catalog.js。
+ * 横長の画面では三角に、縦長の画面（スマホ縦）では上から縦に並べる。
+ * 円をクリックするとその説明ページへ移る。右下の中心（FeasibilityStudy）もクリックで一覧ページへ。データは portal/catalog.js。
  */
 (function () {
   'use strict';
@@ -34,25 +34,39 @@
 
   var board = new T.Group(); scene.add(board);
 
-  // ---------------------------------------------------------------- 2つの魔法陣の中身
+  // ---------------------------------------------------------------- 3つの魔法陣の中身
   var fsGroup = CAT.group('fs');
+  function toolGroups(ids) {
+    return ids.map(function (id) {
+      var g = CAT.group(id);
+      return { id: g.id, filter: g.id, name: g.name, color: g.color,
+        items: CAT.items.filter(function (it) { return it.group === g.id && !it.center; }) };
+    });
+  }
+  function countOf(groups) { return groups.reduce(function (s, g) { return s + g.items.length; }, 0); }
+  var deskGroups = toolGroups(['desk']), sideGroups = toolGroups(['side', 'line']);
+  // 並び順＝ [上の真ん中, 左下, 右下]（縦に並べるときは上から）。alt: 最初の円を内側(0)・外側(1)のどちらに置くか（あとは交互）
   var CIRCLES = [
-    { seed: 'stable', title: 'stable', sub: 'よく使うツールの置き場',
-      hubR: 2.3, juncR: 5.2, nodeR: [7.7, 10.6], frameR: 13.4, delay: 0,
-      hubColor: '#d08bff', glyphColor: '#e2b6ff', frameColor: '#a35bd6', coreColor: '#7ff3ff',
-      groups: CAT.groups.map(function (g) {
-        return { id: g.id, filter: g.id, name: g.name, color: g.color,
-          items: CAT.items.filter(function (it) { return it.group === g.id && !it.center; }) };
-      }) },
+    { seed: 'stable', title: 'Windows ツール', sub: 'デスクトップで使うツール ' + countOf(deskGroups) + '本',
+      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0, alt: 1,
+      hubColor: '#ff86e0', glyphColor: '#ffc4f0', frameColor: '#c9539f', coreColor: '#ffe2f8',
+      groups: deskGroups },
+    { seed: 'stable-side', title: '常駐・Web・LINE', sub: '常駐ツール・Web・LINE ボット ' + countOf(sideGroups) + '本',
+      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0.2, alt: 1,
+      hubColor: '#6ff5d8', glyphColor: '#b6fff0', frameColor: '#3aa88f', coreColor: '#7ff3ff',
+      groups: sideGroups },
     { seed: 'fs', title: 'FeasibilityStudy', sub: '試作ゲーム ' + CAT.games.length + '本', center: CAT.item('FeasibilityStudy'),
-      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0.3,
+      hubR: 2.2, juncR: 4.7, nodeR: [6.8, 9.2], frameR: 11.6, delay: 0.4, alt: 0,
       hubColor: '#ffc94d', glyphColor: '#ffe3a0', frameColor: '#c98a2e', coreColor: '#fff1c2',
       groups: CAT.genres.map(function (gen) {
         return { id: 'fs-' + gen.id, filter: 'fs', name: fsGroup.name + '・' + gen.name, color: fsGroup.color,
           items: CAT.games.filter(function (x) { return x.genre === gen.id; }) };
       }) },
   ];
-  CIRCLES.forEach(function (c) { c.groups = c.groups.filter(function (g) { return g.items.length; }); });
+  CIRCLES.forEach(function (c) {
+    c.groups = c.groups.filter(function (g) { return g.items.length; });
+    c.filters = {}; c.groups.forEach(function (g) { c.filters[g.filter] = true; }); // 凡例で絞ったとき、中心を暗くするかの判定用
+  });
 
   var nodes = [], hubs = [], hitList = [], traces = [], junctions = [];
   // occluder() / hitCircle() が共有する材質。buildCircle より前に作っておくこと（後ろだと undefined のまま使われて白い円になる）
@@ -109,7 +123,9 @@
     }
 
     // ---- 配置
-    var GAP = 1.1, total = 0;
+    // グループが1つだけの魔法陣（Windows ツール）は、分岐点を置かずに中心から1本ずつ線を伸ばし、円は内側・外側を交互に置く
+    var single = c.groups.length === 1;
+    var GAP = single ? 0 : 1.1, total = 0;
     c.groups.forEach(function (g) { total += g.items.length + GAP; });
     var unit = (Math.PI * 2) / total;
     var used = 0, n0 = c.groups[0].items.length, idx = 0;
@@ -122,7 +138,7 @@
       var col = new T.Color(g.color);
       var J = [Math.cos(mid) * c.juncR, Math.sin(mid) * c.juncR];
       var hubEdge = [Math.cos(mid) * c.hubR, Math.sin(mid) * c.hubR];
-      var useJunction = g.items.length > 1;
+      var useJunction = !single && g.items.length > 1;
       var trunkPts = null;
       if (useJunction) {
         trunkPts = [v(hubEdge), v(J)];
@@ -136,8 +152,10 @@
       }
 
       g.items.forEach(function (it, i) {
-        var a = start - (i + 0.5) * unit;
-        var dist = useJunction ? c.nodeR[(idx++) % 2] : c.nodeR[0];
+        // 1グループだけのときは真上から時計回りに等間隔。真上・真下に外側の円が来るよう alt: 1 にしておくと、
+        // 内側と外側の円が同じ高さに並ばず、名前のラベルどうしが横にぶつからない
+        var a = single ? Math.PI / 2 - i * unit : start - (i + 0.5) * unit;
+        var dist = useJunction || single ? c.nodeR[(c.alt + idx++) % 2] : c.nodeR[0];
         var R = 0.88 + M.rng(it.id + '-size')() * 0.34; // 大小を少しばらつかせる
         var P = [Math.cos(a) * dist, Math.sin(a) * dist];
 
@@ -212,8 +230,10 @@
   // ---------------------------------------------------------------- 凡例・情報
   var legend = document.getElementById('mg-legend');
   var groupFilter = null;
-  var chips = CIRCLES[0].groups.map(function (g) { return { id: g.filter, name: g.name, color: g.color, count: g.items.length }; });
-  chips.push({ id: fsGroup.id, name: fsGroup.name, color: fsGroup.color, count: CAT.games.length });
+  var chips = CAT.groups.map(function (g) {
+    var count = g.id === fsGroup.id ? CAT.games.length : CAT.items.filter(function (it) { return it.group === g.id && !it.center; }).length;
+    return { id: g.id, name: g.name, color: g.color, count: count };
+  }).filter(function (g) { return g.count; });
   chips.forEach(function (g) {
     var b = document.createElement('button');
     b.type = 'button'; b.className = 'mg-chip'; b.style.setProperty('--c', g.color);
@@ -271,40 +291,61 @@
   applySearch(); // 戻るボタンで戻ってきたとき、ブラウザが入力欄の文字を残していることがある
 
   // ---------------------------------------------------------------- 並べ方とカメラ
-  // 2つの外枠がちょうど収まる箱（中心は原点）。横並び(row)・縦並び(col)のうち、画面に大きく映る方を選ぶ
+  // 3つの外枠がちょうど収まる箱（中心は原点）。w,h は箱の半分の幅・高さ。
+  // 三角(tri)＝上の真ん中・左下・右下 ／ 縦並び(col)＝上から順に。画面に大きく映る方を選ぶ（スマホ縦は col になる）
   var GAP_BETWEEN = 1.6, FIT = 0.95; // FIT: 外枠の記号の輪が少し欠けるくらいまで寄る
   var box = { w: 1, h: 1 }, layout = null;
-  function arrangement(mode) {
-    var a = CIRCLES[0].frameR + 0.45, b = CIRCLES[1].frameR + 0.45;
-    var D = a + b + GAP_BETWEEN;
-    var s0 = (D + b - a) / 2, s1 = (D - b + a) / 2; // 箱の真ん中が原点に来るように
-    var along = s0 + a, across = Math.max(a, b);
-    return mode === 'row'
-      ? { p: [[-s0, 0], [s1, 0]], w: along, h: across }
-      : { p: [[0, s0], [0, -s1]], w: across, h: along };
+  function radii() { return CIRCLES.map(function (c) { return c.frameR + 0.45; }); }
+  function centered(p, l, r, t, b) { // 箱の真ん中を原点へ
+    var mx = (l + r) / 2, my = (t + b) / 2;
+    return { p: p.map(function (q) { return [q[0] - mx, q[1] - my]; }), w: (r - l) / 2, h: (t - b) / 2 };
+  }
+  function triArrangement(sx) {
+    // sx: 下の2つの中心の左右の開き（半分）。開くほど上の魔法陣が下がり、全体が横長になる
+    var R = radii(), a = R[0], b = R[1], c = R[2], g = GAP_BETWEEN;
+    var reach = a + Math.max(b, c) + g;
+    var dy = Math.sqrt(Math.max(0, reach * reach - sx * sx));
+    return centered([[0, dy], [-sx, 0], [sx, 0]], -sx - b, sx + c, dy + a, -Math.max(b, c));
+  }
+  function colArrangement() {
+    var R = radii(), y = 0, p = [];
+    R.forEach(function (r, i) { if (i) y -= R[i - 1] + GAP_BETWEEN + r; p.push([0, y]); });
+    return centered(p, -Math.max.apply(null, R), Math.max.apply(null, R), R[0], y - R[R.length - 1]);
+  }
+  function arrangements() {
+    var R = radii(), g = GAP_BETWEEN;
+    var sMin = (R[1] + R[2] + g) / 2;                // 下の2つがくっつく所
+    var reach = R[0] + Math.max(R[1], R[2]) + g;
+    var sMax = Math.sqrt(Math.max(0, reach * reach - Math.pow(R[0] * 0.95, 2))); // 上の魔法陣が下の2つより半径ぶんは上に残る所
+    var list = [];
+    for (var k = 0; k <= 12; k++) list.push(triArrangement(sMin + (Math.max(sMin, sMax) - sMin) * k / 12));
+    list.forEach(function (ar) { ar.mode = 'tri'; });
+    var col = colArrangement(); col.mode = 'col'; list.push(col);
+    return list;
   }
   function distanceFor(ar) {
     var t = Math.tan((camera.fov * Math.PI / 180) / 2), aspect = st.w / st.h;
     return Math.max(ar.h * FIT / t, ar.w * FIT / (t * aspect)) * (st.w < 700 ? 1.0 : 1.05);
   }
   function applyLayout() {
-    var row = arrangement('row'), col = arrangement('col');
-    var mode = distanceFor(row) <= distanceFor(col) ? 'row' : 'col';
-    var ar = mode === 'row' ? row : col;
-    CIRCLES.forEach(function (c, i) { c.obj.position.set(ar.p[i][0], ar.p[i][1], 0); });
-    box.w = ar.w; box.h = ar.h; layout = mode;
-    document.body.dataset.layout = mode;
-    return distanceFor(ar);
+    var best = null, bestD = Infinity;
+    arrangements().forEach(function (ar) { var d = distanceFor(ar); if (d < bestD - 1e-6) { best = ar; bestD = d; } });
+    CIRCLES.forEach(function (c, i) { c.obj.position.set(best.p[i][0], best.p[i][1], 0); });
+    box.w = best.w; box.h = best.h; layout = best.mode;
+    document.body.dataset.layout = best.mode;
+    return bestD;
   }
 
   var fly = null; // { from, to, t } クリック時に円へ寄る
   function home(instant) {
     var d = applyLayout();
-    // 横並びの広い画面では、左上の見出し・凡例に左の魔法陣が隠れないよう、少し引いて右へずらす
-    var ox = 0;
-    if (layout === 'row' && st.w >= 900) { d *= 1.08; ox = -box.w * 0.06; }
-    if (instant) { camera.position.set(ox, -d * 0.05, d); controls.target.set(ox, 0, 0); controls.update(); return; }
-    fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(ox, -d * 0.05, d), toT: new T.Vector3(ox, 0, 0), t: 0, dur: 0.9 };
+    // 三角の配置で上が詰まる画面では、上の真ん中の検索窓に外枠がかぶらないよう少し引いて下げる
+    var ox = 0, oy = 0;
+    if (layout === 'tri' && st.w > 760) { d *= 1.06; oy = box.h * 0.05; }
+    // スマホ縦（縦並び）は、上の見出し・検索窓と下の凡例に隠れないよう、引いて少し下げる
+    if (layout === 'col' && st.w <= 760) { d *= 1.24; oy = box.h * 0.03; }
+    if (instant) { camera.position.set(ox, oy - d * 0.05, d); controls.target.set(ox, oy, 0); controls.update(); return; }
+    fly = { from: camera.position.clone(), fromT: controls.target.clone(), to: new T.Vector3(ox, oy - d * 0.05, d), toT: new T.Vector3(ox, oy, 0), t: 0, dur: 0.9 };
   }
   controls.minDistance = 6; controls.maxDistance = 160;
   // 移動しすぎて魔法陣を見失わないよう、注視点を2つの外枠の箱の内側に留める（カメラも同じだけ戻す）
@@ -371,11 +412,11 @@
 
     CIRCLES.forEach(function (c, i) {
       var dir = i % 2 ? -1 : 1; // 隣どうしで回る向きを逆にする
-      c.frameGlyph.rotation.z -= dt * 0.012 * dir; c.frameRing2.rotation.z += dt * 0.02 * dir;
+      c.frameGlyph.rotation.z -= dt * 0.036 * dir; c.frameRing2.rotation.z += dt * 0.06 * dir; // 外側の紋章（遅いと止まって見えるので 0.012→0.036）
       c.hubGlyph.rotation.z += dt * 0.05 * dir;
       M.tickSpin(c.hub, dt); M.tickSpin(c.core, dt);
       var appearHub = M.ease((time - 0.05 - c.delay) / 0.8);
-      var fsDim = !groupFilter || !c.center || groupFilter === fsGroup.id ? 1 : 0.35;
+      var fsDim = !groupFilter || c.filters[groupFilter] ? 1 : 0.35;
       // 検索中は、その魔法陣に当たりが1つも無ければ中心も暗くする
       c.qDim = M.damp(c.qDim == null ? 1 : c.qDim, !match || circleHit[i] ? 1 : 0.2, 8, dt);
       fsDim *= c.qDim;

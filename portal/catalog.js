@@ -6,8 +6,8 @@
  *   2. そのフォルダに index.html（説明ページ）を作る。doc/Essentials/Cheetos/index.html が手本
  * 並び順は、グループごとに魔法陣のどの位置に出るかに効く（グループ内で左回り）。
  *
- * トップは魔法陣が2つ。左＝stable（ITEMS のうち center の付いていないもの）、
- * 右＝中心に FeasibilityStudy（center: true）を置き、周りに GAMES（試作ゲーム）をジャンル（GENRES）ごとに並べる。
+ * トップは魔法陣が3つ。上の真ん中＝Windows ツール（group: desk）、左下＝常駐・Web と LINE ボット（side / line）、
+ * 右下＝中心に FeasibilityStudy（center: true）を置き、周りに GAMES（試作ゲーム）をジャンル（GENRES）ごとに並べる。
  * ゲームを足すときは GAMES に1件（href は説明ページ doc/FeasibilityStudy/<フォルダ>/ = index.html）。
  */
 (function () {
@@ -96,7 +96,7 @@
       summary: 'オセロ（C++/MFC 版）。MFC のクラス構成と対局の流れ。' },
   ];
 
-  // 右の魔法陣（FeasibilityStudy）の周りに並べる試作ゲーム。ジャンルは doc/FeasibilityStudy/index.html の手順と同じ分け方
+  // 右下の魔法陣（FeasibilityStudy）の周りに並べる試作ゲーム。ジャンルは doc/FeasibilityStudy/index.html の手順と同じ分け方
   var GENRES = [
     { id: 'card', name: 'カードで戦う' },
     { id: 'board', name: '盤の上で戦う' },
